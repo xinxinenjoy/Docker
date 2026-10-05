@@ -8,7 +8,7 @@
 > （另一个原因：**每次推 `main` 都会自动触发一次 Docker Hub 构建**。迭代期频繁推送 =
 > 频繁构建等待。已给两个 workflow 配 `concurrency.cancel-in-progress`，连推多个提交只构建最后一次。）
 
-自建 Docker 镜像的源码仓库 —— **一个子目录一个项目**，由 GitHub Actions 自动构建**多架构**镜像并发布到 Docker Hub。
+自建 Docker 镜像的源码仓库 —— **一个子目录一个项目**，由 GitHub Actions 自动构建镜像并发布到 Docker Hub。
 
 ## 包含的镜像
 
@@ -21,13 +21,13 @@
 
 ## 支持的平台
 
-`docker pull` 时 Docker 会自动挑选匹配的架构 —— 使用者无需做任何事。
-
 | 平台 | 覆盖设备 | 覆盖情况 |
 |:---|:---|:---|
 | `linux/amd64` | x86-64 的 PC / NAS / 云服务器 | 全部镜像 |
-| `linux/arm64` | 树莓派 4 / 5、Apple Silicon、ARM NAS、各类开发板 | 全部镜像 |
-| `linux/arm/v7` | 树莓派 3、部分 32 位 ARM 电视盒子 | 视项目而定（见各项目 README） |
+
+> ⚠️ **只发布 `linux/amd64`（x86-64）**。ARM（`arm64` / `arm/v7`）**不做** —— 两个项目在 ARM 上
+> 都得现场编译依赖（`miniaudio` / `brotli` / `zstandard` 等无预编译轮子），构建耗时远超收益，
+> 2026-10-05 拍板砍掉。具体原因见各项目 README。
 
 ## 怎么用
 

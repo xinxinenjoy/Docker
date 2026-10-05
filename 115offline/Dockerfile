@@ -16,11 +16,11 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ⚠️ 本镜像只发布 linux/amd64 与 linux/arm64 —— 【不出 arm/v7】。原因（构建日志实测）：
-#    arm/v7 上 brotli / zstandard / cffi 都没有预编译轮子（piwheels 也没有 cp312 的），
-#    必须现场编译 ⇒ 光 pip install 一项就是 1819s，整条 arm/v7 腿 1880s（≈31 分钟），
-#    占整个构建时长的 88%，而它只多覆盖树莓派 3 这类老设备。不划算，故不提供。
-#    真要恢复：把下面这段加在 RUN pip install 之前，并恢复 workflow 里的 linux/arm/v7。
+# ⚠️ 本镜像只发布 linux/amd64（2026-10-05 红领巾拍板：只保留 x86-64，ARM 不做）。
+#    amd64 上全部依赖都有现成轮子（含 brotli / zstandard / cffi）⇒ 不需要编译器。
+#    若哪天要恢复 ARM：arm/v7 上 brotli / zstandard / cffi 都没有预编译轮子（piwheels 也没有
+#    cp312 的），必须现场编译 —— 实测单是 pip install 就要 30 分钟。要恢复就把下面这段
+#    加在 pip install 之前，并在 workflow 的 platforms 里加回目标平台：
 #      ARG TARGETARCH
 #      ARG TARGETVARIANT
 #      RUN if [ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ]; then \

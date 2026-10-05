@@ -1,10 +1,8 @@
 fastapi>=0.115.0
-# ⚠️ 故意不用 uvicorn[standard]：那个 extra 会拉 uvloop + httptools，
-#    而这两个包【在 PyPI 上任何版本都没有 32 位 ARM（armv7l）的预编译 wheel】，
-#    在 arm/v7 上只能现场编译 uvloop（还要额外拉 libuv），QEMU 下极慢。
+# ⚠️ 故意不用 uvicorn[standard]：那个 extra 会拉 uvloop + httptools 两个 C 扩展。
 #    去掉 [standard] 后 uvicorn 退化为纯 Python 的 asyncio + h11 事件循环，
-#    功能完全一致、性能略降 —— 对本工具这种低频调用无感。
-#    平台支持见仓库根 README 的「支持的平台」一节。
+#    功能完全一致、性能略降 —— 对本工具这种低频调用无感，
+#    换来的是依赖里一个需要编译的包都没有，镜像更小、构建更稳。
 uvicorn>=0.30.0
 pydantic>=2.7.0
 p115client>=0.0.9.7

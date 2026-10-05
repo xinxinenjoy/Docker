@@ -19,16 +19,14 @@ Apple TV ──Companion 协议推送(实时)──▶ 本服务 ──HTTP 6095
 | 平台 | 覆盖设备 |
 |:---|:---|
 | `linux/amd64` | x86-64 的 PC / NAS / 云服务器 |
-| `linux/arm64` | 树莓派 4 / 5 · Apple Silicon · ARM NAS · 各类开发板 |
-| `linux/arm/v7` | 树莓派 3 / 部分 32 位 ARM 电视盒子 |
 
 镜像名 `xinxinenjoy/atv-tv-power`。
 
-> ℹ️ **`arm64` / `arm/v7` 这两个平台在构建时会现场编译 `miniaudio`** —— 它在 PyPI 上只发
-> x86-64 / macOS / Windows 的轮子，Linux 的 aarch64 与 armv7l **一个都没有**，而 `pyatv` 在
-> `import` 期就要用它（`pyatv/helpers.py` 无 `try/except`），绕不开。
-> Dockerfile 因此只在非 amd64 平台装编译工具链。**这只影响首次构建**（之后命中 CI 层缓存），
-> 你 `docker pull` 现成镜像的话与此无关。
+> ⚠️ **只提供 `linux/amd64`（x86-64）** —— 现在绝大多数 NAS / 小主机 / 云服务器都是这个架构。
+> 本项目**明确不支持 ARM**：`pyatv` 依赖的 `miniaudio` 在 PyPI 上**没有**任何 Linux ARM 轮子
+> （aarch64 没有、armv7l 只有 cp37 的老轮子），只能现场编译；而 `pyatv/helpers.py` 在 `import`
+> 期就要用它（无 `try/except`），绕不开也跳不过 ⇒ 构建成本过高、放弃。
+> ARM 设备（树莓派等）请自行在设备上构建，或改用其他方案。
 
 ---
 
