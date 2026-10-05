@@ -48,6 +48,7 @@ from namer import (
     sanitize_name,
     suggest,
     suggest_episode,
+    suggest_file,
 )
 
 # ----------------------------------------------------------------- 配置
@@ -100,6 +101,97 @@ def _size_text(n: Any) -> str:
             return ("%.0f %s" % (size, unit)) if unit == "B" else ("%.2f %s" % (size, unit))
         size /= 1024
     return ""
+
+
+# ------------------------------------------------- 目录列表缓存（只存容器内存，不落盘）
+# 红领巾 2026-10-05：**不要每次点开都扫一遍**，加「扫描」按钮把当前这一层的结果
+# 存到容器里复用。所以：
+#   · 只缓存**当前这一层**的返回，**绝不递归拉整棵树**（递归才是真风控 —— 257 个子
+#     目录 × 每层一次请求）。层级由用户一层层点出来，每层各缓存一条。
+#   · TTL 默认 300 秒（`FOLDER_CACHE_TTL` 可调，设 0 = 永不过期、只能手动刷新）。
+#   · 任何**写操作**（改名 / 删除 / 还原）后立刻失效该账号的缓存 —— 否则会基于旧
+#     列表误操作，这是缓存必须付的代价。
+_FOLDER_TTL = float(os.environ.get("FOLDER_CACHE_TTL") or 300)
+_FOLDER_CACHE_MAX = 600
+_folder_cache: dict[tuple, dict] = {}
+_folder_cache_lock = threading.RLock()
+
+
+def _cache_key(account_id: str, kind: str, cid: str, offset: int, limit: int) -> tuple:
+    return (str(account_id), kind, str(cid), int(offset), int(limit))
+
+
+def _cache_get(key: tuple):
+    now = time.time()
+    with _folder_cache_lock:
+        rec = _folder_cache.get(key)
+        if not rec:
+            return None
+        if _FOLDER_TTL > 0 and now - rec["at"] > _FOLDER_TTL:
+            _folder_cache.pop(key, None)
+            return None
+        rec["hits"] = rec.get("hits", 0) + 1
+        return rec["payload"], rec["at"]
+
+
+def _cache_put(key: tuple, payload: dict) -> None:
+    with _folder_cache_lock:
+        _folder_cache[key] = {"at": time.time(), "payload": payload, "hits": 0}
+        if len(_folder_cache) > _FOLDER_CACHE_MAX:
+            stale = sorted(_folder_cache.items(), key=lambda kv: kv[1]["at"])
+            for k, _ in stale[: len(_folder_cache) - _FOLDER_CACHE_MAX]:
+                _folder_cache.pop(k, None)
+
+
+def _cache_drop(account_id: str | None = None) -> int:
+    """写操作后失效。整个账号一起清 —— 改名/删除会连带影响父子目录的 `fc` 计数。"""
+    with _folder_cache_lock:
+        keys = [k for k in _folder_cache if account_id is None or k[0] == str(account_id)]
+        for k in keys:
+            _folder_cache.pop(k, None)
+    return len(keys)
+
+
+def _cache_info(account_id: str | None = None) -> dict:
+    with _folder_cache_lock:
+        rows = [v for k, v in _folder_cache.items() if account_id is None or k[0] == str(account_id)]
+    return {
+        "entries": len(rows),
+        "ttl": _FOLDER_TTL,
+        "hits": sum(r.get("hits", 0) for r in rows),
+        "newest": _ts_text(max((r["at"] for r in rows), default=0)) if rows else "",
+    }
+
+
+def _ts_text(ts: float) -> str:
+    return time.strftime("%H:%M:%S", time.localtime(ts)) if ts else ""
+
+
+def _served(kind: str, account_id: str, cid: str, offset: int, limit: int,
+            refresh: bool, producer) -> dict:
+    """缓存优先：命中且没过期就直接给；否则现拉一次并写进缓存。"""
+    key = _cache_key(account_id, kind, cid, offset, limit)
+    if not refresh:
+        hit = _cache_get(key)
+        if hit:
+            payload, at = hit
+            out = dict(payload)
+            out.update({
+                "from_cache": True,
+                "cached_at": _ts_text(at),
+                "cache_age": round(time.time() - at, 1),
+            })
+            return out
+    payload = producer()
+    if payload.get("ok"):
+        _cache_put(key, payload)
+    out = dict(payload)
+    out.update({
+        "from_cache": False,
+        "cached_at": _ts_text(time.time()) if payload.get("ok") else "",
+        "cache_age": 0,
+    })
+    return out
 
 
 # ----------------------------------------------------------------- 账号存储
@@ -334,6 +426,12 @@ class RevertIn(BaseModel):
     delay: float = Field(default=1.2, ge=0, le=30)
 
 
+class ScanIn(BaseModel):
+    """扫描（把当前这一层的目录列表存进容器缓存）。"""
+    cid: str = "0"
+    limit: int = Field(default=200, ge=1, le=200)
+
+
 # ----------------------------------------------------------------- 页面
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
@@ -342,7 +440,49 @@ def index() -> FileResponse:
 
 @app.get("/api/config", dependencies=[Depends(auth)])
 def get_config() -> dict:
-    return {"need_auth": bool(ACCESS_TOKEN), "max_batch": MAX_BATCH, "qr_apps": QR_APPS}
+    return {
+        "need_auth": bool(ACCESS_TOKEN),
+        "max_batch": MAX_BATCH,
+        "qr_apps": QR_APPS,
+        "folder_cache_ttl": _FOLDER_TTL,
+    }
+
+
+# ----------------------------------------------------------------- 扫描 / 缓存
+@app.post("/api/accounts/{account_id}/scan", dependencies=[Depends(auth)])
+def scan_folder(account_id: str, body: ScanIn) -> dict:
+    """**扫描当前这一层**，把结果存进容器缓存，顺手把这一层有多少目录/文件报回去。
+
+    🔴 红线：**只扫当前层，绝不递归拉整棵树**。递归才是真的风控风险
+    （`115电影` 257 个子目录 × 每层一次请求）。要看下一层就点进去再扫一次。
+    红领巾 2026-10-05 的原话就是「扫描只针对当前所处文件夹」。
+    """
+    started = time.time()
+    payload = _served("folder", account_id, body.cid, 0, body.limit, True,
+                      lambda: _browse_folder_impl(account_id, body.cid, body.limit, 0))
+    items = payload.get("items") or []
+    dirs = sum(1 for x in items if x.get("is_dir"))
+    return {
+        **payload,
+        "scanned": bool(payload.get("ok")),
+        "dirs": dirs,
+        "files": len(items) - dirs,
+        "elapsed": round(time.time() - started, 2),
+    }
+
+
+@app.get("/api/accounts/{account_id}/cache", dependencies=[Depends(auth)])
+def get_cache_info(account_id: str) -> dict:
+    """看看容器里缓存了哪些层（只报数量与最新时间，不吐内容）。"""
+    _find_account(account_id)
+    return {"ok": True, **_cache_info(account_id)}
+
+
+@app.delete("/api/accounts/{account_id}/cache", dependencies=[Depends(auth)])
+def clear_cache(account_id: str) -> dict:
+    """手动清缓存（界面上的「清缓存」）。"""
+    _find_account(account_id)
+    return {"ok": True, "cleared": _cache_drop(account_id)}
 
 
 # ----------------------------------------------------------------- 账号
@@ -626,7 +766,8 @@ def _is_folder(node: dict) -> bool:
 
 
 @app.get("/api/accounts/{account_id}/dirs", dependencies=[Depends(auth)])
-def list_dirs(account_id: str, cid: str = "0", offset: int = 0, limit: int = 200) -> dict:
+def list_dirs(account_id: str, cid: str = "0", offset: int = 0, limit: int = 200,
+              refresh: int = 0) -> dict:
     """列出 115 某个目录下的**子目录**（供多级下探）。
 
     `cid=0` 为根。返回 items（子目录）+ path（面包屑）+ 分页游标。
@@ -635,7 +776,14 @@ def list_dirs(account_id: str, cid: str = "0", offset: int = 0, limit: int = 200
     2026-10-05 实测 `115电影` 有 257 个子目录、只回 200）⇒ 不翻页会**静默丢目录**。
     翻页口径用 `next_offset`（= 本次 offset + 本次**原始**返回条数），因为返回里
     目录/文件是混着的、过滤发生在本地，拿过滤后的条数累加会漏页。
+
+    `refresh=1` 绕过缓存强制重拉（界面上的「扫描 / 刷新」按这个来）。
     """
+    return _served("dirs", account_id, cid, offset, limit, bool(refresh),
+                   lambda: _list_dirs_impl(account_id, cid, offset, limit))
+
+
+def _list_dirs_impl(account_id: str, cid: str, offset: int, limit: int) -> dict:
     acc = _find_account(account_id)
     client = _client(acc)
     limit = max(1, min(int(limit), 200))
@@ -685,17 +833,26 @@ def list_dirs(account_id: str, cid: str = "0", offset: int = 0, limit: int = 200
 
 
 @app.get("/api/accounts/{account_id}/folder", dependencies=[Depends(auth)])
-def browse_folder(account_id: str, cid: str = "0", limit: int = 200, offset: int = 0) -> dict:
-    """列出某目录下的**目录 + 文件**（整理面板用）。
+def browse_folder(account_id: str, cid: str = "0", limit: int = 200, offset: int = 0,
+                  refresh: int = 0) -> dict:
+    """列出某目录下的**目录 + 文件**（浏览 / 整理面板用）。
+
+    走容器缓存：命中且没过期就直接给（`from_cache=true`），`refresh=1` 强制重拉。
+    缓存策略与理由见上方「目录列表缓存」小节。
 
     ⚠️ 两个实测出来的坑：
       1. `fs_files` 的文档自己标了「**此接口被风控**，此域名下的大量接口都会被风控」
-         ⇒ 只在用户点开某个目录时调用，绝不做轮询/预加载。
+         ⇒ 只在用户点开某个目录时调用，绝不做轮询/预加载；缓存也正是为此。
       2. 传进去的 cid 若不是有效目录，115 **不报错**，而是静默当成根目录处理
          （文档原文：「如果不指定或者指定的 cid 不存在，则会视为 cid=0 进行处理」）
          ⇒ 用返回的 path 反查：**非根目录请求却只回「根目录」一条** = cid 无效。
          实测踩过 —— 有个任务的 file_id 就是这么「看起来正常、其实列的是根目录」。
     """
+    return _served("folder", account_id, cid, offset, limit, bool(refresh),
+                   lambda: _browse_folder_impl(account_id, cid, limit, offset))
+
+
+def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int) -> dict:
     acc = _find_account(account_id)
     client = _client(acc)
     limit = max(1, min(int(limit), 200))
@@ -850,7 +1007,7 @@ def rename_preview(body: RenamePreviewIn) -> dict:
         "is_dir": bool(is_folder),
         "ext": None if is_folder else ico,
         "children": children,
-        "suggestions": suggest(name),
+        "suggestions": suggest(name) if is_folder else suggest_file(name),
         "media": parse_media(name),
     }
 
@@ -908,6 +1065,9 @@ def rename_apply(body: RenameApplyIn) -> dict:
             except Exception as exc:
                 failed.append({"file_ids": [fid for fid, _ in group], "error": f"{exc}"})
 
+    # 改名会连带影响父子目录的显示 ⇒ 立刻失效缓存，避免拿旧列表误操作
+    if applied:
+        _cache_drop(body.account_id)
     return {
         "ok": not failed,
         "applied": applied,
@@ -926,7 +1086,7 @@ def suggest_names(body: SuggestIn) -> dict:
 
     目录 → `namer.suggest()`：片名（年份）/ 片名（系列）/ 只留片名 / 保持原名
     分集文件 → `namer.suggest_episode()`：剧名.SxxExx.第 N 集.集标题.ext
-    其它文件 → 只有「保守清洗（去广告）」一档，改不改由人定
+    其它文件 → `namer.suggest_file()`：视频优先给「片名（年份）.ext」，否则保守清洗
     """
     if len(body.items) > 500:
         raise HTTPException(400, "一次最多算 500 条")
@@ -941,14 +1101,9 @@ def suggest_names(body: SuggestIn) -> dict:
                 series=it.series, title_override=it.title,
             )
         else:
-            cands = suggest_episode(name, it.series_title) if is_episode_file(name) else []
-            # ⚠️ 用 clean_file（只洗主名）而不是 clean —— 理由见 namer.clean_file 的注释：
-            #    整个名字都是广告的文件，连扩展名一起洗会得到 `MKV` 这种垃圾候选。
-            cleaned = clean_file(name)
-            if cleaned:
-                cands.insert(0, {"mode": "clean", "label": "保守清洗（只去广告）", "name": cleaned})
-            if all(o["name"] != name for o in cands):
-                cands.append({"mode": "keep", "label": "保持原名", "name": name})
+            cands = suggest_file(
+                name, paren=paren, add_year=it.add_year, series_title=it.series_title,
+            )
         out.append({
             "name": name,
             "is_dir": it.is_dir,
@@ -1034,6 +1189,8 @@ def delete_items(body: DeleteIn) -> dict:
                         failed.append({"file_ids": group, "error": text})
                     break
 
+    if deleted:
+        _cache_drop(body.account_id)
     return {
         "ok": not failed,
         "dry_run": False,
@@ -1143,6 +1300,8 @@ def recyclebin_revert(body: RevertIn) -> dict:
             except Exception as exc:
                 failed.append({"file_ids": group, "error": f"{exc}"})
 
+    if done:
+        _cache_drop(body.account_id)
     return {
         "ok": not failed,
         "reverted": done,
@@ -1213,6 +1372,10 @@ def push(body: PushIn) -> dict:
         state = resp.get("state")
         ok = state in (True, 1, "1", None)
         message = str(resp.get("error_msg") or resp.get("message") or "")
+
+    # 新任务落地后目标目录会多东西 ⇒ 丢掉该账号的目录缓存（下一次点开就是新的）
+    if ok:
+        _cache_drop(body.account_id)
 
     return {
         "ok": ok,

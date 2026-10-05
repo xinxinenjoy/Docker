@@ -34,12 +34,15 @@ __all__ = [
     "is_episode_file",
     "suggest",
     "suggest_episode",
+    "suggest_file",
     "parse_media",
     "sanitize_name",
     "ensure_ext",
     "paren_wrap",
     "looks_like_ad",
     "ADS",
+    "SITE_WORDS",
+    "VIDEO_EXT",
 ]
 
 # --------------------------------------------------------------------- 去广告
@@ -71,7 +74,54 @@ ADS = (
     "請訪問",
     "本站",
     "官网",
+    # ---- 2026-10-05 第二轮补：截图里 `最新网址找回：….txt` 会被洗成 `最新网址找回：.txt`
+    #      这种「剩下的还是广告话术」的垃圾候选 ⇒ 把这些话术本身也算噪声，洗完归零后
+    #      由 `_is_junk()` 判为「无变化」，不再产出候选。
+    "最新网址",
+    "网址找回",
+    "地址找回",
+    "找回网址",
+    "找回",
+    "收藏",
+    "不迷路",
+    "防丢失",
+    "防屏蔽",
+    "加群",
+    "进群",
+    "扫码",
+    "关注公众号",
+    "公众号",
+    "免费看",
+    "在线看",
+    "完整版",
+    "未删减",
+    "点击下载",
+    "立即下载",
+    "高速下载",
+    "极速下载",
+    "种子搜索",
+    "磁力搜索",
+    "更多资源",
+    "更多内容",
 )
+
+# 站点名 —— 广告括号被剥掉后，名字里常常还剩一个**纯站名**尾巴（如 `BT世界网`）。
+# 这些不是作品名的一部分，必须删掉，否则会污染片名（实测 `…CHS.BT世界网.mp4`
+# 的 title_of 会得到 `歪心狼对阵ACMEBT世界网`）。2026-10-05 实测。
+SITE_WORDS = (
+    "BT世界网", "世界网", "BT之家", "bt之家", "BT天堂", "bt天堂",
+    "电影天堂", "飘花电影网", "飘花电影", "新视觉影院", "阳光电影网", "阳光电影",
+    "6v电影", "6V电影", "六维电影", "片源网", "高清电台", "磁力天堂", "电影港",
+    "人人影视", "韩剧TV", "低端影视", "哔嘀影视", "粤语屋", "无声电影",
+    "电影家园", "悠悠影院", "喝茶影视",
+)
+
+# 全部要替换掉的噪声词，长词优先
+_NOISE = tuple(sorted(set(ADS) | set(SITE_WORDS), key=len, reverse=True))
+# ⚠️ 必须用**一个交替正则**一次扫完，不能用 `for w in _NOISE: s.replace(w, " ")`：
+#    实测 `最新网址找回：…` 会被 `网址找回` 先吃掉、剩个孤零零的 `最新`
+#    ⇒ 改成 alternation 后是「每个位置取最长匹配」，`最新网址` + `找回` 刚好全覆盖。
+_NOISE_RE = re.compile("|".join(re.escape(w) for w in _NOISE))
 
 _BARE_URL_RE = re.compile(r"(?:https?://|www\.)[^\s，。、；;,）)】\]】]+", re.I)
 _BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)")
@@ -85,6 +135,8 @@ _BRACKET_AD_WORDS = ("发布", "发佈", "首发", "地址", "网址", "域名",
 _DUP_SEP_RE = re.compile(r"([.\-_·])\1+")
 _EDGE_RE = re.compile(r"^[\s.·\-_/|]+|[\s.·\-_/|]+$")
 _SPACE_RE = re.compile(r"[\s\u3000]+")
+# 「有内容」的判据：只有中日韩字 + 字母 + 数字才算内容（标点/分隔符一律不算）
+_CORE_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaffA-Za-z0-9]")
 
 # 技术标签：不在目录名里出现，也不该被当成片名的一部分
 TECH_RE = re.compile(
@@ -108,7 +160,9 @@ _EP_LABEL_RE = re.compile(r"^\s*第\s*\d{1,4}\s*[集话話]\s*[.\-_·]?")
 _GROUP_RE = re.compile(r"[-_]([A-Za-z][A-Za-z0-9]{2,15})$")
 # 站点标签尾巴
 _SITE_TAIL_RE = re.compile(
-    r"[.\-_·\s]?[0-9a-zA-Z]{0,8}(?:电影|電影|影视|影視|影院|资源|資源|下载|下載|网盘|網盤|社区|社區|论坛|論壇)$"
+    r"[.\-_·\s]?[0-9a-zA-Z]{0,10}"
+    r"(?:电影|電影|影视|影視|影院|资源|資源|下载|下載|网盘|網盤|社区|社區|论坛|論壇"
+    r"|世界网|之家|天堂|网|網)$"
 )
 
 _PAIRS = {"full": ("（", "）"), "half": ("(", ")")}
@@ -146,16 +200,47 @@ def _tidy(name: str) -> str:
     return s
 
 
-def clean(name: str) -> str:
-    """保守清洗：只删可判定的广告噪声，其余字符语义不动。结果为空则返回原名。"""
+def _core(s: str) -> str:
+    """只留「有内容的字符」（中日韩字 / 字母 / 数字），标点与分隔符剔掉。"""
+    return "".join(_CORE_RE.findall(s or ""))
+
+
+def _is_junk(s: str) -> bool:
+    """洗完之后还剩下什么？剩下的是**标点或广告话术的残渣**就判为垃圾。
+
+    2026-10-05 实测的活案例：
+      `最新网址找回：www.btsj123.com 收藏不迷路.txt`
+      删掉网址和广告词后只剩 `最新网址找回：` ⇒ 旧版会把主名改成 `.txt` 前挂一句
+      广告话术，产出 `最新网址找回：.txt` 这种**毫无意义的候选名**。
+    判据两条：① 有效字符 < 2；② 结尾是冒号/顿号/逗号（广告提醒句被拦腰截断的残留）。
+    """
+    s = (s or "").strip()
+    if len(_core(s)) < 2:
+        return True
+    return s.endswith(("：", ":", "、", "，", ","))
+
+
+def _strip_noise(name: str) -> str:
+    """删广告 / 站点噪声，**不做「洗完为空就退回原名」的保护**（供 title_of 内部用）。"""
     if not name:
-        return name
+        return ""
     s = _strip_bracketed_ad(name)
     s = _BARE_URL_RE.sub(" ", s)
-    for word in sorted(ADS, key=len, reverse=True):
-        s = s.replace(word, " ")
-    s = _tidy(s)
-    if len(re.sub(r"[.\-_·\s]", "", s)) < 2:
+    s = _NOISE_RE.sub(" ", s)
+    # 全角冒号常出现在「最新网址找回：xxx」这类提醒句里，单独当噪声清掉
+    s = s.replace("：", " ")
+    return _tidy(s)
+
+
+def clean(name: str) -> str:
+    """保守清洗：只删可判定的广告噪声，其余字符语义不动。结果为空 / 只剩残渣则返回原名。"""
+    if not name:
+        return name
+    s = _strip_noise(name)
+    if _is_junk(s):
+        return name
+    # 原名含中文、洗完却只剩一小段 ASCII（多半是扩展名 / 组名残留，如 `.MKV`）⇒ 也算无变化
+    if _CJK_RE.search(name) and not _CJK_RE.search(s) and len(_core(s)) <= 4:
         return name
     return s
 
@@ -206,8 +291,9 @@ def title_of(name: str) -> str:
     步骤：去广告 → 剥掉**所有**括号段（版本/字幕说明不进目录名）→ 去技术标签
     → 去年份 → 去尾部压组与站点标签 → 只留含中文的段（丢弃英文原名）。
     一个中文段都没有时（纯英文片名）保留到第一个技术标签之前。
+    判不出有意义的片名时返回空串（调用方应有兜底）。
     """
-    s = clean(name)
+    s = _strip_noise(name)
     if not s:
         return ""
     s = _BRACKET_RE.sub(" ", s)
@@ -234,7 +320,15 @@ def title_of(name: str) -> str:
         keep = cleaned or keep
 
     title = "".join(keep) if cjk_segs else " ".join(keep)
-    return _tidy(title) or ""
+    title = _tidy(title) or ""
+    # 只捞到广告残渣时不要硬凑一个「片名」（实测 `…ACME…BT世界网` 会污染成
+    # `歪心狼对阵ACMEBT世界网`）⇒ 判不出就返回空，交给调用方兜底
+    if _is_junk(title):
+        return ""
+    # 原名有中文、抽出来却一个中文都没有 ⇒ 抽到的是扩展名/组名残渣（如 `MKV`）
+    if _CJK_RE.search(name) and not _CJK_RE.search(title):
+        return ""
+    return title
 
 
 def dir_name(title: str, year: str | None = None, series: bool = False, paren: str = "full") -> str:
@@ -276,6 +370,66 @@ def suggest(
         push("title_addyear", "片名+添加年份", dir_name(title, add_year, paren=paren), "原名没有年份，用任务添加年")
     push("title", "只留片名", dir_name(title, None, paren=paren))
     push("keep", "保持原名", name)
+    return out
+
+
+# --------------------------------------------------------------------- 普通文件
+# 视频类扩展名 —— 只有这些才敢默认套「片名（年份）」；`.txt`/`.url`/`.jpg` 之类
+# 套影视命名只会更奇怪（2026-10-05 用户反馈「命名，清理功能需要再优化」）
+VIDEO_EXT = frozenset((
+    "mp4", "mkv", "avi", "ts", "m2ts", "mov", "wmv", "flv", "rmvb", "rm", "webm",
+    "mpg", "mpeg", "m4v", "3gp", "iso", "vob", "f4v",
+))
+
+
+def suggest_file(
+    filename: str,
+    paren: str = "full",
+    add_year: str | None = None,
+    series_title: str | None = None,
+) -> list[dict]:
+    """普通文件（非分集）的候选名。
+
+    顺序（第一个非 keep 项就是界面默认选中项）：
+      · 视频文件且能判出片名 → `片名（年份）.ext` 排第一（贴合本库的命名习惯）
+      · 判不出片名 / 非视频   → 「保守清洗（只去广告）」排第一（最小改动）
+      · 永远有「保持原名」
+    ⚠️ 分集文件（含 SxxExx）不走这里 —— 直接转给 `suggest_episode`，否则会把
+    `我的媳妇.S01E30.1080p.WEB-DL.mkv` 建议成 `我的媳妇.mkv`（把集号丢了）。
+    """
+    name = filename or ""
+    if is_episode_file(name):
+        return suggest_episode(name, series_title)
+    stem, ext = _split_ext(name)
+    cleaned = clean(stem)
+    raw = _strip_noise(name)
+    # ⚠️ 用 stem 抽片名：直接喂整名会把扩展名当成片名的一段
+    #    （实测 `Demon.Agent.2026.1080p.WEB-DL.x265.mkv` → `Demon Agent mkv`）
+    title = title_of(stem)
+    year = extract_year(raw) or add_year
+
+    out: list[dict] = []
+
+    def push(mode: str, label: str, value: str, hint: str = "") -> None:
+        if value and value != name and all(o["name"] != value for o in out):
+            out.append({"mode": mode, "label": label, "name": value, "hint": hint})
+
+    def with_ext(v: str) -> str:
+        return f"{v}.{ext}" if ext else v
+
+    titled = with_ext(dir_name(title, year, paren=paren)) if title else ""
+    adopted = with_ext(cleaned) if cleaned != stem else ""
+
+    if ext.lower() in VIDEO_EXT and titled:
+        push("title", "片名（年份）", titled, "只留片名，技术描述进不来")
+        push("clean", "保守清洗（只去广告）", adopted)
+    else:
+        push("clean", "保守清洗（只去广告）", adopted)
+        push("title", "片名（年份）", titled, "只留片名")
+
+    # 「保持原名」永远要有（前面的 push 会过滤掉与原名相同的值，所以这里单独加）
+    if all(o["name"] != name for o in out):
+        out.append({"mode": "keep", "label": "保持原名", "name": name})
     return out
 
 

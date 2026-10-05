@@ -50,7 +50,9 @@ C = ("【高清影视之家发布 www.HDBTHD.com】年会不能停！[IMAX满屏
 D2 = "寒战1994.Cold.War.2026.2160p.WEB-DL.H265.HDR-DreamHD"
 
 print("=== 保守清洗（保留原语义，只去广告）===")
-check("A", clean(A), "护肝人.6v电影")
+# ⚠️ 2026-10-05 第二轮改口径：`6v电影` 这类**站点名**以前被当作有效内容留着，
+#    现在进了 SITE_WORDS ⇒ 一并清掉（用户反馈「清理功能需要再优化」）。
+check("A（站名 6v电影 也清掉）", clean(A), "护肝人")
 check("C：保留 [IMAX满屏版] 这类有效信息", "[IMAX满屏版]" in clean(C), True)
 check("空串原样", clean(""), "")
 
@@ -59,7 +61,10 @@ check("A → 护肝人", title_of(A), "护肝人")
 check("B → 大唐妖探", title_of(B), "大唐妖探")
 check("C → 年会不能停！", title_of(C), "年会不能停！")
 check("D → 寒战1994（年份紧贴片名，不能被切掉）", title_of(D2), "寒战1994")
-check("广告名兜底不产出空", title_of("地址发布页 收藏不迷路") != "", True)
+# ⚠️ 2026-10-05 第二轮改口径：**全广告的名字不再硬凑片名**。
+#    旧版会从 `地址发布页 收藏不迷路` 里抽出 `收藏不迷路` 当片名（等于没抽）。
+#    现在判不出就返回空，由 suggest() 兜底回落到原名 —— 前端表现为「无需改」。
+check("全广告名 → 判不出片名（返回空）", title_of("地址发布页 收藏不迷路"), "")
 
 print("\n=== 年份抽取 ===")
 check("B 里有 2026", extract_year(B), "2026")
@@ -121,6 +126,37 @@ check("年份", info.get("year"), "2023")
 check("分辨率", info.get("resolution"), "2160p")
 check("编码", (info.get("codec") or "").upper(), "H265")
 check("压组", info.get("group"), "GPTHD")
+
+# =====================================================================
+# 第二轮（2026-10-05 用户手机截图反馈）：命名 / 清理的两类真 bug
+# =====================================================================
+print("\n=== 第二轮：垃圾候选（洗完全是广告残渣 ⇒ 判为无变化）===")
+JUNK = "最新网址找回：www.btsj123.com 收藏不迷路.txt"
+check("截图里那个 .txt 不再产出『最新网址找回：.txt』", clean_file(JUNK), None)
+check("全广告名 clean 原样返回（不产出半截残渣）", clean(JUNK), JUNK)
+check("★ 重叠噪声词要一次吃干净（不能先被『网址找回』截胡剩个『最新』）",
+      clean("最新网址找回：abc"), "最新网址找回：abc")
+
+print("\n=== 第二轮：站点名尾巴（BT世界网 之类不是作品名）===")
+SITE = "歪心狼对阵ACME.2026.1080P.AAC.H264.CHS.BT世界网[www.btsj6.com].mp4"
+check("洗掉 [网址] 括号 + BT世界网", clean_file(SITE), "歪心狼对阵ACME.2026.1080P.AAC.H264.CHS.mp4")
+check("title_of 不被站名污染（旧版会得到 歪心狼对阵ACMEBT世界网）", title_of(SITE), "歪心狼对阵ACME")
+check("站名 + 技术尾巴都清掉", title_of("歪心狼对阵ACME.2026.1080P.AAC.H264.CHS.BTS.J6"), "歪心狼对阵ACME")
+
+print("\n=== 第二轮：普通文件候选（suggest_file）===")
+from namer import suggest_file  # noqa: E402
+SF = suggest_file(SITE)
+print("  视频文件候选：", [(o["mode"], o["name"]) for o in SF])
+check("视频文件默认档 = 片名（年份）.ext", SF[0]["name"], "歪心狼对阵ACME（2026）.mp4")
+check("有『保持原名』兜底", SF[-1]["name"], SITE)
+check("纯广告文件只有一个『保持原名』（不给改名的机会）",
+      [o["mode"] for o in suggest_file(JUNK)], ["keep"])
+check("分集文件走 suggest_episode（不能把集号丢了）",
+      suggest_file("我的媳妇.S01E30.1080p.WEB-DL.mkv")[0]["name"], "我的媳妇.S01E30.mkv")
+check("英文名不把扩展名当片名一段",
+      suggest_file("Demon.Agent.2026.1080p.WEB-DL.x265.mkv")[0]["name"], "Demon Agent（2026）.mkv")
+check("非视频（.txt）不给『片名（年份）』档",
+      all(o["mode"] != "title" for o in suggest_file("说明文档 收藏不迷路.txt")), True)
 
 print("\n" + ("全部通过" if not fail else "失败 %d 项: %s" % (len(fail), fail)))
 sys.exit(1 if fail else 0)

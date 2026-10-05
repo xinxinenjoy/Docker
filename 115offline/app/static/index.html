@@ -13,23 +13,28 @@
     --radius:16px;
     --grad:linear-gradient(135deg,#7c6bff 0%,#5b4bd6 100%);
     --shadow:0 1px 2px rgba(27,29,43,.05),0 10px 26px -20px rgba(27,29,43,.5);
+    --nav-h:64px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
   body{
     background:var(--bg); color:var(--text);
     font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    padding-bottom:calc(66px + env(safe-area-inset-bottom));
+    padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
   }
-  .wrap{max-width:1100px;margin:0 auto}
+  /* 「网盘整理」页有常驻底部操作栏 ⇒ 多留一段，别被操作栏盖住最后一行 */
+  body.barOn{padding-bottom:calc(var(--nav-h) + 74px + env(safe-area-inset-bottom))}
+  .wrap{max-width:1200px;margin:0 auto}
+  .ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
   /* ---------- 顶栏 ---------- */
   header{background:var(--grad); color:#fff; border-radius:0 0 20px 20px}
   header .hwrap{
-    max-width:1100px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 18px 16px;
+    max-width:1200px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 18px 16px;
     display:flex; gap:14px; align-items:center; flex-wrap:wrap;
   }
-  .brand{display:flex; align-items:center; gap:11px; flex:1; min-width:210px}
+  .brand{display:flex; align-items:center; gap:11px; flex:1; min-width:170px}
   .brand .logo{
     width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.2);
     display:grid;place-items:center;font-size:13px;font-weight:800;letter-spacing:.5px;
@@ -56,10 +61,13 @@
     background:#fff; border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom);
   }
   nav button{
-    flex:1; background:none; color:var(--sub); border-radius:0; padding:12px 0;
-    font-size:12.5px; font-weight:600;
+    flex:1; background:none; color:var(--sub); border-radius:0; padding:11px 0 12px;
+    font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:3px;
+    line-height:1.15;
   }
-  nav button.on{color:var(--brand); background:none}
+  nav button .ni{font-size:16px; line-height:1}
+  nav button.on{color:var(--brand)}
+  nav button.on .ni{filter:drop-shadow(0 2px 5px rgba(108,92,231,.5))}
 
   main{padding:16px 14px 8px}
 
@@ -74,12 +82,20 @@
     display:grid;place-items:center;font-size:12.5px;font-weight:800;flex:0 0 auto;
   }
   .step h2{font-size:15px; margin:0; font-weight:700}
-  .step .sub{font-size:11.5px; color:var(--sub); font-weight:400; margin-top:1px}
+  .step .sub{font-size:11.5px; color:var(--sub); font-weight:400; margin-top:1px; line-height:1.45}
   .hints{display:flex; flex-wrap:wrap; gap:6px; margin:0 0 11px}
   .hints span{font-size:11.5px; background:#f1f0ff; color:#5b4bd6; border-radius:999px; padding:3px 10px}
 
+  /* 三步流程条 —— 解决「猛一看不知道要操作什么」 */
+  .flow{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 13px}
+  .flow i{font-style:normal; font-size:11.5px; font-weight:700; color:#5b4bd6;
+    background:#f1f0ff; border-radius:999px; padding:4px 11px}
+  .flow b{color:#c6c9da; font-weight:700}
+  .goal{font-size:12.5px; color:var(--sub); margin:0 0 12px; padding:9px 11px;
+    background:#f7f8fc; border-left:3px solid var(--brand2); border-radius:0 10px 10px 0}
+
   textarea{
-    width:100%; min-height:158px; resize:vertical; border:1px solid var(--line); border-radius:12px;
+    width:100%; min-height:150px; resize:vertical; border:1px solid var(--line); border-radius:12px;
     padding:12px; font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     background:#fbfbfe; color:var(--text); outline:none;
   }
@@ -89,7 +105,7 @@
   }
   textarea:focus,input:focus,select:focus{border-color:var(--brand); background:#fff; box-shadow:0 0 0 3px rgba(108,92,231,.12)}
   label.f{display:block; font-size:12px; color:var(--sub); margin:11px 0 5px}
-  input[type=checkbox]{width:17px;height:17px;accent-color:var(--brand);flex:0 0 auto;margin:2px 0 0}
+  input[type=checkbox]{width:19px;height:19px;accent-color:var(--brand);flex:0 0 auto;margin:0;cursor:pointer}
 
   button{
     border:0; border-radius:12px; padding:10px 14px; font-size:14px; font-weight:600;
@@ -119,9 +135,11 @@
   .pill.run{background:#e8f0ff; color:#2563eb}
   .pill.bad{background:#fdecec; color:#c2373b}
   .pill.src{background:#fff4e6; color:#b45309}
-  .tag{font-size:10.5px; padding:1px 7px; border-radius:6px; background:#eef0f8; color:#5c6076}
-  .tag.ad{background:#fff1e6; color:#b45309}
+  .tag{font-size:10.5px; padding:1px 7px; border-radius:6px; background:#eef0f8; color:#5c6076; white-space:nowrap}
+  .tag.ad{background:#fff1e6; color:var(--warn)}
   .tag.dir{background:#eaf2ff; color:#2563eb}
+  .tag.cache{background:#e7f8ee; color:#0f7c3f}
+  .tag.fresh{background:#eef0f8; color:#5c6076}
 
   .list{margin:8px 0 0; padding:0; list-style:none; max-height:320px; overflow:auto}
   .list li{display:flex; gap:9px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #f1f2f8; font-size:12.5px}
@@ -140,15 +158,16 @@
   .dirbox{background:#f7f8fc; border:1px solid var(--line); border-radius:12px; padding:11px 12px}
   .dirpath{font-size:13px; font-weight:600; word-break:break-all; line-height:1.5}
   .dirid{font-size:11px; color:var(--sub); font-family:ui-monospace,Menlo,Consolas,monospace; margin-top:3px; word-break:break-all}
-  .crumbs{display:flex; flex-wrap:wrap; gap:5px; align-items:center; font-size:12.5px; line-height:1.8}
-  .crumbs a{color:var(--brand); cursor:pointer; text-decoration:none}
-  .crumbs a:hover{text-decoration:underline}
+  .crumbs{display:flex; flex-wrap:wrap; gap:5px; align-items:center; font-size:12.5px; line-height:1.9}
+  .crumbs a{color:var(--brand); cursor:pointer; text-decoration:none; padding:2px 4px; border-radius:6px}
+  .crumbs a:hover{background:#f1f0ff}
+  .crumbs .cur{color:var(--text); font-weight:700}
   .crumbs .sep{color:#c6c9da}
   .dirlist{margin:9px 0 0; padding:0; list-style:none; max-height:46vh; overflow:auto}
-  .dirlist li{display:flex; gap:9px; align-items:center; padding:9px 8px; border-radius:10px; cursor:pointer; font-size:13.5px}
+  .dirlist li{display:flex; gap:9px; align-items:center; padding:10px 8px; border-radius:10px; cursor:pointer; font-size:13.5px}
   .dirlist li:hover{background:#f1f0ff}
   .dirlist .nm{flex:1; word-break:break-all}
-  .dirlist .ct{font-size:11px; color:var(--sub)}
+  .dirlist .ct{font-size:11px; color:var(--sub); white-space:nowrap}
 
   /* ---------- 任务 ---------- */
   .task{padding:11px 0; border-bottom:1px solid #f1f2f8; font-size:13px}
@@ -187,25 +206,66 @@
   .modal .mbox{padding:13px 16px; overflow:auto; flex:1}
   .modal .mf{padding:12px 16px; border-top:1px solid var(--line); display:flex; gap:9px; flex-wrap:wrap; align-items:center}
 
-  /* ---------- 整理面板 ---------- */
-  .itemrow{display:flex; gap:9px; align-items:flex-start; padding:10px 0; border-bottom:1px solid #f1f2f8}
-  .itemrow:last-child{border-bottom:0}
-  .itemrow .main{flex:1; min-width:0}
-  .itemrow .nm{font-size:13px; word-break:break-all; line-height:1.45}
-  .itemrow .meta{font-size:11px; color:var(--sub); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; align-items:center}
-  .itemrow .edit{margin-top:7px; display:flex; gap:6px; align-items:center}
-  .itemrow .edit input{flex:1; font-size:12.5px; padding:7px 9px; border-radius:9px; font-family:ui-monospace,Menlo,Consolas,monospace}
-  .itemrow.keep .nm{color:#9aa0b8}
-  .candchips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px}
-  .candchips button{background:#f1f0ff; color:#5b4bd6; padding:6px 10px; font-size:12px; border-radius:9px; font-weight:500}
+  /* ---------- 网盘整理 ---------- */
+  .fsbar{display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap}
+  .fsbar .grow{min-width:200px}
+  .cachemeta{font-size:11.5px; color:var(--sub); display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-top:4px}
+
+  /* 「原名 → 新名」对照行 —— 替掉旧版「同一个名字铺三遍」的乱象 */
+  .cmp{margin:9px 0 0}
+  /* 手机：让「命名选项」排到列表之后。
+     做法是 .fsside 用 display:contents 变成"透明盒子"，三个卡片直接成为
+     .fslayout 的 flex item，再靠 order 排序 —— 否则 DOM 顺序决定一切。
+     ⚠️ 否则会出现「命名选项②」排在「这一层有什么①」上面，步骤号看着错乱。 */
+  .fslayout{display:flex; flex-direction:column; gap:14px}
+  .fslayout .card{margin-bottom:0}
+  .fsside{display:contents}
+  #fsSelfCard{order:1}
+  .fsmain{order:2}
+  #fsRuleCard{order:3}
+  .cmpline{display:flex; gap:9px; align-items:center; margin-bottom:7px}
+  .cmpline .lbl{font-size:11.5px; color:var(--sub); flex:0 0 30px; text-align:right}
+  .cmpline .old{flex:1; min-width:0; font-size:13px; color:#6b7089; word-break:break-all;
+    background:#f7f8fc; border:1px dashed var(--line); border-radius:10px; padding:9px 11px}
+  .cmpline input{flex:1; min-width:0}
+
+  .candchips{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
+  .candchips button{background:#f1f0ff; color:#5b4bd6; padding:7px 11px; font-size:12px; border-radius:9px; font-weight:500}
   .candchips button.on{background:var(--grad); color:#fff}
+  .candchips button .lb{opacity:.6; font-weight:400}
+
+  .filterbar{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:10px}
+  .filterbar .sep{color:#dcdfec}
+
+  .flist{margin:0}
+  .frow{display:flex; gap:10px; align-items:flex-start; padding:11px 0; border-bottom:1px solid #f1f2f8}
+  .frow:last-child{border-bottom:0}
+  .frow .ck{margin-top:3px}
+  .frow .ico{font-size:16px; line-height:1.3; flex:0 0 auto}
+  .frow .fmain{flex:1; min-width:0}
+  .frow .fn{font-size:13.5px; line-height:1.45; word-break:break-all; cursor:pointer}
+  .frow .fn.one{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:normal}
+  .frow .fm{font-size:11px; color:var(--sub); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  .frow .fedit{margin-top:8px; display:flex; gap:6px; align-items:center; width:100%}
+  .frow .fedit input{flex:1; min-width:0; font-size:12.5px; padding:8px 9px; border-radius:9px;
+    font-family:ui-monospace,Menlo,Consolas,monospace}
+  .frow.keep .fn{color:#9aa0b8}
+  .frow.on{background:#fafaff; border-radius:10px}
+
+  .actionbar{
+    position:fixed; left:0; right:0; bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+    z-index:35; background:#fff; border-top:1px solid var(--line);
+    padding:9px 12px; display:flex; gap:8px; align-items:center;
+    box-shadow:0 -8px 24px -18px rgba(27,29,43,.9);
+  }
+  .actionbar .cnt{font-size:12px; color:var(--sub); margin-right:auto; line-height:1.3}
+
   .bar{height:8px; border-radius:99px; background:#eef0f8; overflow:hidden}
   .bar>i{display:block; height:100%; border-radius:99px; background:var(--grad)}
   .tiles{display:grid; grid-template-columns:1fr 1fr; gap:10px}
   .tile{background:#f7f8fc; border-radius:12px; padding:12px}
   .tile .k{font-size:11.5px; color:var(--sub)}
   .tile .v{font-size:19px; font-weight:700; margin:3px 0 5px; letter-spacing:-.3px}
-  .barrow{display:flex; gap:9px; align-items:center; font-size:12px; color:var(--sub)}
   details.adv summary{font-size:12.5px; color:var(--brand); cursor:pointer; padding:5px 0; list-style:none}
   details.adv summary::-webkit-details-marker{display:none}
   details.adv summary::before{content:"▸ "}
@@ -220,12 +280,16 @@
   /* ---------- 桌面 ---------- */
   @media (min-width:880px){
     body{padding-bottom:26px}
-    main{padding:16px 18px 8px}
+    body.barOn{padding-bottom:26px}
+    main{padding:18px 18px 10px}
     nav{
-      position:static; border:0; background:transparent; max-width:1100px; margin:14px auto 0;
-      padding:0 18px; gap:8px;
+      position:sticky; top:0; z-index:38; border:0; background:rgba(244,245,251,.92);
+      backdrop-filter:blur(8px); max-width:1200px; margin:0 auto; padding:10px 18px; gap:8px;
+      border-bottom:1px solid #e9eaf4;
     }
-    nav button{flex:0 0 auto; padding:9px 17px; border-radius:999px; background:#eceefb; font-size:13.5px}
+    nav button{flex:0 0 auto; flex-direction:row; gap:7px; padding:9px 17px; border-radius:999px;
+      background:#eceefb; font-size:13.5px}
+    nav button .ni{font-size:15px}
     nav button.on{background:var(--grad); color:#fff}
     header{border-radius:0 0 24px 24px}
     .grid2{display:grid; grid-template-columns:1.08fr .92fr; gap:14px; align-items:start}
@@ -233,6 +297,22 @@
     .grid2 .col{display:flex; flex-direction:column; gap:14px}
     .tiles{grid-template-columns:1fr 1fr}
     .drawer .panel{width:min(820px,100%)}
+
+    /* 整理页：左栏操作、右栏列表 */
+    .fslayout{display:grid; grid-template-columns:350px minmax(0,1fr); gap:14px; align-items:start}
+    .fsside{position:sticky; top:72px; display:flex; flex-direction:column; gap:14px}
+    .actionbar{position:sticky; bottom:10px; border-radius:12px; border:1px solid var(--line);
+      margin-top:12px; box-shadow:0 8px 24px -18px rgba(27,29,43,.9)}
+
+    /* 列表行变「表格感」：勾选 / 图标 / 名字+信息 / 新名+操作 */
+    .frow{display:grid; grid-template-columns:24px 22px minmax(0,1fr) minmax(260px,.85fr);
+      gap:10px; align-items:center; padding:9px 0}
+    .frow .ck{margin-top:0}
+    .frow .fedit{margin-top:0; width:auto}
+    .flist{max-height:none}
+  }
+  @media (min-width:1180px){
+    .fslayout{grid-template-columns:380px minmax(0,1fr)}
   }
 </style>
 </head>
@@ -255,9 +335,10 @@
 </header>
 
 <nav id="nav">
-  <button data-tab="push" class="on">离线推送</button>
-  <button data-tab="tasks">任务记录</button>
-  <button data-tab="accounts">账号管理</button>
+  <button data-tab="push" class="on"><span class="ni">🔗</span>离线推送</button>
+  <button data-tab="tasks"><span class="ni">📥</span>任务记录</button>
+  <button data-tab="files"><span class="ni">🗂️</span>网盘整理</button>
+  <button data-tab="accounts"><span class="ni">⚙️</span>账号管理</button>
 </nav>
 
 <main>
@@ -268,12 +349,13 @@
         <div class="card">
           <div class="step"><span class="no">01</span>
             <div><h2>粘贴链接 / 暗号</h2>
-              <div class="sub">粘贴后自动还原，每行一条，检查结果后推送</div></div>
+              <div class="sub">粘完点「解析链接」检查，确认条数后再推送</div></div>
           </div>
+          <div class="flow"><i>1 粘贴</i><b>›</b><i>2 选目录</i><b>›</b><i>3 推送</i></div>
           <div class="hints">
             <span>每次最多 100 条</span>
-            <span>支持百家姓 · 核心价值观 · 佛曰</span>
-            <span>链接与暗号可混合粘贴</span>
+            <span>百家姓 · 核心价值观 · 佛曰</span>
+            <span>链接与暗号可混合</span>
           </div>
           <textarea id="input" placeholder="每行一条：&#10;magnet:?xt=urn:btih:...&#10;ed2k://|file|...&#10;https://...&#10;（中文暗号也可以直接粘，如：陈周王苏王苏赵水…）"></textarea>
           <div class="row wrap" style="margin-top:10px">
@@ -291,7 +373,7 @@
         <div class="card">
           <div class="step"><span class="no">02</span>
             <div><h2>保存位置</h2>
-              <div class="sub">文件保存到你的 115 网盘目录</div></div>
+              <div class="sub">下载完会落到这个 115 目录（记住为账号默认，下次自动复用）</div></div>
           </div>
           <div class="dirbox">
             <div class="dirpath" id="dirPath">115 默认下载目录</div>
@@ -300,7 +382,7 @@
           <div class="row wrap" style="margin-top:10px">
             <button class="line" id="btnPickDir">选择目录</button>
             <button class="ghost" id="btnSetDefault">设为本账号默认</button>
-            <button class="ghost" id="btnUseDefault">使用 115 默认</button>
+            <button class="ghost" id="btnUseDefault">用 115 默认</button>
             <span class="pill done hide" id="dirDefaultTag">本账号默认</span>
           </div>
         </div>
@@ -317,8 +399,8 @@
   <!-- ==================== 任务记录 ==================== -->
   <section id="tab-tasks" class="hide">
     <div class="card">
-      <div class="step"><span class="no">03</span>
-        <div><h2>离线任务</h2><div class="sub">下载完成后可就地整理目录 / 文件名，也可手动多选删除</div></div>
+      <div class="step"><span class="no">01</span>
+        <div><h2>离线任务</h2><div class="sub">下载完了点「整理」跳到网盘，改名 / 清理那个目录</div></div>
       </div>
       <div class="row wrap" style="margin-bottom:11px">
         <select id="taskStat" class="grow" style="max-width:190px">
@@ -333,8 +415,8 @@
     </div>
 
     <div class="card">
-      <div class="step"><span class="no">04</span>
-        <div><h2>回收站</h2><div class="sub">本工具删掉的东西都在这里，可还原</div></div>
+      <div class="step"><span class="no">02</span>
+        <div><h2>回收站</h2><div class="sub">本工具删掉的东西都在这里，可勾选还原</div></div>
       </div>
       <div class="row wrap" style="margin-bottom:11px">
         <button class="ghost" id="btnRecycle">刷新回收站</button>
@@ -345,6 +427,109 @@
         <button class="ghost sm" id="rbSelNone">清空选择</button>
         <button class="line sm" id="rbRevert">还原选中</button>
         <span class="muted" id="rbSelInfo"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 网盘整理 ==================== -->
+  <section id="tab-files" class="hide">
+    <div class="card fsbar">
+      <div class="grow">
+        <div class="crumbs" id="fsCrumbs"><span class="cur">根目录</span></div>
+        <div class="cachemeta">
+          <span id="fsCacheTag" class="tag fresh">还没扫描</span>
+          <span id="fsCacheInfo" class="muted"></span>
+        </div>
+      </div>
+      <div class="row wrap">
+        <button class="line sm" id="fsScan">扫描这一层</button>
+        <button class="ghost sm" id="fsRoot">根目录</button>
+        <button class="ghost sm" id="fsDefaultDir">默认目录</button>
+        <button class="ghost sm" id="fsClearCache">清缓存</button>
+      </div>
+    </div>
+
+    <div class="fslayout">
+      <aside class="fsside">
+        <div class="card hide" id="fsSelfCard">
+          <div class="step"><span class="no" id="fsSelfNo">1</span>
+            <div><h2>给「当前目录」改名</h2>
+              <div class="sub">只改这一个目录。不想改就点「保持原名」，或直接跳过这一步</div></div>
+          </div>
+          <div class="cmp">
+            <div class="cmpline"><span class="lbl">原名</span><span class="old" id="fsSelfOld"></span></div>
+            <div class="cmpline"><span class="lbl">新名</span><input type="text" id="fsSelfNew"></div>
+          </div>
+          <div class="candchips" id="fsSelfCands"></div>
+          <button class="wide" id="fsSelfApply" style="margin-top:11px">应用改名</button>
+          <div class="msg" id="fsSelfMsg"></div>
+        </div>
+
+        <div class="card" id="fsRuleCard">
+          <div class="step"><span class="no">⚙</span>
+            <div><h2>命名选项</h2><div class="sub">只影响「推荐的新名字」，点哪档就填哪档</div></div>
+          </div>
+          <div class="row wrap" style="gap:10px">
+            <span class="muted">括号</span>
+            <div class="seg" id="segParen">
+              <button data-paren="full" class="on">全角（）</button>
+              <button data-paren="half">半角()</button>
+            </div>
+          </div>
+          <label class="row" style="gap:7px;cursor:pointer;margin-top:9px">
+            <input type="checkbox" id="fsSeries"><span class="muted">按「（系列）」命名顶层目录</span>
+          </label>
+          <div class="muted" style="margin-top:9px; line-height:1.7">
+            规则：目录 <code class="k">片名（年份）</code> · 多季 <code class="k">第1季</code> ·
+            分集 <code class="k">剧名.SxxExx.第 N 集.集标题.ext</code>
+          </div>
+          <details class="adv" style="margin-top:6px">
+            <summary>扫描 / 缓存是怎么算的</summary>
+            <div class="muted" style="line-height:1.75">
+              · 点「扫描这一层」才会去问 115，结果存进容器，**只扫当前这一层，不递归整棵树**（递归才触发风控）。<br>
+              · 再点进来先读缓存，省一次请求；默认 5 分钟后自然过期。<br>
+              · 改名 / 删除 / 还原 / 推送之后，缓存立刻作废，看到的永远是最新的。
+            </div>
+          </details>
+        </div>
+      </aside>
+
+      <div class="fsmain">
+        <div class="card">
+          <div class="step"><span class="no" id="fsListNo">3</span>
+            <div><h2>这一层有什么</h2>
+              <div class="sub">勾选 → 底部批量改名 / 批量删除（删除进回收站，可还原）</div></div>
+          </div>
+
+          <div class="filterbar">
+            <div class="seg" id="segKind">
+              <button data-kind="all" class="on">全部</button>
+              <button data-kind="dir">只看目录</button>
+              <button data-kind="file">只看文件</button>
+            </div>
+            <span class="sep">|</span>
+            <label class="row" style="gap:6px;cursor:pointer">
+              <input type="checkbox" id="fsOnlyAd"><span class="muted">只看疑似广告</span>
+            </label>
+            <label class="row" style="gap:6px;cursor:pointer">
+              <input type="checkbox" id="fsOnlyChg"><span class="muted">只看可整理</span>
+            </label>
+            <span class="grow"></span>
+            <button class="ghost sm" id="fsSelAll">全选</button>
+            <button class="ghost sm" id="fsSelNone">清空</button>
+          </div>
+
+          <div id="fsWarn" class="msg err" style="margin:0 0 10px"></div>
+          <div id="fsList" class="flist"><div class="empty">点上面「扫描这一层」加载</div></div>
+          <div id="fsMoreWrap" style="text-align:center; margin-top:11px"></div>
+        </div>
+
+        <div class="actionbar" id="fsBar">
+          <span class="cnt" id="fsCount">已选 0 项</span>
+          <span class="muted" id="fsBarBusy"></span>
+          <button class="line sm" id="fsBatchRename" disabled>批量改名</button>
+          <button class="danger sm" id="fsBatchDelete" disabled>批量删除</button>
+        </div>
       </div>
     </div>
   </section>
@@ -432,41 +617,6 @@
   </div>
 </div>
 
-<!-- ==================== 整理抽屉 ==================== -->
-<div class="drawer" id="orgDrawer">
-  <div class="bd" data-close="orgDrawer"></div>
-  <div class="panel">
-    <div class="head">
-      <div class="t">
-        <h3>整理</h3>
-        <p id="orgTitle"></p>
-      </div>
-      <button id="orgClose">关闭</button>
-    </div>
-    <div class="body">
-      <div class="card" style="margin-bottom:12px">
-        <div class="row wrap" style="gap:10px">
-          <span class="muted">括号样式</span>
-          <div class="seg" id="segParen">
-            <button data-paren="full" class="on">全角（）</button>
-            <button data-paren="half">半角()</button>
-          </div>
-          <span class="muted">|</span>
-          <label class="row" style="gap:6px;cursor:pointer">
-            <input type="checkbox" id="orgSeries"><span class="muted">按「（系列）」命名</span>
-          </label>
-        </div>
-        <div class="muted" style="margin-top:8px">
-          命名规则：顶层目录 <code class="k">片名（年份）</code> · 多季 <code class="k">第1季</code> ·
-          分集文件 <code class="k">剧名.SxxExx.第 N 集.集标题.ext</code>
-        </div>
-      </div>
-      <div id="orgBody"><div class="empty">读取中…</div></div>
-    </div>
-    <div class="foot" id="orgFoot"></div>
-  </div>
-</div>
-
 <script>
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -480,7 +630,7 @@ let TASKS = [];
 let RBSEL = new Set();
 let PICK = { cid: '', path: [{ id: '0', name: '根目录' }] };
 let PICKVIEW = { cid: '0', path: [], items: [] };
-let ORG = null;
+let FS = null;
 let PAREN = localStorage.getItem(PAREN_KEY) === 'half' ? 'half' : 'full';
 
 /* ================= 基础 ================= */
@@ -523,6 +673,14 @@ function fmtSize(v) {
   while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
   return (i === 0 ? x.toFixed(0) : x.toFixed(2)) + ' ' + u[i];
 }
+function agoText(sec) {
+  const s = Number(sec);
+  if (!isFinite(s)) return '';
+  if (s < 5) return '刚刚';
+  if (s < 60) return Math.round(s) + ' 秒前';
+  if (s < 3600) return Math.round(s / 60) + ' 分钟前';
+  return Math.round(s / 3600) + ' 小时前';
+}
 function curAcc() { return ACCOUNTS.find(a => a.id === CURRENT) || null; }
 
 /* ================= 口令 ================= */
@@ -542,11 +700,15 @@ function askToken() {
 }
 
 /* ================= Tab ================= */
+const TABS = ['push', 'tasks', 'files', 'accounts'];
 function showTab(name) {
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
-  ['push', 'tasks', 'accounts'].forEach(t => $('#tab-' + t).classList.toggle('hide', t !== name));
+  TABS.forEach(t => $('#tab-' + t).classList.toggle('hide', t !== name));
+  document.body.classList.toggle('barOn', name === 'files');
   if (name === 'accounts') loadUsage();
   if (name === 'tasks' && !TASKS.length) loadTasks();
+  if (name === 'files' && !FS) fsLoad(defaultCid(), { refresh: false });
+  if (name !== 'files') closeFsBar();
 }
 $$('#nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -568,6 +730,7 @@ async function loadAccounts() {
     if (!CURRENT || !ACCOUNTS.some(a => a.id === CURRENT)) CURRENT = ACCOUNTS[0].id;
     sel.value = CURRENT;
   }
+  PICKVIEW = { cid: '0', path: [], items: [] };
   applyAccountDefaults();
   renderAccounts();
 }
@@ -580,15 +743,21 @@ function applyAccountDefaults() {
   }
   renderDirBox();
 }
+/** 「网盘整理」页的入口目录：优先账号默认目录，没有就根目录。 */
+function defaultCid() {
+  const acc = curAcc();
+  return (acc && acc.default_dir) ? String(acc.default_dir) : '0';
+}
 $('#acctSel').onchange = () => {
   CURRENT = $('#acctSel').value || null;
-  if (ORG) closeOrg();
   applyAccountDefaults();
-  TASKS = []; RBSEL = new Set();
+  TASKS = []; RBSEL = new Set(); FS = null;
   $('#taskList').innerHTML = '<div class="empty">点「刷新」加载</div>';
   $('#rbList').innerHTML = '<div class="empty">还没加载</div>';
+  $('#fsList').innerHTML = '<div class="empty">点上面「扫描这一层」加载</div>';
   PARSED = []; renderParsed();
   if (!$('#tab-accounts').classList.contains('hide')) loadUsage();
+  if (!$('#tab-files').classList.contains('hide')) fsLoad(defaultCid(), { refresh: false });
 };
 
 function renderAccounts() {
@@ -615,6 +784,7 @@ function renderAccounts() {
     if (act === 'del') {
       if (!confirm('确定删除这个账号？（仅从本工具移除，不影响 115 账号本身）')) return;
       try { await api('/accounts/' + id, { method: 'DELETE' }); } catch (e) { alert('删除失败：' + e.message); }
+      FS = null;
       await loadAccounts(); return;
     }
     if (act === 'check') {
@@ -747,6 +917,7 @@ async function pollQr() {
         });
         $('#qrStatus').innerHTML = '✅ 登录成功' + (res.nickname ? '：' + esc(res.nickname) : '');
         $('#qrWrap').classList.add('hide');
+        FS = null;
         await loadAccounts(); await loadUsage();
       } catch (e) { $('#qrStatus').textContent = '换取凭据失败：' + e.message; }
     } else if (r.status === -1) { stopQrPoll(); $('#qrStatus').textContent = '二维码已过期，请重新生成'; }
@@ -755,23 +926,24 @@ async function pollQr() {
   } catch (e) { stopQrPoll(); $('#qrStatus').textContent = '查询失败：' + e.message; }
 }
 
-/* ================= 目录选择 ================= */
+/* ================= 目录选择（推送页用） ================= */
 function renderDirBox() {
   const acc = curAcc();
   const isDefault = !PICK.cid;
   $('#dirPath').innerHTML = isDefault
     ? '<b>115 默认下载目录</b>'
-    : (PICK.path || []).map(p => esc(p.name)).join(' <span class="crumbs"><span class="sep">/</span></span> ');
+    : (PICK.path || []).map(p => esc(p.name)).join(' <span class="sep">/</span> ');
   $('#dirId').textContent = isDefault ? '（不传 wp_path_id）' : ('目录 ID: ' + PICK.cid);
   $('#dirDefaultTag').classList.toggle('hide', !(acc && acc.default_dir && acc.default_dir === PICK.cid));
 }
 $('#btnPickDir').onclick = () => { $('#picker').classList.add('open'); pickerLoad(PICK.cid || '0'); };
 $('#pickCancel').onclick = () => $('#picker').classList.remove('open');
+/* 点遮罩关弹层（旧版有这条，重构时漏了 ⇒ 只能点「取消」才关得掉） */
+$$('[data-close]').forEach(el => el.onclick = () => $('#' + el.dataset.close).classList.remove('open'));
 $('#pickRoot').onclick = () => pickerLoad('0');
 $('#pickHere').onclick = () => {
-  const last = (PICKVIEW.path || []).slice(-1)[0] || { id: '0', name: '根目录' };
   PICK = { cid: PICKVIEW.cid && PICKVIEW.cid !== '0' ? PICKVIEW.cid : '', path: PICKVIEW.path };
-  if (!PICK.cid && PICKVIEW.cid !== '0') PICK.cid = PICKVIEW.cid;
+  if (PICK.cid && !PICK.path.length) PICK.path = [{ id: PICK.cid, name: '当前目录' }];
   renderDirBox();
   $('#picker').classList.remove('open');
 };
@@ -799,15 +971,12 @@ async function pickerLoad(cid, offset) {
   } else {
     $('#pickMore').disabled = true;
     $('#pickMore').textContent = '加载中…';
-    $('#pickMore').classList.remove('hide');
   }
   try {
     const r = await api('/accounts/' + CURRENT + '/dirs?cid=' + encodeURIComponent(cid) +
       '&offset=' + offset + '&limit=200');
     if (!r.ok) { ul.innerHTML = ''; $('#pickWarn').className = 'msg err show'; $('#pickWarn').textContent = r.error || '拉取失败'; return; }
-    if (!offset) {
-      PICKVIEW.cid = r.cid || cid; PICKVIEW.path = r.path || [];
-    }
+    if (!offset) { PICKVIEW.cid = r.cid || cid; PICKVIEW.path = r.path || []; }
     PICKVIEW.items = PICKVIEW.items.concat(r.items || []);
     PICKVIEW.more = !!r.has_more;
     PICKVIEW.next = r.next_offset || 0;
@@ -920,7 +1089,7 @@ $('#btnPush').onclick = async () => {
     const r = await api('/push', { method: 'POST', body: JSON.stringify(body) });
     toast(msg, r.ok ? 'ok' : 'err', (r.ok ? '✅ 已推送 ' + r.count + ' 条到 115 离线下载' : '⚠️ 115 返回异常：' + esc(r.message || '未知')) +
       (r.ok && r.message ? '（' + esc(r.message) + '）' : ''));
-    if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; TASKS = []; }
+    if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; TASKS = []; FS = null; }
   } catch (e) { toast(msg, 'err', '推送失败：' + esc(e.message)); }
   btn.disabled = false;
 };
@@ -961,11 +1130,11 @@ function renderTasks() {
       </div>
       <div class="row wrap" style="margin-top:8px">
         ${t.file_id
-          ? '<button class="line sm" data-org="' + i + '">整理 / 删除</button>'
+          ? '<button class="line sm" data-org="' + i + '">去整理</button>'
           : '<span class="muted">没有落地对象（可能未完成）</span>'}
       </div>
     </div>`).join('');
-  $$('#taskList button[data-org]').forEach(b => b.onclick = () => openOrganize(TASKS[+b.dataset.org]));
+  $$('#taskList button[data-org]').forEach(b => b.onclick = () => openFromTask(TASKS[+b.dataset.org]));
 }
 
 /* ================= 回收站 ================= */
@@ -983,11 +1152,12 @@ async function loadRecycle() {
       $('#rbBar').classList.add('hide'); return;
     }
     $('#rbList').innerHTML = items.map((it, i) => `
-      <div class="itemrow">
-        <input type="checkbox" data-i="${i}">
-        <div class="main">
-          <div class="nm">${it.is_dir ? '📁 ' : '📄 '}${esc(it.name)}</div>
-          <div class="meta">
+      <div class="frow">
+        <input type="checkbox" class="ck" data-i="${i}">
+        <span class="ico">${it.is_dir ? '📁' : '📄'}</span>
+        <div class="fmain">
+          <div class="fn">${esc(it.name)}</div>
+          <div class="fm">
             <span>${esc(it.size_text || '')}</span>
             <span>删除于 ${esc(fmtTs(it.deleted_at))}</span>
             ${it.parent_name ? '<span>原目录 ' + esc(short(it.parent_name, 42)) + '</span>' : ''}
@@ -1000,7 +1170,6 @@ async function loadRecycle() {
       updateRbBar();
     });
     $('#rbBar').classList.remove('hide');
-    $('#rbBar').dataset.items = JSON.stringify(items.map(x => x.file_id));
     updateRbBar();
   } catch (e) { $('#rbList').innerHTML = '<div class="empty">失败：' + esc(e.message) + '</div>'; }
 }
@@ -1020,111 +1189,23 @@ $('#rbRevert').onclick = async () => {
       method: 'POST', body: JSON.stringify({ account_id: CURRENT, file_ids: ids }),
     });
     alert(r.ok ? '✅ 已还原 ' + r.reverted_count + ' 项' : ('部分失败：成功 ' + r.reverted_count + '，失败 ' + r.failed_count + '\n' + (r.failed[0] && r.failed[0].error || '')));
+    FS = null;
   } catch (e) { alert('还原失败：' + e.message); }
   btn.textContent = '还原选中';
   await loadRecycle();
 };
 
-/* ================= 整理面板 ================= */
-function closeOrg() {
-  ORG = null;
-  $('#orgDrawer').classList.remove('open');
-}
-$('#orgClose').onclick = closeOrg;
-$$('[data-close]').forEach(el => el.onclick = () => $('#' + el.dataset.close).classList.remove('open'));
+/* =====================================================================
+ * 网盘整理（独立页面）
+ *   · 任意目录都能进（不只是离线任务落地的目录）
+ *   · 「扫描这一层」把当前层的列表存进容器缓存；再点进来先读缓存
+ *   · 两步：① 给当前目录改名  ② 勾选这一层的内容做批量改名 / 删除
+ * ===================================================================== */
 
-$$('#segParen button').forEach(b => b.onclick = async () => {
-  PAREN = b.dataset.paren;
-  localStorage.setItem(PAREN_KEY, PAREN);
-  $$('#segParen button').forEach(x => x.classList.toggle('on', x.dataset.paren === PAREN));
-  if (ORG) { await orgSuggest(); renderOrg(); }
-});
-function syncParenSeg() {
-  $$('#segParen button').forEach(x => x.classList.toggle('on', x.dataset.paren === PAREN));
-}
-$('#orgSeries').onchange = async () => {
-  if (!ORG) return;
-  ORG.series = $('#orgSeries').checked;
-  await orgSuggest();
-  renderOrg();
-};
-
-async function openOrganize(t) {
-  if (!CURRENT) return;
-  if (!t.file_id) { alert('这个任务没有落地对象（可能还在下载，或已被移动 / 删除）'); return; }
-  ORG = { task: t, root: null, rootTitle: '', addYear: yearOf(t.add_time), cid: null, path: [], items: [], sel: new Set(), edits: {}, cands: {}, series: false, busy: false };
-  syncParenSeg();
-  $('#orgSeries').checked = false;
-  $('#orgTitle').textContent = t.name || '(未命名)';
-  $('#orgBody').innerHTML = '<div class="empty">读取中…</div>';
-  $('#orgFoot').innerHTML = '';
-  $('#orgDrawer').classList.add('open');
-  try {
-    const r = await api('/rename/preview', {
-      method: 'POST',
-      body: JSON.stringify({ account_id: CURRENT, file_id: t.file_id, name: t.name || '' }),
-    });
-    ORG.root = { file_id: r.file_id, name: r.name, is_dir: r.is_dir, ext: r.ext, size_text: '' };
-    const titleCand = (r.suggestions || []).find(s => s.mode === 'title');
-    ORG.rootTitle = (titleCand && titleCand.name) || '';
-    ORG.rootSugg = r.suggestions || [];
-    ORG.rootMedia = r.media || {};
-    ORG.topEdit = '';
-    renderOrg();
-    if (r.is_dir) await orgLoad(r.file_id);
-  } catch (e) {
-    $('#orgBody').innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>';
-  }
-}
-
-/* 翻页：`cid` 变 ⇒ offset=0（重来）；「加载更多」⇒ 只追加新一页。
-   ⚠️ 115 单次最多 200 条 ⇒ 大目录不翻页会**静默丢内容**。 */
-async function orgLoad(cid, offset) {
-  offset = offset || 0;
-  if (!offset) { ORG.sel = new Set(); ORG.cands = {}; ORG.edits = {}; }
-  const r = await api('/accounts/' + CURRENT + '/folder?cid=' + encodeURIComponent(cid) +
-    '&offset=' + offset + '&limit=200');
-  ORG.cid = r.cid;
-  if (!offset) ORG.path = r.path || [];
-  ORG.warning = r.warning || '';
-  ORG.total = r.total;
-  ORG.next = r.next_offset || 0;
-  ORG.more = !!r.has_more;
-  const fresh = r.items || [];
-  ORG.items = offset ? ORG.items.concat(fresh) : fresh;
-  await orgSuggest(offset ? fresh : null);
-  renderOrg();
-}
-
-/* `only` 为空 = 全量算（含顶层）；给了数组 = 只算这批新增的（翻页用，避免重复算） */
-async function orgSuggest(only) {
-  if (!ORG) return;
-  const list = only || ORG.items;
-  const req = [];
-  if (!only && ORG.root) {
-    req.push({ name: ORG.root.name, is_dir: ORG.root.is_dir, series: ORG.series, add_year: ORG.addYear, title: null });
-  }
-  list.forEach(it => req.push({
-    name: it.name,
-    is_dir: it.is_dir,
-    series: ORG.series,
-    add_year: it.is_dir ? ORG.addYear : null,
-    series_title: ORG.rootTitle || null,
-  }));
-  if (!req.length) return;
-  try {
-    const r = await api('/suggest', { method: 'POST', body: JSON.stringify({ items: req, paren: PAREN }) });
-    const out = r.items || [];
-    let i = 0;
-    if (!only && ORG.root) { ORG.rootSugg = out[i].suggestions; ORG.rootMedia = out[i].media; i++; }
-    list.forEach((it, k) => { ORG.cands[it.file_id] = out[i + k] || { suggestions: [] }; });
-  } catch (e) { /* 建议失败不影响浏览 */ }
-}
-
-/* 默认候选 = **第一个非 keep 候选**（而不是「第一个与原名不同的候选」）。
+/* 「推荐名」= 第一个非 keep 候选。
    理由：已经规范的名字（如 `护肝人（2026）`）第一候选就是它自己 ⇒ 输入框等于原名 ⇒
-   按钮自然禁用「无需改」。若改用「取不同项」，这种已规范的名字会被默认改成
-   `护肝人`（把年份丢掉），**反而是倒退**。 */
+   按钮自然禁用「无需改」。若改成「取与原名不同的那一个」，这种已规范的名字会被默认
+   改成 `护肝人`（把年份丢掉），**反而是倒退**。 */
 function bestCandidate(name, s) {
   const list = (s || []).filter(x => x.mode !== 'keep' && x.name);
   return list.length ? list[0].name : '';
@@ -1133,218 +1214,405 @@ function hasChange(name, s) {
   const v = bestCandidate(name, s);
   return !!v && v !== name;
 }
-
-function renderOrg() {
-  if (!ORG) return;
-  if (!ORG.root) return;
-  const body = $('#orgBody');
-  const html = [];
-
-  /* --- 顶层对象 --- */
-  const rootName = ORG.root.name;
-  const topVal = ORG.topEdit || bestCandidate(rootName, ORG.rootSugg || []) || rootName;
-  const kind = ORG.root.is_dir ? '目录' : '文件';
-  const m = ORG.rootMedia || {};
-  const mediaBits = ['year', 'season', 'episode', 'resolution', 'source', 'codec', 'audio']
-    .filter(k => m[k] !== undefined && m[k] !== '')
-    .map(k => (k === 'season' ? 'S' + String(m[k]).padStart(2, '0') : k === 'episode' ? 'E' + String(m[k]).padStart(2, '0') : m[k]));
-  html.push('<div class="card" style="margin-bottom:12px">',
-    '<div class="step" style="margin-bottom:9px"><span class="no">1</span>',
-    '<div><h2>顶层' + kind + '命名</h2><div class="sub">只改这一个对象；改回原名即等于撤销</div></div></div>',
-    '<div class="itemrow" style="border:0;padding-top:0"><div class="main">',
-    '<div class="nm">原名：<b>' + esc(rootName) + '</b> <span class="tag ' + (ORG.root.is_dir ? 'dir' : '') + '">' + kind + '</span></div>',
-    mediaBits.length ? '<div class="meta">' + mediaBits.map(b => '<span class="tag">' + esc(b) + '</span>').join('') + '</div>' : '',
-    '<div class="edit"><input type="text" id="orgTopName" value="' + esc(topVal) + '"></div>',
-    '<div class="candchips">' + (ORG.rootSugg || []).map((s, i) =>
-      '<button data-topcand="' + i + '" class="' + (s.name === topVal ? 'on' : '') + '">' + esc(s.name) + '<span style="opacity:.65"> · ' + esc(s.label) + '</span></button>').join('') + '</div>',
-    '</div></div></div>');
-
-  /* --- 目录内容 --- */
-  if (!ORG.root.is_dir) {
-    html.push('<div class="muted" style="text-align:center;padding:8px">这个任务是单个文件，只有上面这一层可改。</div>');
-  } else {
-    const crumbs = (ORG.path || []).map((p, i, a) =>
-      '<a data-tocid="' + esc(p.id) + '">' + esc(p.name) + '</a>' + (i < a.length - 1 ? '<span class="sep">/</span>' : '')).join('');
-    html.push('<div class="card" style="margin-bottom:12px">',
-      '<div class="step" style="margin-bottom:9px"><span class="no">2</span>',
-      '<div><h2>目录内容</h2><div class="sub">勾选后可批量改名 / 批量删除；删除进回收站，可还原</div></div></div>',
-      '<div class="crumbs">' + crumbs + '</div>');
-    if (ORG.warning) html.push('<div class="msg err show" style="margin-top:9px">⚠️ ' + esc(ORG.warning) + '</div>');
-    html.push('<div class="row wrap" style="margin-top:10px">',
-      '<button class="ghost sm" id="orgSelAll">全选</button>',
-      '<button class="ghost sm" id="orgSelNone">清空选择</button>',
-      '<label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="orgOnlyAd"><span class="muted">只看疑似广告</span></label>',
-      '<label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="orgOnlyChg"><span class="muted">只看可整理</span></label>',
-      '<span class="muted" id="orgCount"></span>',
-      '</div>');
-
-    if (!ORG.items.length) {
-      html.push('<div class="empty">这个目录是空的</div>');
-    } else {
-      const onlyAd = ORG.onlyAd, onlyChg = ORG.onlyChg;
-      const rows = ORG.items.filter(it => {
-        const c = ORG.cands[it.file_id] || { suggestions: [] };
-        if (onlyAd && !c.ad_hint) return false;
-        if (onlyChg && !hasChange(it.name, c.suggestions || [])) return false;
-        return true;
-      });
-      html.push('<div style="margin-top:6px">');
-      rows.forEach(it => {
-        const c = ORG.cands[it.file_id] || { suggestions: [], media: {}, ad_hint: false };
-        const cand = bestCandidate(it.name, c.suggestions || []);
-        const val = (it.file_id in ORG.edits) ? ORG.edits[it.file_id] : (cand || it.name);
-        const changed = val !== it.name;
-        html.push('<div class="itemrow' + (changed ? '' : ' keep') + '">',
-          '<input type="checkbox" data-sel="' + esc(it.file_id) + '"' + (ORG.sel.has(it.file_id) ? ' checked' : '') + '>',
-          '<div class="main">',
-          '<div class="nm">' + (it.is_dir ? '📁 ' : '📄 ') + esc(it.name) + '</div>',
-          '<div class="meta">',
-          it.is_dir ? '<span class="tag dir">目录' + (it.children !== null && it.children !== undefined ? ' · ' + it.children + ' 项' : '') + '</span>' : '',
-          it.size_text ? '<span>' + esc(it.size_text) + '</span>' : '',
-          it.ext ? '<span>.' + esc(it.ext) + '</span>' : '',
-          it.mtime ? '<span>' + esc(fmtTs(it.mtime)) + '</span>' : '',
-          c.ad_hint ? '<span class="tag ad">疑似广告</span>' : '',
-          '</div>',
-          '<div class="edit">',
-          '<input type="text" data-edit="' + esc(it.file_id) + '" value="' + esc(val) + '">',
-          '<button class="line sm" data-apply="' + esc(it.file_id) + '"' + (changed ? '' : ' disabled') + '>改</button>',
-          it.is_dir ? '<button class="ghost sm" data-enter="' + esc(it.file_id) + '">进入</button>' : '',
-          '</div></div></div>');
-      });
-      html.push('</div>');
-      if (ORG.more) {
-        html.push('<div style="margin-top:10px;text-align:center">',
-          '<button class="ghost sm" id="orgMore">加载更多（已列出 ', String(ORG.items.length),
-          ORG.total ? ' / 共 ' + ORG.total + ' 项' : '', '）</button></div>');
-      } else if (ORG.items.length) {
-        html.push('<div class="muted" style="margin-top:9px;text-align:center">已列出全部 ',
-          String(ORG.items.length), ' 项</div>');
-      }
-    }
-    html.push('<div class="muted" style="margin-top:10px">⚠️ 批量写操作会串行分块执行（组间自动延时），避免触发 115 风控。<br>⚠️ 115 的删除/还原都是**异步任务**：提交成功后，目录与回收站列表要过一会儿才更新。</div></div>');
-  }
-  body.innerHTML = html.join('');
-  bindOrg();
+function fsSelfName() {
+  if (!FS) return '';
+  const last = (FS.path || []).slice(-1)[0];
+  return FS.selfName || (last ? last.name : '');
 }
 
-function bindOrg() {
-  const ok = ORG && ORG.root;
-  if (!ok) return;
+function closeFsBar() { /* 占位：切换 tab 时收起操作栏由 CSS class 控制 */ }
 
-  const topInput = $('#orgTopName');
-  if (topInput) topInput.oninput = () => { ORG.topEdit = topInput.value; };
-  $$('#orgBody [data-topcand]').forEach(b => b.onclick = () => {
-    const s = (ORG.rootSugg || [])[+b.dataset.topcand];
-    if (!s) return;
-    ORG.topEdit = s.name;
-    renderOrg();
-  });
+/** 主加载。opts = { refresh, offset, addYear, selfName } */
+async function fsLoad(cid, opts) {
+  if (!CURRENT) { $('#fsList').innerHTML = '<div class="empty">先在「账号管理」里添加一个 115 账号</div>'; return; }
+  opts = opts || {};
+  const offset = opts.offset || 0;
+  if (!offset) {
+    const keepAddYear = opts.addYear !== undefined ? opts.addYear : (FS && FS.addYear) || null;
+    FS = {
+      cid: String(cid), path: [{ id: '0', name: '根目录' }], items: [], total: null,
+      next: 0, more: false, warning: '', fromCache: false, cachedAt: '', age: 0,
+      sel: new Set(), edits: {}, cands: {}, kind: 'all', onlyAd: false, onlyChg: false,
+      series: $('#fsSeries').checked, addYear: keepAddYear, rootTitle: '',
+      selfName: opts.selfName || '', selfSugg: [], selfMedia: {}, selfEdit: null, busy: false,
+    };
+    renderFsShell();
+    $('#fsList').innerHTML = '<div class="empty"><span class="spinner"></span>读取中…</div>';
+    $('#fsWarn').className = 'msg err';
+    $('#fsMoreWrap').innerHTML = '';
+  } else {
+    $('#fsMoreWrap').innerHTML = '<span class="muted"><span class="spinner"></span>加载更多…</span>';
+  }
 
-  $$('#orgBody [data-tocid]').forEach(a => a.onclick = () => orgLoad(a.dataset.tocid));
-  const selAll = $('#orgSelAll'), selNone = $('#orgSelNone');
-  if (selAll) selAll.onclick = () => {
-    ORG.items.forEach(it => {
-      const c = ORG.cands[it.file_id] || { suggestions: [], ad_hint: false };
-      if (ORG.onlyAd && !c.ad_hint) return;
-      if (ORG.onlyChg && !hasChange(it.name, c.suggestions || [])) return;
-      ORG.sel.add(it.file_id);
-    });
-    renderOrg();
-  };
-  if (selNone) selNone.onclick = () => { ORG.sel = new Set(); renderOrg(); };
-  const onlyAd = $('#orgOnlyAd'), onlyChg = $('#orgOnlyChg');
-  if (onlyAd) { onlyAd.checked = !!ORG.onlyAd; onlyAd.onchange = () => { ORG.onlyAd = onlyAd.checked; renderOrg(); }; }
-  if (onlyChg) { onlyChg.checked = !!ORG.onlyChg; onlyChg.onchange = () => { ORG.onlyChg = onlyChg.checked; renderOrg(); }; }
+  try {
+    const refresh = opts.refresh ? 1 : 0;
+    const r = await api('/accounts/' + CURRENT + '/folder?cid=' + encodeURIComponent(cid) +
+      '&offset=' + offset + '&limit=200&refresh=' + refresh);
+    if (offset === 0 || FS.cid !== String(cid)) {
+      FS.cid = r.cid || String(cid);
+      FS.path = r.path || [];
+      FS.items = r.items || [];
+    } else {
+      FS.items = FS.items.concat(r.items || []);
+    }
+    FS.total = r.total;
+    FS.next = r.next_offset || 0;
+    FS.more = !!r.has_more;
+    FS.warning = r.warning || '';
+    FS.fromCache = !!r.from_cache;
+    FS.cachedAt = r.cached_at || '';
+    FS.age = r.cache_age || 0;
+    if (!FS.selfName) {
+      const last = (FS.path || []).slice(-1)[0];
+      if (last && String(last.id) === String(FS.cid) && String(FS.cid) !== '0') FS.selfName = last.name;
+    }
+    await fsSuggest(offset ? (r.items || []) : null);
+    renderFsShell();
+    renderFsList();
+  } catch (e) {
+    FS = FS || {};
+    $('#fsList').innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>';
+    $('#fsWarn').className = 'msg err show';
+    $('#fsWarn').textContent = '读取失败：' + e.message;
+  }
+}
 
-  $$('#orgBody input[data-edit]').forEach(inp => inp.oninput = () => {
-    ORG.edits[inp.dataset.edit] = inp.value;
-    const btn = $('#orgBody button[data-apply="' + inp.dataset.edit + '"]');
-    if (btn) btn.disabled = (inp.value === (ORG.items.find(x => x.file_id === inp.dataset.edit) || {}).name);
+/** only 为空 = 全量算（含当前目录自身）；给了数组 = 只算这批新增的（翻页用） */
+async function fsSuggest(only) {
+  if (!FS) return;
+  const list = only || FS.items;
+  const req = [];
+  if (!only && FS.cid && String(FS.cid) !== '0' && fsSelfName()) {
+    req.push({ name: fsSelfName(), is_dir: true, series: FS.series, add_year: null, title: null });
+  }
+  list.forEach(it => req.push({
+    name: it.name,
+    is_dir: it.is_dir,
+    series: FS.series,
+    add_year: it.is_dir ? FS.addYear : null,
+    series_title: FS.rootTitle || null,
+  }));
+  if (!req.length) return;
+  try {
+    const r = await api('/suggest', { method: 'POST', body: JSON.stringify({ items: req, paren: PAREN }) });
+    const out = r.items || [];
+    let i = 0;
+    if (!only && FS.cid && String(FS.cid) !== '0' && fsSelfName()) {
+      FS.selfSugg = out[i].suggestions || [];
+      FS.selfMedia = out[i].media || {};
+      const tc = FS.selfSugg.find(s => s.mode === 'title');
+      FS.rootTitle = (tc && tc.name) || '';
+      i++;
+    }
+    list.forEach((it, k) => { FS.cands[it.file_id] = out[i + k] || { suggestions: [] }; });
+  } catch (e) { /* 建议失败不影响浏览 */ }
+}
+
+function renderFsShell() {
+  if (!FS) return;
+  /* 面包屑 */
+  const path = FS.path || [];
+  $('#fsCrumbs').innerHTML = path.map((p, i) => {
+    const last = i === path.length - 1;
+    return `<a data-cid="${esc(p.id)}"${last ? ' class="cur"' : ''}>${esc(p.name || '根目录')}</a>` +
+      (last ? '' : '<span class="sep">/</span>');
+  }).join('');
+  $$('#fsCrumbs a').forEach(a => a.onclick = () => fsLoad(a.dataset.cid, { refresh: false }));
+
+  /* 缓存状态 */
+  const tag = $('#fsCacheTag');
+  if (FS.fromCache) {
+    tag.className = 'tag cache';
+    tag.textContent = '来自缓存';
+    $('#fsCacheInfo').textContent = '缓存于 ' + (FS.cachedAt || '—') + '（' + agoText(FS.age) + '）· 共 ' +
+      (FS.total === null || FS.total === undefined ? FS.items.length : FS.total) + ' 项';
+  } else if (FS.cachedAt) {
+    tag.className = 'tag fresh';
+    tag.textContent = '刚扫描';
+    $('#fsCacheInfo').textContent = '扫描于 ' + FS.cachedAt + ' · 共 ' +
+      (FS.total === null || FS.total === undefined ? FS.items.length : FS.total) + ' 项';
+  } else {
+    tag.className = 'tag fresh';
+    tag.textContent = '还没扫描';
+    $('#fsCacheInfo').textContent = '点右上「扫描这一层」去 115 拉这一层的列表';
+  }
+
+  /* 当前目录改名卡（在根目录时没有「当前目录」可改） */
+  const atRoot = String(FS.cid) === '0';
+  $('#fsSelfCard').classList.toggle('hide', atRoot);
+  $('#fsSelfNo').textContent = '1';
+  $('#fsListNo').textContent = atRoot ? '1' : '2';
+
+  if (!atRoot) {
+    const name = fsSelfName();
+    $('#fsSelfOld').textContent = name || '（未知）';
+    const val = (FS.selfEdit !== null && FS.selfEdit !== undefined)
+      ? FS.selfEdit : (bestCandidate(name, FS.selfSugg) || name);
+    const inp = $('#fsSelfNew');
+    if (document.activeElement !== inp) inp.value = val;
+    const m = FS.selfMedia || {};
+    const chips = (FS.selfSugg || []).map((s, i) =>
+      `<button data-selfcand="${i}" class="${s.name === val ? 'on' : ''}">${esc(s.name)}<span class="lb"> · ${esc(s.label)}</span></button>`
+    ).join('');
+    $('#fsSelfCands').innerHTML = chips || '<span class="muted">这个目录名洗不动，保持原名即可</span>';
+    $('#fsSelfApply').disabled = !val || val === name;
+    $('#fsSelfApply').textContent = val === name ? '无需改动' : '把当前目录改名为上面这个';
+  }
+
+  /* 筛选控件回填 */
+  $$('#segKind button').forEach(b => b.classList.toggle('on', b.dataset.kind === FS.kind));
+  $('#fsOnlyAd').checked = !!FS.onlyAd;
+  $('#fsOnlyChg').checked = !!FS.onlyChg;
+  syncParenSeg();
+  $('#fsSeries').checked = !!FS.series;
+}
+
+function fsFiltered() {
+  if (!FS) return [];
+  return FS.items.filter(it => {
+    if (FS.kind === 'dir' && !it.is_dir) return false;
+    if (FS.kind === 'file' && it.is_dir) return false;
+    const c = FS.cands[it.file_id] || { suggestions: [] };
+    if (FS.onlyAd && !c.ad_hint) return false;
+    if (FS.onlyChg && !hasChange(it.name, c.suggestions || [])) return false;
+    return true;
   });
-  $$('#orgBody input[data-sel]').forEach(cb => cb.onchange = () => {
-    if (cb.checked) ORG.sel.add(cb.dataset.sel); else ORG.sel.delete(cb.dataset.sel);
-    renderFoot();
+}
+
+function renderFsList() {
+  if (!FS) return;
+  const rows = fsFiltered();
+  const box = $('#fsList');
+
+  if (!FS.items.length) {
+    box.innerHTML = '<div class="empty">这一层是空的（或者还没扫描）</div>';
+  } else if (!rows.length) {
+    box.innerHTML = '<div class="empty">当前筛选条件下没有条目</div>';
+  } else {
+    box.innerHTML = rows.map(it => {
+      const c = FS.cands[it.file_id] || { suggestions: [], media: {}, ad_hint: false };
+      const cand = bestCandidate(it.name, c.suggestions || []);
+      const val = (it.file_id in FS.edits) ? FS.edits[it.file_id] : (cand || it.name);
+      const changed = val !== it.name;
+      const on = FS.sel.has(it.file_id);
+      return `<div class="frow${changed ? '' : ' keep'}${on ? ' on' : ''}" data-row="${esc(it.file_id)}">
+        <input type="checkbox" class="ck" data-sel="${esc(it.file_id)}"${on ? ' checked' : ''}>
+        <span class="ico">${it.is_dir ? '📁' : '📄'}</span>
+        <div class="fmain">
+          <div class="fn one" data-full="${esc(it.name)}" title="点一下展开/收起完整名字">${esc(it.name)}</div>
+          <div class="fm">
+            ${it.is_dir ? '<span class="tag dir">目录' + (it.children !== null && it.children !== undefined ? ' · ' + it.children + ' 项' : '') + '</span>' : ''}
+            ${it.size_text ? '<span>' + esc(it.size_text) + '</span>' : ''}
+            ${it.ext ? '<span class="mono">.' + esc(it.ext) + '</span>' : ''}
+            ${it.mtime ? '<span>' + esc(fmtTs(it.mtime)) + '</span>' : ''}
+            ${c.ad_hint ? '<span class="tag ad">疑似广告</span>' : ''}
+          </div>
+          <div class="fedit">
+            <input type="text" data-edit="${esc(it.file_id)}" value="${esc(val)}" placeholder="新名字（留空表示不改）">
+            <button class="line sm" data-apply="${esc(it.file_id)}"${changed ? '' : ' disabled'}>改</button>
+            ${it.is_dir ? '<button class="ghost sm" data-enter="' + esc(it.file_id) + '">进入</button>' : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const shownDirs = rows.filter(x => x.is_dir).length;
+  const shownFiles = rows.length - shownDirs;
+  $('#fsMoreWrap').innerHTML = FS.more
+    ? `<button class="ghost sm" id="fsMore">加载更多（已列出 ${FS.items.length}` +
+      (FS.total ? ' / 共 ' + FS.total + ' 项' : '') + '）</button>'
+    : (FS.items.length ? `<span class="muted">已列出全部 ${FS.items.length} 项（目录 ${shownDirs} · 文件 ${shownFiles}）</span>` : '');
+
+  bindFsList();
+  updateFsBar();
+}
+
+function bindFsList() {
+  if (!FS) return;
+  $$('#fsList .fn.one').forEach(el => el.onclick = () => el.classList.toggle('one'));
+  $$('#fsList input[data-edit]').forEach(inp => inp.oninput = () => {
+    FS.edits[inp.dataset.edit] = inp.value;
+    const it = FS.items.find(x => x.file_id === inp.dataset.edit) || {};
+    const btn = $('#fsList button[data-apply="' + inp.dataset.edit + '"]');
+    if (btn) btn.disabled = (inp.value === it.name);
+    updateFsBar();
   });
-  $$('#orgBody button[data-apply]').forEach(b => b.onclick = () => {
+  $$('#fsList input[data-sel]').forEach(cb => cb.onchange = () => {
+    if (cb.checked) FS.sel.add(cb.dataset.sel); else FS.sel.delete(cb.dataset.sel);
+    const row = cb.closest('.frow');
+    if (row) row.classList.toggle('on', cb.checked);
+    updateFsBar();   /* ⚠️ 旧版只刷了底栏、没刷上面的计数 ⇒ 出现「已选 0 项」却勾着 1 个 */
+  });
+  $$('#fsList button[data-apply]').forEach(b => b.onclick = () => {
     const fid = b.dataset.apply;
-    const it = ORG.items.find(x => x.file_id === fid);
+    const it = FS.items.find(x => x.file_id === fid);
     if (!it) return;
-    const inp = $('#orgBody input[data-edit="' + fid + '"]');
+    const inp = $('#fsList input[data-edit="' + fid + '"]');
     doRename([{ file_id: fid, new_name: inp.value, ext: it.is_dir ? null : (it.ext || null) }]);
   });
-  $$('#orgBody button[data-enter]').forEach(b => b.onclick = () => orgLoad(b.dataset.enter));
-  const more = $('#orgMore');
+  $$('#fsList button[data-enter]').forEach(b => b.onclick = () => fsLoad(b.dataset.enter, { refresh: false }));
+  const more = $('#fsMore');
   if (more) more.onclick = async () => {
     more.disabled = true; more.textContent = '加载中…';
-    try { await orgLoad(ORG.cid, ORG.next); }
-    catch (e) { alert('加载更多失败：' + e.message); more.disabled = false; more.textContent = '加载更多'; }
+    try { await fsLoad(FS.cid, { offset: FS.next }); }
+    catch (e) { alert('加载更多失败：' + e.message); }
   };
-
-  const cnt = $('#orgCount');
-  if (cnt) cnt.textContent = '已选 ' + ORG.sel.size + ' 项';
-  renderFoot();
 }
 
-function renderFoot() {
-  if (!ORG || !ORG.root) { $('#orgFoot').innerHTML = ''; return; }
-  const foot = $('#orgFoot');
-  const sel = Array.from(ORG.sel);
-  const parts = [];
-  const topName = ($('#orgTopName') && $('#orgTopName').value) || ORG.topEdit || '';
-  const topChanged = topName && topName !== ORG.root.name;
-  parts.push('<button id="orgApplyTop"' + (topChanged ? '' : ' disabled') + '>应用顶层改名</button>');
-  if (ORG.root.is_dir) {
-    const renameSel = sel.filter(fid => {
-      const it = ORG.items.find(x => x.file_id === fid) || {};
-      const v = (fid in ORG.edits) ? ORG.edits[fid] : bestCandidate(it.name || '', (ORG.cands[fid] || {}).suggestions || []);
-      return v && v !== it.name;
-    });
-    parts.push('<button class="line" id="orgRenameSel"' + (renameSel.length ? '' : ' disabled') + '>批量改名 (' + renameSel.length + ')</button>');
-    parts.push('<button class="danger" id="orgDelSel"' + (sel.length ? '' : ' disabled') + '>批量删除 (' + sel.length + ')</button>');
+function updateFsBar() {
+  if (!FS) return;
+  const sel = Array.from(FS.sel);
+  const renameSel = sel.filter(fid => {
+    const it = FS.items.find(x => x.file_id === fid) || {};
+    const v = (fid in FS.edits) ? FS.edits[fid] : bestCandidate(it.name || '', (FS.cands[fid] || {}).suggestions || []);
+    return v && v !== it.name;
+  });
+  /* 计数文字要短 —— 长了在 390 宽的手机上会折成两行、把操作栏撑高 */
+  $('#fsCount').innerHTML = sel.length
+    ? ('已选 <b>' + sel.length + '</b>' + (renameSel.length ? ' · 可改名 <b>' + renameSel.length + '</b>' : ''))
+    : '勾选条目后可批量操作';
+  $('#fsBatchRename').textContent = '批量改名' + (renameSel.length ? '（' + renameSel.length + '）' : '');
+  $('#fsBatchRename').disabled = !renameSel.length;
+  $('#fsBatchDelete').textContent = '批量删除' + (sel.length ? '（' + sel.length + '）' : '');
+  $('#fsBatchDelete').disabled = !sel.length;
+  if (sel.length && !renameSel.length) {
+    $('#fsBarBusy').textContent = '（选中的都没有新名字）';
+  } else if (!FS.busy) {
+    $('#fsBarBusy').textContent = '';
   }
-  parts.push('<span class="muted" style="margin-left:auto">' + (ORG.root.is_dir ? '已选 ' + sel.length + ' 项' : '') + '</span>');
-  foot.innerHTML = parts.join('');
-
-  const bTop = $('#orgApplyTop');
-  if (bTop) bTop.onclick = () => {
-    const name = ($('#orgTopName') && $('#orgTopName').value) || '';
-    if (!name) return;
-    doRename([{ file_id: ORG.root.file_id, new_name: name, ext: ORG.root.is_dir ? null : (ORG.root.ext || null) }]);
-  };
-  const bRename = $('#orgRenameSel');
-  if (bRename) bRename.onclick = () => {
-    const items = sel.map(fid => {
-      const it = ORG.items.find(x => x.file_id === fid);
-      const v = (fid in ORG.edits) ? ORG.edits[fid]
-        : bestCandidate(it.name, (ORG.cands[fid] || {}).suggestions || []);
-      return { file_id: fid, new_name: v, ext: it.is_dir ? null : (it.ext || null), _orig: it.name, _isDir: it.is_dir };
-    }).filter(x => x.new_name && x.new_name !== x._orig);
-    if (!items.length) return;
-    if (!confirm('把选中的 ' + items.length + ' 项改名？\n\n' + items.slice(0, 6).map(x => '· ' + x._orig + '  →  ' + x.new_name).join('\n') + (items.length > 6 ? '\n…（其余 ' + (items.length - 6) + ' 项）' : ''))) return;
-    doRename(items.map(({ file_id, new_name, ext }) => ({ file_id, new_name, ext })));
-  };
-  const bDel = $('#orgDelSel');
-  if (bDel) bDel.onclick = () => {
-    if (!sel.length) return;
-    const groups = Math.ceil(sel.length / 20);
-    const eta = groups > 1 ? Math.round((groups - 1) * 1.2) : 0;
-    const names = sel.slice(0, 6).map(fid => '· ' + ((ORG.items.find(x => x.file_id === fid) || {}).name || ''));
-    if (!confirm('删除选中的 ' + sel.length + ' 个对象？\n\n' + names.join('\n') +
-      (sel.length > 6 ? '\n…（其余 ' + (sel.length - 6) + ' 项）' : '') +
-      '\n\n分 ' + groups + ' 批串行执行' + (eta ? '，约 ' + eta + ' 秒' : '') +
-      '\n删除后会进 115 回收站，可在这里的「回收站」还原。' +
-      '\n⚠️ 115 的删除是异步任务：回收站里可能延迟几十秒~几分钟才出现；' +
-      '\n要确认删没删掉，刷新目录看（别立刻看回收站就断定失败）。')) return;
-    doDelete(sel);
-  };
 }
 
-async function doRename(items) {
-  if (!items.length || ORG.busy) return;
-  ORG.busy = true;
-  const foot = $('#orgFoot');
-  const old = foot.innerHTML;
-  foot.innerHTML = '<span class="muted"><span class="spinner"></span>正在改名…</span>';
+/* ---------- 控件绑定 ---------- */
+$$('#segParen button').forEach(b => b.onclick = async () => {
+  PAREN = b.dataset.paren;
+  localStorage.setItem(PAREN_KEY, PAREN);
+  syncParenSeg();
+  if (FS) { await fsSuggest(); renderFsShell(); renderFsList(); }
+});
+function syncParenSeg() {
+  $$('#segParen button').forEach(x => x.classList.toggle('on', x.dataset.paren === PAREN));
+}
+$$('#segKind button').forEach(b => b.onclick = () => {
+  if (!FS) return;
+  FS.kind = b.dataset.kind;
+  renderFsShell(); renderFsList();
+});
+$('#fsOnlyAd').onchange = () => { if (FS) { FS.onlyAd = $('#fsOnlyAd').checked; renderFsList(); } };
+$('#fsOnlyChg').onchange = () => { if (FS) { FS.onlyChg = $('#fsOnlyChg').checked; renderFsList(); } };
+$('#fsSeries').onchange = async () => {
+  if (!FS) return;
+  FS.series = $('#fsSeries').checked;
+  await fsSuggest();
+  renderFsShell(); renderFsList();
+};
+$('#fsSelAll').onclick = () => {
+  if (!FS) return;
+  fsFiltered().forEach(it => FS.sel.add(it.file_id));
+  renderFsList();
+};
+$('#fsSelNone').onclick = () => { if (FS) { FS.sel = new Set(); renderFsList(); } };
+$('#fsScan').onclick = async () => {
+  if (!FS) return;
+  const btn = $('#fsScan');
+  btn.disabled = true; const old = btn.textContent;
+  btn.innerHTML = '<span class="spinner"></span>扫描中';
+  try { await fsLoad(FS.cid, { refresh: true }); }
+  catch (e) { alert('扫描失败：' + e.message); }
+  btn.disabled = false; btn.textContent = old;
+};
+$('#fsRoot').onclick = () => fsLoad('0', { refresh: false });
+$('#fsDefaultDir').onclick = () => {
+  const acc = curAcc();
+  if (!acc || !acc.default_dir) { alert('这个账号还没设默认目录（去「离线推送」页设一个）'); return; }
+  fsLoad(acc.default_dir, { refresh: false, selfName: acc.default_dir_name || '' });
+};
+$('#fsClearCache').onclick = async () => {
+  if (!CURRENT) return;
+  try {
+    const r = await api('/accounts/' + CURRENT + '/cache', { method: 'DELETE' });
+    alert('已清掉 ' + r.cleared + ' 层缓存，下次点开重新拉。');
+    if (FS) await fsLoad(FS.cid, { refresh: true });
+  } catch (e) { alert('清缓存失败：' + e.message); }
+};
+$('#fsSelfNew').oninput = () => { if (FS) FS.selfEdit = $('#fsSelfNew').value; };
+$('#fsSelfCands').onclick = (ev) => {
+  const b = ev.target.closest('button[data-selfcand]');
+  if (!b || !FS) return;
+  const s = (FS.selfSugg || [])[+b.dataset.selfcand];
+  if (!s) return;
+  FS.selfEdit = s.name;
+  renderFsShell();
+};
+$('#fsSelfApply').onclick = () => {
+  if (!FS) return;
+  const name = $('#fsSelfNew').value;
+  if (!name) return;
+  doRename([{ file_id: FS.cid, new_name: name, ext: null }], { self: true });
+};
+$('#fsBatchRename').onclick = () => {
+  if (!FS) return;
+  const items = Array.from(FS.sel).map(fid => {
+    const it = FS.items.find(x => x.file_id === fid);
+    if (!it) return null;
+    const v = (fid in FS.edits) ? FS.edits[fid] : bestCandidate(it.name, (FS.cands[fid] || {}).suggestions || []);
+    return { file_id: fid, new_name: v, ext: it.is_dir ? null : (it.ext || null), _orig: it.name };
+  }).filter(x => x && x.new_name && x.new_name !== x._orig);
+  if (!items.length) { alert('选中的项目都没有新名字 —— 先在每行输入框里改，或点候选 chips。'); return; }
+  if (!confirm('把选中的 ' + items.length + ' 项改名？\n\n' +
+    items.slice(0, 6).map(x => '· ' + x._orig + '\n  → ' + x.new_name).join('\n') +
+    (items.length > 6 ? '\n…（其余 ' + (items.length - 6) + ' 项）' : ''))) return;
+  doRename(items.map(({ file_id, new_name, ext }) => ({ file_id, new_name, ext })));
+};
+$('#fsBatchDelete').onclick = () => {
+  if (!FS) return;
+  const sel = Array.from(FS.sel);
+  if (!sel.length) return;
+  const groups = Math.ceil(sel.length / 20);
+  const eta = groups > 1 ? Math.round((groups - 1) * 1.2) : 0;
+  const names = sel.slice(0, 6).map(fid => '· ' + ((FS.items.find(x => x.file_id === fid) || {}).name || ''));
+  if (!confirm('删除选中的 ' + sel.length + ' 个对象？\n\n' + names.join('\n') +
+    (sel.length > 6 ? '\n…（其余 ' + (sel.length - 6) + ' 项）' : '') +
+    '\n\n分 ' + groups + ' 批串行执行' + (eta ? '，约 ' + eta + ' 秒' : '') +
+    '\n删除后会进 115 回收站，可在「任务记录 → 回收站」还原。' +
+    '\n⚠️ 115 的删除是异步任务：回收站里可能延迟几十秒~几分钟才出现；' +
+    '\n要确认删没删掉，重新「扫描这一层」看（别立刻看回收站就断定失败）。')) return;
+  doDelete(sel);
+};
+
+/** 从「任务记录」跳过来：定位到该任务的落地目录并扫一次 */
+async function openFromTask(t) {
+  if (!CURRENT) { alert('先添加账号'); return; }
+  if (!t.file_id) { alert('这个任务没有落地对象（可能还在下载，或已被移动 / 删除）'); return; }
+  /* ⚠️ 先占位再切 tab：否则 showTab 看到 FS 为空会自己去加载默认目录，两个加载打架。
+     目录真名交给接口返回的 path 反查（任务名未必等于目录名）。 */
+  if (!FS) FS = { cid: '', path: [], items: [], sel: new Set(), edits: {}, cands: {}, kind: 'all', more: false, next: 0 };
+  showTab('files');
+  $('#fsList').innerHTML = '<div class="empty"><span class="spinner"></span>正在定位…</div>';
+  await fsLoad(t.file_id, { refresh: true, addYear: yearOf(t.add_time) });
+}
+
+/* ---------- 写操作 ---------- */
+/* ⚠️ 忙时**不要重建 #fsBar 的 innerHTML** —— 按钮的 onclick 是启动时静态绑定的，
+   一重建 DOM 事件就没了（第一版就这么踩了：改名失败后批量按钮彻底失灵）。
+   改成只切文本与 disabled。 */
+function setFsBusy(text) {
+  $('#fsBarBusy').textContent = text || '';
+  if (text) {
+    $('#fsBatchRename').disabled = true;
+    $('#fsBatchDelete').disabled = true;
+  } else {
+    updateFsBar();
+  }
+}
+
+async function doRename(items, opts) {
+  if (!items.length || !FS || FS.busy) return;
+  FS.busy = true;
+  const self = !!(opts && opts.self);
+  const msgEl = self ? $('#fsSelfMsg') : null;
+  if (msgEl) toast(msgEl, 'info', '<span class="spinner"></span>改名中…');
+  else setFsBusy('正在改名（分块串行，别关页面）…');
   try {
     const r = await api('/rename/apply', {
       method: 'POST',
@@ -1352,39 +1620,35 @@ async function doRename(items) {
     });
     if (r.ok) alert('✅ 已改名 ' + r.changed + ' 项');
     else alert('⚠️ 成功 ' + r.changed + ' 项，失败 ' + r.failed_count + ' 项\n' + ((r.failed[0] || {}).error || ''));
-    ORG.edits = {};
-    // 重新读一次，确认落地结果（也刷新原名）
-    const t = ORG.task;
-    ORG.busy = false;
-    await openOrganize(t);
-    return;
-  } catch (e) { alert('改名失败：' + e.message); }
-  ORG.busy = false;
-  foot.innerHTML = old;
+    FS.busy = false;
+    await fsLoad(FS.cid, { refresh: true, selfName: self ? items[0].new_name : undefined });
+  } catch (e) {
+    if (msgEl) toast(msgEl, 'err', '改名失败：' + esc(e.message));
+    else alert('改名失败：' + e.message);
+    FS.busy = false;
+    setFsBusy('');
+  }
 }
 
 async function doDelete(ids) {
-  if (!ids.length || ORG.busy) return;
-  ORG.busy = true;
-  const foot = $('#orgFoot');
-  const old = foot.innerHTML;
-  foot.innerHTML = '<span class="muted"><span class="spinner"></span>正在删除（串行分块，别关页面）…</span>';
+  if (!ids.length || !FS || FS.busy) return;
+  FS.busy = true;
+  setFsBusy('正在删除（分块串行，别关页面）…');
   try {
     const r = await api('/delete', {
       method: 'POST',
       body: JSON.stringify({ account_id: CURRENT, file_ids: ids, chunk: 20, delay: 1.2 }),
     });
-    if (r.ok) alert('✅ 已删除 ' + r.deleted_count + ' 项，用了 ' + r.seconds + ' 秒\n' + (r.note || ''));
+    if (r.ok) alert('✅ 已提交删除 ' + r.deleted_count + ' 项，用了 ' + r.seconds + ' 秒\n' + (r.note || ''));
     else alert('⚠️ 成功 ' + r.deleted_count + ' 项，失败 ' + r.failed_count + ' 项\n' + ((r.failed[0] || {}).error || ''));
-    ORG.sel = new Set();
-    ORG.edits = {};
-    const t = ORG.task;
-    ORG.busy = false;
-    await openOrganize(t);
-    return;
-  } catch (e) { alert('删除失败：' + e.message); }
-  ORG.busy = false;
-  foot.innerHTML = old;
+    FS.busy = false;
+    FS.sel = new Set();
+    await fsLoad(FS.cid, { refresh: true });
+  } catch (e) {
+    alert('删除失败：' + e.message);
+    FS.busy = false;
+    setFsBusy('');
+  }
 }
 
 /* ================= 启动 ================= */
@@ -1394,6 +1658,7 @@ async function boot() {
     if (cfg.need_auth && !localStorage.getItem(TOKEN_KEY)) { askToken(); return; }
     await initQrApps();
     await loadAccounts();
+    /* 先落地请求也走一遍默认账号（这样切到「网盘整理」立刻能用） */
   } catch (e) {
     if (e.message !== '需要访问口令') console.error(e);
   }
