@@ -891,7 +891,10 @@ def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int) -> d
             "size_text": "" if is_dir else _size_text(node.get("s")),
             "ext": "" if is_dir else (node.get("ico") or "").strip(),
             "mtime": node.get("t") or "",
-            "children": node.get("fc") if is_dir else None,
+            # ⚠️ 曾经透传 `node["fc"]` 给前端显示「目录 · N 项」——**实测该字段恒为 0**
+            #    （2026-10-05 打线上 /folder 实测：根目录 5 个明明有内容的目录全回 0），
+            #    显示出来就是个只会说「0 项」的假信息，已从响应里去掉（红领巾要求）。
+            #    `_dirs_impl` 里的 `count` 仍保留：目录选择器那处不展示它，无害。
         })
     items.sort(key=lambda x: (not x["is_dir"], x["name"]))
     total = data.get("count")

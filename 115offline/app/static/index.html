@@ -276,14 +276,21 @@
   .frow .fn{font-size:13.5px; line-height:1.45; word-break:break-all; cursor:pointer}
   .frow .fn.one{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:normal}
   .frow .fm{font-size:11px; color:var(--sub); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; align-items:center}
-  /* 右侧动作区：只有出现「→ 新名」时才换行占满一行，否则 ✎ 就跟名字同排 */
+  /* 名字：目录是「可点进去」的（`data-enter` 由 JS 挂上），给个暗示色 */
+  .frow .fn[data-enter]{color:#3b62d6}
+  .frow.keep .fn[data-enter]{color:#6f7bb8}
+  /* 右侧动作区：只有出现「改用 新名」时才换行占满一行，否则 ✎ 就跟名字同排 */
   .frow .fright{display:flex; gap:6px; align-items:center; flex-wrap:wrap; flex:0 0 auto}
-  /* 「推荐的新名」——只在真的能改时出现，点一下就是改名 */
-  .newchip{background:#eef0ff; color:#5b4bd6; font-weight:500; font-size:12.5px; padding:7px 10px;
-    border-radius:9px; display:inline-flex; align-items:center; gap:6px; max-width:100%; text-align:left}
-  .newchip .ar{opacity:.5; flex:0 0 auto}
+  /* ⚠️ 旧的纯「→」太容易被忽略、也说不清点了会发生什么 ⇒ 换成动词「改用」。
+     整块仍是浏览器原生 button（有 hover / focus / 键盘 Enter），比自绘 div 稳妥。 */
+  .newchip{background:#eef0ff; color:#5b4bd6; font-weight:500; font-size:12.5px; padding:6px 8px 6px 6px;
+    border-radius:9px; display:inline-flex; align-items:center; gap:7px; max-width:100%; text-align:left;
+    cursor:pointer}
+  .newchip .verb{flex:0 0 auto; font-size:11px; font-weight:700; letter-spacing:.2px;
+    background:#d9dcff; color:#4a3fc4; padding:3px 7px; border-radius:6px}
   .newchip .nm{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:min(52vw,420px)}
   .newchip:hover:not(:disabled){background:#e3e6ff}
+  .newchip:hover:not(:disabled) .verb{background:#c9cdff}
   .newchip .spinner{margin:0 2px 0 0}
   .frow .fedit{margin-top:8px; display:flex; gap:7px; align-items:center}
   .frow .fedit .lbl{font-size:11px; color:var(--sub); flex:0 0 auto}
@@ -330,10 +337,13 @@
     /* 名字默认给两行（长名字能直观看个大概，点一下再全展开） */
     .frow .fn.one{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
       overflow:hidden; white-space:normal; word-break:break-all}
-    /* 有「→ 新名」的行：动作区单独占一行，✎ / 进入 跟着新名排 */
+    /* 有「改用 新名」的行：动作区单独占一行，✎ 跟着新名排 */
     .frow.has-new .fright{flex:1 1 100%; padding-left:2px}
-    /* 手机省地方：行内动作只留图标（桌面才带「改名」两个字） */
-    .frow .iconbtn .bt{display:none}
+    /* 手机也**保留**「手动改名」四个字 —— 只留 ✎ 图标说不清是干嘛的
+       （红领巾 2026-10-05：「改名那两个字的意义可以再明确一些」）。只收紧内边距。 */
+    .frow .iconbtn{padding:7px 9px; font-size:12px}
+    /* 手机把「改用」两字收紧，别把建议名挤没了 */
+    .newchip .verb{font-size:10.5px; padding:2px 6px}
     /* 筛选项多：先收紧内边距让它们一行放得下，再允许横滑兜底，别把「全选 / 清空」挤成两行 */
     .fsmain .filterbar{flex-wrap:nowrap; gap:7px}
     .fsmain .filterbar>button{flex:0 0 auto; white-space:nowrap; padding:7px 9px}
@@ -372,7 +382,10 @@
     .frow{display:grid; grid-template-columns:24px 22px minmax(0,1fr) auto;
       gap:10px; align-items:center; padding:10px 0}
     .frow .ck{margin-top:0}
-    .frow .fright{flex:0 0 auto; justify-content:flex-end; padding-left:0}
+    /* ⚠️ 桌面列宽本来就不宽（右主区 − 侧栏），`newchip` + `手动改名` 一起放会换行成两行
+       ⇒ 动作区**不换行**、芯片名字给个上限，挤不下就省略号（全名在 title 里） */
+    .frow .fright{flex:0 0 auto; flex-wrap:nowrap; justify-content:flex-end; padding-left:0}
+    .newchip .nm{max-width:min(280px,24vw)}
     .frow .fedit{margin-top:6px}
     .flist{max-height:none}
   }
@@ -1491,13 +1504,16 @@ function renderFsList() {
       const val = (it.file_id in FS.edits) ? FS.edits[it.file_id] : (cand || it.name);
       const changed = val !== it.name;
       const on = FS.sel.has(it.file_id);
+      /* ⚠️ 目录不再标「· N 项」：115 的 `fc` 字段**实测恒为 0**（根目录 5 个明明有内容的
+         目录全回 0）⇒ 这个计数永远给不出真值，只是噪音。
+         红领巾原话：「这个目录0项是什么意思？我觉得不用显示这个」（2026-10-05）。 */
       return `<div class="frow${changed ? ' has-new' : ' keep'}${on ? ' on' : ''}" data-row="${esc(it.file_id)}">
         <input type="checkbox" class="ck" data-sel="${esc(it.file_id)}"${on ? ' checked' : ''}>
         <span class="ico">${it.is_dir ? '📁' : '📄'}</span>
         <div class="fmain">
-          <div class="fn one" title="点一下展开 / 收起完整名字">${esc(it.name)}</div>
+          <div class="fn one"${it.is_dir ? ' data-enter="' + esc(it.file_id) + '" title="点名字进入这个目录"' : ' title="点一下展开 / 收起完整名字"'}>${esc(it.name)}</div>
           <div class="fm">
-            ${it.is_dir ? '<span class="tag dir">目录' + (it.children !== null && it.children !== undefined ? ' · ' + it.children + ' 项' : '') + '</span>' : ''}
+            ${it.is_dir ? '<span class="tag dir">目录</span>' : ''}
             ${it.size_text ? '<span>' + esc(it.size_text) + '</span>' : ''}
             ${it.ext ? '<span class="mono">.' + esc(it.ext) + '</span>' : ''}
             ${it.mtime ? '<span>' + esc(fmtTs(it.mtime)) + '</span>' : ''}
@@ -1510,9 +1526,8 @@ function renderFsList() {
           </div>
         </div>
         <div class="fright">
-          ${changed ? `<button class="newchip" data-cand="${esc(it.file_id)}" title="点一下直接改成这个名字"><span class="ar">→</span><span class="nm">${esc(val)}</span></button>` : ''}
-          <button class="iconbtn" data-open="${esc(it.file_id)}" title="手动填新名">✎<span class="bt">改名</span></button>
-          ${it.is_dir ? '<button class="ghost sm" data-enter="' + esc(it.file_id) + '">进入</button>' : ''}
+          ${changed ? `<button class="newchip" data-cand="${esc(it.file_id)}" title="点击直接改用这个建议名：${esc(val)}"><span class="verb">改用</span><span class="nm">${esc(val)}</span></button>` : ''}
+          <button class="iconbtn" data-open="${esc(it.file_id)}" title="自己填一个新名字">✎<span class="bt">手动改名</span></button>
         </div>
       </div>`;
     }).join('');
@@ -1531,7 +1546,18 @@ function renderFsList() {
 
 function bindFsList() {
   if (!FS) return;
-  $$('#fsList .fn.one').forEach(el => el.onclick = () => el.classList.toggle('one'));
+  /* 名字：目录 ⇒ 点一下直接进去（不再另设「进入」按钮，少一个要点的东西）；
+           文件 ⇒ 点一下展开 / 收起完整名字。
+     目录想看全名就双击（给个 tooltip 兜底），别让「进目录」被截断需求挤掉。 */
+  $$('#fsList .fn.one').forEach(el => {
+    const cid = el.dataset.enter;
+    if (cid) {
+      el.onclick = () => fsLoad(cid, { refresh: false });
+      el.ondblclick = () => { el.classList.toggle('one'); window.getSelection().removeAllRanges(); };
+    } else {
+      el.onclick = () => el.classList.toggle('one');
+    }
+  });
   /* ✎ 展开 / 收起「手动填新名」——只动 DOM，不重渲染（保住滚动位置与已输入内容） */
   $$('#fsList button[data-open]').forEach(b => b.onclick = () => {
     const ed = b.closest('.frow').querySelector('.fedit');
@@ -1584,7 +1610,7 @@ function bindFsList() {
     if (!v || v === it.name) return;
     doRename([{ file_id: fid, new_name: v, ext: it.is_dir ? null : (it.ext || null) }]);
   });
-  $$('#fsList button[data-enter]').forEach(b => b.onclick = () => fsLoad(b.dataset.enter, { refresh: false }));
+  /* 「进入」按钮已去掉 —— 目录改为点名字进入（见上） */
   const more = $('#fsMore');
   if (more) more.onclick = async () => {
     more.disabled = true; more.textContent = '加载中…';
