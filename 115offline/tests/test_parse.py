@@ -2,8 +2,9 @@
 
 跑法（在项目根目录）：
     python tests/test_parse.py
-或指定解释器：
-    python tests/test_parse.py
+
+⚠️ 这些逻辑现在住在 app/links.py（纯标准库）里 —— 所以本测试**不需要**
+fastapi / p115client 就能跑，改完随手就能验。
 
 覆盖点：
   - 40 位 hex / 32 位 base32 的磁力 hash 归一化（含大小写）
@@ -12,6 +13,7 @@
   - 多条【紧挨着】粘贴（直接拼接 / 逗号 / 顿号 / 零宽字符）也能拆开（2026-10-05 修）
   - ed2k / http 识别，115 自身链接排除
   - 空输入 / 纯文字返回空
+  - **中文暗号还原后能正常进入解析**（百家姓 / 核心价值观 / 佛曰，2026-10-05 加）
 """
 import base64
 import binascii
@@ -19,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from server import parse_links, normalize_hash, fix_magnet  # noqa: E402
+from links import fix_magnet, normalize_hash, parse_links  # noqa: E402
 
 fail = []
 
@@ -116,6 +118,41 @@ for name, txt, want in STICKY:
 print("\n=== 空输入 ===")
 check("空串返回空列表", parse_links(""), [])
 check("纯文字返回空列表", parse_links("今天天气不错"), [])
+
+# =====================================================================
+print("\n=== 中文暗号：还原后进入解析（2026-10-05 加）===")
+# 三种暗号 + 一条裸链接混着粘 —— 这是真实使用姿势（每行一条）
+from cipher import CORE_WORDS  # noqa: E402
+
+LINK = "magnet:?xt=urn:btih:947f7f0b7b7c0090d2252846760fd60eb9a1e75b"
+
+# 百家姓暗号（用官方映射表的反表造）
+_SRC = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-_+=/?#%&*:|"
+_DST = ("赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻"
+        "福水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳唐罗薛伍余米贝姚孟顾尹江钟竺赖")
+B = "".join(dict(zip(_SRC, _DST))[ch] for ch in LINK)
+
+# 核心价值观暗号
+C = "".join(
+    CORE_WORDS[int(n, 16)] if int(n, 16) < 10 else CORE_WORDS[10] + CORE_WORDS[int(n, 16) - 10]
+    for byte in LINK.encode()
+    for n in format(byte, "02x")
+)
+
+MIX = f"{B}\n{C}\nmagnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+items2 = parse_links(MIX)
+print("  识别到：", [(i["type"], i["source"], i["url"][:34]) for i in items2])
+check("混粘共 2 条（百家姓 + 核心价值观 指向同一 hash，合并）", len(items2), 2)
+check("来源被标注为百家姓", items2[0]["source"], "百家姓")
+check("来源被标注为链接", items2[1]["source"], "链接")
+check("暗号解出的 hash 正确", LOWER_OK := (LINK in [i["url"] for i in items2]), True)
+
+only_bjx = parse_links(B)
+check("只粘一条百家姓暗号", len(only_bjx), 1)
+check("只粘一条百家姓暗号 · 来源", only_bjx[0]["source"], "百家姓")
+check("只粘一条百家姓暗号 · url", only_bjx[0]["url"], LINK)
+
+check("裸链接来源标注为「链接」", parse_links("https://example.com/a.zip")[0]["source"], "链接")
 
 print("\n" + ("全部通过" if not fail else f"失败 {len(fail)} 项: {fail}"))
 sys.exit(1 if fail else 0)
