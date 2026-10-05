@@ -160,7 +160,40 @@ def load_config() -> dict:
     bark.setdefault("sound", "")
     bark.setdefault("icon", "")
     bark.setdefault("offline_after", 3)      # ATV 连续失败几次才告警
+
+    _apply_env_overrides(cfg)                # 环境变量优先（docker compose 的 .env 走这里）
     return cfg
+
+
+# 环境变量 -> 配置键的映射。存在的意义：容器里改设备 IP 不必再改 config.json，
+# 直接在 compose 的 environment: 里传（值通常来自 dockge 自动生成的 .env）。
+#
+# 口径（红领巾 2026-10-05 定）：
+#   · **环境变量优先，但只覆盖【非空】的值** —— 没传 / 传空串 ⇒ 保持 config.json 原值。
+#     ⇒ 不破坏现有部署：compose 里写 ${TV_HOST:-}（空默认）也不影响 config.json 生效。
+#   · 只收「设备地址 / 端口」这类**跟部署环境绑定**的项。业务参数（延迟、重试、告警）
+#     仍以 config.json 为准 —— 那些改起来本来就是 deploy.sh cfg，没必要开两个入口。
+#   （另有一个 TVLINK_CONFIG 环境变量在 load_config() 里直接消费，指配置文件路径，不在此列。）
+_ENV_KEYS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ATV_HOST", ("atv", "host")),
+    ("TV_HOST",  ("tv", "host")),
+    ("TV_PORT",  ("tv", "port")),
+)
+
+
+def _apply_env_overrides(cfg: dict) -> None:
+    """把白名单内的环境变量覆盖进 cfg（只覆盖非空值）。"""
+    for env_name, path in _ENV_KEYS:
+        raw = os.environ.get(env_name)
+        if raw is None or raw.strip() == "":
+            continue                          # 未设 / 空串 ⇒ 保留 config.json 的值
+        node = cfg
+        for key in path[:-1]:
+            node = node.setdefault(key, {})
+        old = node.get(path[-1])
+        node[path[-1]] = raw.strip()
+        log.info("环境变量 %s 覆盖 %s：%r → %r",
+                 env_name, ".".join(path), old, node[path[-1]])
 
 
 def load_guard(cfg: dict) -> dict:
