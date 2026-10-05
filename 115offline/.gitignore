@@ -5,3 +5,6 @@ data/
 *.log
 .venv/
 venv/
+# 本机自测脚手架（无头渲染 + mock 桩 + 截图）。含机器相关路径与浏览器 profile，
+# 不进公开仓库；两台靠同步盘共用。见 tools/render/README.md
+tools/
