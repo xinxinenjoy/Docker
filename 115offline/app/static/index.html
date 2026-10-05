@@ -38,8 +38,12 @@
   .brand h1{font-size:17.5px; margin:0; font-weight:700; letter-spacing:.2px}
   .brand p{margin:1px 0 0; font-size:12px; opacity:.82}
   .acctwrap{display:flex; align-items:center; gap:8px}
-  .acctwrap .lb{font-size:12px; opacity:.85}
+  /* ⚠️ `.lb` 必须 nowrap + 不可压缩：全局规则里 `select{width:100%}` 会被子元素继承，
+     `.acct`（下拉）就把整行宽度吃光 ⇒ 标签被挤到 20px 宽、「账号」折成两行
+     （2026-10-05 实测 .lb = 20×37px 才定位到）。 */
+  .acctwrap .lb{font-size:12px; opacity:.85; white-space:nowrap; flex:0 0 auto}
   select.acct{
+    width:auto; flex:0 0 auto;
     background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.34); color:#fff;
     border-radius:10px; padding:8px 11px; font-size:13.5px; max-width:min(52vw,260px);
     font-family:inherit; outline:none;
@@ -410,6 +414,10 @@
       <div id="pickWarn" class="msg err" style="margin-top:9px"></div>
       <ul class="dirlist" id="pickList"></ul>
       <div class="muted" id="pickEmpty" style="display:none; margin-top:12px">这个目录下没有子目录</div>
+      <div style="margin-top:10px; text-align:center">
+        <button class="ghost sm hide" id="pickMore">加载更多</button>
+        <div class="muted" id="pickCount" style="margin-top:6px"></div>
+      </div>
       <label class="f">手动填写目录 ID</label>
       <div class="row">
         <input type="text" id="pickManual" placeholder="wp_path_id，例如 2518445410911234067">
@@ -774,23 +782,51 @@ $('#pickManualGo').onclick = () => {
   renderDirBox();
   $('#picker').classList.remove('open');
 };
-async function pickerLoad(cid) {
+/* `cid` 切换目录时 offset=0；点「加载更多」只传 offset。
+   ⚠️ 115 的 `fs_files` 单次上限 200 条（传 500 也只回 200）⇒ 子目录多的目录必须翻页，
+   否则**静默丢目录**（实测 `115电影` 257 个子目录只显示 200）。 */
+async function pickerLoad(cid, offset) {
   if (!CURRENT) { alert('先在「账号管理」里添加一个 115 账号'); return; }
-  $('#pickList').innerHTML = '<li class="muted" style="justify-content:center">加载中…</li>';
-  $('#pickWarn').className = 'msg err';
-  $('#pickEmpty').style.display = 'none';
+  offset = offset || 0;
+  const ul = $('#pickList');
+  if (!offset) {
+    PICKVIEW = { cid: cid, path: [{ id: '0', name: '根目录' }], items: [], more: false, next: 0, total: null, warning: '' };
+    ul.innerHTML = '<li class="muted" style="justify-content:center">加载中…</li>';
+    $('#pickWarn').className = 'msg err';
+    $('#pickEmpty').style.display = 'none';
+    $('#pickMore').classList.add('hide');
+    $('#pickCount').textContent = '';
+  } else {
+    $('#pickMore').disabled = true;
+    $('#pickMore').textContent = '加载中…';
+    $('#pickMore').classList.remove('hide');
+  }
   try {
-    const r = await api('/accounts/' + CURRENT + '/dirs?cid=' + encodeURIComponent(cid));
-    if (!r.ok) { $('#pickList').innerHTML = ''; $('#pickWarn').className = 'msg err show'; $('#pickWarn').textContent = r.error || '拉取失败'; return; }
-    PICKVIEW = { cid: r.cid || cid, path: r.path || [], items: r.items || [] };
-    renderPicker(r);
+    const r = await api('/accounts/' + CURRENT + '/dirs?cid=' + encodeURIComponent(cid) +
+      '&offset=' + offset + '&limit=200');
+    if (!r.ok) { ul.innerHTML = ''; $('#pickWarn').className = 'msg err show'; $('#pickWarn').textContent = r.error || '拉取失败'; return; }
+    if (!offset) {
+      PICKVIEW.cid = r.cid || cid; PICKVIEW.path = r.path || [];
+    }
+    PICKVIEW.items = PICKVIEW.items.concat(r.items || []);
+    PICKVIEW.more = !!r.has_more;
+    PICKVIEW.next = r.next_offset || 0;
+    PICKVIEW.total = r.total;
+    PICKVIEW.warning = r.warning || '';
+    renderPicker();
   } catch (e) {
-    $('#pickList').innerHTML = '';
+    ul.innerHTML = '';
     $('#pickWarn').className = 'msg err show';
     $('#pickWarn').textContent = '拉取失败：' + e.message;
+  } finally {
+    $('#pickMore').disabled = false;
+    $('#pickMore').textContent = '加载更多';
   }
 }
-function renderPicker(r) {
+$('#pickMore').onclick = () => pickerLoad(PICKVIEW.cid, PICKVIEW.next);
+
+function renderPicker() {
+  const r = PICKVIEW;
   $('#pickCrumbs').innerHTML = (r.path || []).map((p, i, arr) =>
     `<a data-cid="${esc(p.id)}">${esc(p.name)}</a>` + (i < arr.length - 1 ? '<span class="sep">/</span>' : '')
   ).join('');
@@ -807,6 +843,10 @@ function renderPicker(r) {
        <span class="ct">${it.count ? it.count + ' 项' : ''}</span><span class="ct">进入 ›</span>
      </li>`).join('');
   $$('#pickList li').forEach(li => li.onclick = () => pickerLoad(li.dataset.id));
+  $('#pickMore').classList.toggle('hide', !r.more);
+  $('#pickCount').textContent = items.length
+    ? ('已列出 ' + items.length + ' 个子目录' + (r.total ? ' / 共 ' + r.total + ' 项（含文件）' : '') + (r.more ? '，还有更多' : ''))
+    : '';
 }
 $('#btnUseDefault').onclick = () => { PICK = { cid: '', path: [{ id: '0', name: '根目录' }] }; renderDirBox(); };
 $('#btnSetDefault').onclick = async () => {
@@ -1037,24 +1077,34 @@ async function openOrganize(t) {
   }
 }
 
-async function orgLoad(cid) {
-  ORG.sel = new Set();
-  const r = await api('/accounts/' + CURRENT + '/folder?cid=' + encodeURIComponent(cid) + '&limit=200');
+/* 翻页：`cid` 变 ⇒ offset=0（重来）；「加载更多」⇒ 只追加新一页。
+   ⚠️ 115 单次最多 200 条 ⇒ 大目录不翻页会**静默丢内容**。 */
+async function orgLoad(cid, offset) {
+  offset = offset || 0;
+  if (!offset) { ORG.sel = new Set(); ORG.cands = {}; ORG.edits = {}; }
+  const r = await api('/accounts/' + CURRENT + '/folder?cid=' + encodeURIComponent(cid) +
+    '&offset=' + offset + '&limit=200');
   ORG.cid = r.cid;
-  ORG.path = r.path || [];
-  ORG.items = r.items || [];
+  if (!offset) ORG.path = r.path || [];
   ORG.warning = r.warning || '';
-  await orgSuggest();
+  ORG.total = r.total;
+  ORG.next = r.next_offset || 0;
+  ORG.more = !!r.has_more;
+  const fresh = r.items || [];
+  ORG.items = offset ? ORG.items.concat(fresh) : fresh;
+  await orgSuggest(offset ? fresh : null);
   renderOrg();
 }
 
-async function orgSuggest() {
+/* `only` 为空 = 全量算（含顶层）；给了数组 = 只算这批新增的（翻页用，避免重复算） */
+async function orgSuggest(only) {
   if (!ORG) return;
+  const list = only || ORG.items;
   const req = [];
-  if (ORG.root) {
+  if (!only && ORG.root) {
     req.push({ name: ORG.root.name, is_dir: ORG.root.is_dir, series: ORG.series, add_year: ORG.addYear, title: null });
   }
-  ORG.items.forEach(it => req.push({
+  list.forEach(it => req.push({
     name: it.name,
     is_dir: it.is_dir,
     series: ORG.series,
@@ -1066,8 +1116,8 @@ async function orgSuggest() {
     const r = await api('/suggest', { method: 'POST', body: JSON.stringify({ items: req, paren: PAREN }) });
     const out = r.items || [];
     let i = 0;
-    if (ORG.root) { ORG.rootSugg = out[i].suggestions; ORG.rootMedia = out[i].media; i++; }
-    ORG.items.forEach((it, k) => { ORG.cands[it.file_id] = out[i + k] || { suggestions: [] }; });
+    if (!only && ORG.root) { ORG.rootSugg = out[i].suggestions; ORG.rootMedia = out[i].media; i++; }
+    list.forEach((it, k) => { ORG.cands[it.file_id] = out[i + k] || { suggestions: [] }; });
   } catch (e) { /* 建议失败不影响浏览 */ }
 }
 
@@ -1162,6 +1212,14 @@ function renderOrg() {
           '</div></div></div>');
       });
       html.push('</div>');
+      if (ORG.more) {
+        html.push('<div style="margin-top:10px;text-align:center">',
+          '<button class="ghost sm" id="orgMore">加载更多（已列出 ', String(ORG.items.length),
+          ORG.total ? ' / 共 ' + ORG.total + ' 项' : '', '）</button></div>');
+      } else if (ORG.items.length) {
+        html.push('<div class="muted" style="margin-top:9px;text-align:center">已列出全部 ',
+          String(ORG.items.length), ' 项</div>');
+      }
     }
     html.push('<div class="muted" style="margin-top:10px">⚠️ 批量写操作会串行分块执行（组间自动延时），避免触发 115 风控。<br>⚠️ 115 的删除/还原都是**异步任务**：提交成功后，目录与回收站列表要过一会儿才更新。</div></div>');
   }
@@ -1215,6 +1273,12 @@ function bindOrg() {
     doRename([{ file_id: fid, new_name: inp.value, ext: it.is_dir ? null : (it.ext || null) }]);
   });
   $$('#orgBody button[data-enter]').forEach(b => b.onclick = () => orgLoad(b.dataset.enter));
+  const more = $('#orgMore');
+  if (more) more.onclick = async () => {
+    more.disabled = true; more.textContent = '加载中…';
+    try { await orgLoad(ORG.cid, ORG.next); }
+    catch (e) { alert('加载更多失败：' + e.message); more.disabled = false; more.textContent = '加载更多'; }
+  };
 
   const cnt = $('#orgCount');
   if (cnt) cnt.textContent = '已选 ' + ORG.sel.size + ' 项';

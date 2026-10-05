@@ -626,23 +626,31 @@ def _is_folder(node: dict) -> bool:
 
 
 @app.get("/api/accounts/{account_id}/dirs", dependencies=[Depends(auth)])
-def list_dirs(account_id: str, cid: str = "0") -> dict:
+def list_dirs(account_id: str, cid: str = "0", offset: int = 0, limit: int = 200) -> dict:
     """列出 115 某个目录下的**子目录**（供多级下探）。
 
-    `cid=0` 为根。返回 items（子目录）+ path（面包屑，用于逐级回退）。
+    `cid=0` 为根。返回 items（子目录）+ path（面包屑）+ 分页游标。
+
+    ⚠️ 分页是**必须**的，不是优化：`fs_files` 单次最多回 200 条（传 500 也只给 200，
+    2026-10-05 实测 `115电影` 有 257 个子目录、只回 200）⇒ 不翻页会**静默丢目录**。
+    翻页口径用 `next_offset`（= 本次 offset + 本次**原始**返回条数），因为返回里
+    目录/文件是混着的、过滤发生在本地，拿过滤后的条数累加会漏页。
     """
     acc = _find_account(account_id)
     client = _client(acc)
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
     try:
         data = check_response(client.fs_files({
-            "cid": cid, "limit": 500, "offset": 0, "show_dir": 1,
+            "cid": cid, "limit": limit, "offset": offset, "show_dir": 1,
         }))
     except Exception as exc:
         return {"ok": False, "items": [], "path": [], "error": f"{exc}"}
 
+    raw = [n for n in (data.get("data") or []) if isinstance(n, dict)]
     items = []
-    for node in (data.get("data") or []):
-        if not isinstance(node, dict) or not _is_folder(node):
+    for node in raw:
+        if not _is_folder(node):
             continue
         items.append({
             "id": str(node.get("cid")),
@@ -664,9 +672,15 @@ def list_dirs(account_id: str, cid: str = "0") -> dict:
     warning = ""
     if str(cid) not in ("", "0") and len(path) <= 1:
         warning = "这个 id 不是有效目录（115 会静默回落到根目录）"
+
+    next_offset = offset + len(raw)
+    total = data.get("count")
+    has_more = bool(raw) and total is not None and next_offset < int(total)
     return {
         "ok": True, "items": items, "path": path, "cid": str(cid),
-        "count": len(items), "warning": warning,
+        "count": len(items), "total": total,
+        "offset": offset, "next_offset": next_offset, "has_more": has_more,
+        "warning": warning,
     }
 
 
@@ -723,12 +737,19 @@ def browse_folder(account_id: str, cid: str = "0", limit: int = 200, offset: int
             "children": node.get("fc") if is_dir else None,
         })
     items.sort(key=lambda x: (not x["is_dir"], x["name"]))
+    total = data.get("count")
+    next_offset = int(offset) + len(items)
+    has_more = bool(items) and total is not None and next_offset < int(total)
     return {
         "ok": True,
         "cid": str(cid),
         "path": path,
         "items": items,
-        "count": data.get("count"),
+        "count": len(items),
+        "total": total,
+        "offset": int(offset),
+        "next_offset": next_offset,
+        "has_more": has_more,
         "warning": warning,
     }
 
