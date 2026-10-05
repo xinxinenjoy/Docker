@@ -39,6 +39,7 @@ jobs:
           push: true
           tags: |
             xinxinenjoy/atv-tv-power:latest
+            xinxinenjoy/atv-tv-power:1.0
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
