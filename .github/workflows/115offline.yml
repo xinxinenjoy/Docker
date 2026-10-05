@@ -53,6 +53,8 @@ jobs:
           DOCKERHUB_USERNAME: xinxinenjoy
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           HUB_REPO: 115offline
-          README_PATH: 115offline/README.md
+          # 🔴 2026-10-06 红领巾：「dockerhub 里不要写那么多东西，只写用法和功能介绍」
+          #    ⇒ Hub 页面同步精简版 DOCKERHUB.md（只留功能 + 用法），README.md 留在仓库当完整文档。
+          README_PATH: 115offline/DOCKERHUB.md
           SHORT_DESCRIPTION: 自托管 115 离线下载推送工具：网页粘贴磁力，一键推送
         run: python3 .github/scripts/sync-hub-description.py

@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import logging
 import os
 import threading
 import time
@@ -49,6 +50,7 @@ from namer import (
     suggest,
     suggest_episode,
     suggest_file,
+    title_of,
 )
 
 # ----------------------------------------------------------------- 配置
@@ -103,7 +105,7 @@ def _size_text(n: Any) -> str:
     return ""
 
 
-# ------------------------------------------------- 目录列表缓存（只存容器内存，不落盘）
+# ------------------------------------------------- 目录列表缓存（内存热层 + 落盘持久层）
 # 红领巾 2026-10-05：**不要每次点开都扫一遍**，加「扫描」按钮把当前这一层的结果
 # 存到容器里复用。所以：
 #   · 只缓存**当前这一层**的返回，**绝不递归拉整棵树**（递归才是真风控 —— 257 个子
@@ -111,10 +113,74 @@ def _size_text(n: Any) -> str:
 #   · TTL 默认 300 秒（`FOLDER_CACHE_TTL` 可调，设 0 = 永不过期、只能手动刷新）。
 #   · 任何**写操作**（改名 / 删除 / 还原）后立刻失效该账号的缓存 —— 否则会基于旧
 #     列表误操作，这是缓存必须付的代价。
+#
+# 🔴 2026-10-06 红领巾问「缓存是存浏览器还是 docker 目录里」⇒ 答案与改法：
+#    旧版只存**容器内存**（进程字典）⇒ 容器重建/重启就全丢，重新一层层扫。
+#    现在加**落盘持久层**：`DATA_DIR/folder_cache.json`（与 accounts.json 同目录，
+#    已经挂到宿主机）⇒ 容器重建不丢。读永远是内存优先（快），写才同步刷盘；
+#    启动时把盘里的过期条目清掉再加载回内存。
 _FOLDER_TTL = float(os.environ.get("FOLDER_CACHE_TTL") or 300)
 _FOLDER_CACHE_MAX = 600
+_FOLDER_CACHE_FILE = DATA_DIR / "folder_cache.json"
 _folder_cache: dict[tuple, dict] = {}
 _folder_cache_lock = threading.RLock()
+
+
+def _cache_key_str(key: tuple) -> str:
+    """tuple 键 → JSON 对象的 key（tuple 不能直接进 JSON）。"""
+    return "|".join(str(x) for x in key)
+
+
+def _key_str_to_cache_key(s: str) -> tuple:
+    parts = s.split("|")
+    # 键结构固定 6 段：account_id|kind|cid|offset|limit|mode
+    try:
+        return (parts[0], parts[1], parts[2], int(parts[3]), int(parts[4]), parts[5])
+    except (IndexError, ValueError):
+        return (s,)  # 认不出的旧结构 ⇒ 原样包一层，等 TTL 自然过期
+
+
+def _cache_load_disk() -> None:
+    """启动时从盘里恢复缓存（过期的直接丢）。失败不致命 —— 大不了重新扫。"""
+    global _folder_cache
+    if not _FOLDER_CACHE_FILE.exists():
+        return
+    try:
+        raw = json.loads(_FOLDER_CACHE_FILE.read_text("utf-8"))
+        now = time.time()
+        loaded: dict[tuple, dict] = {}
+        for k, rec in (raw or {}).items():
+            try:
+                at = float(rec.get("at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if _FOLDER_TTL > 0 and now - at > _FOLDER_TTL:
+                continue  # 已过期，不恢复
+            ck = _key_str_to_cache_key(k)
+            if len(ck) == 6:
+                loaded[ck] = {"at": at, "payload": rec.get("payload") or {}, "hits": 0}
+        _folder_cache = loaded
+        logging.info("folder cache: restored %d entries from %s", len(loaded), _FOLDER_CACHE_FILE)
+    except Exception as exc:  # 缓存坏了不能影响服务启动
+        logging.warning("folder cache restore failed: %s", exc)
+
+
+def _cache_save_disk_locked() -> None:
+    """把内存缓存刷到盘。⚠️ 调用方必须已持有 `_folder_cache_lock`。"""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _FOLDER_CACHE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(
+                {_cache_key_str(k): {"at": v["at"], "payload": v["payload"]}
+                 for k, v in _folder_cache.items()},
+                ensure_ascii=False,
+            ),
+            "utf-8",
+        )
+        tmp.replace(_FOLDER_CACHE_FILE)
+    except Exception as exc:
+        logging.warning("folder cache save failed: %s", exc)
 
 
 def _cache_key(account_id: str, kind: str, cid: str, offset: int, limit: int,
@@ -148,6 +214,7 @@ def _cache_put(key: tuple, payload: dict) -> None:
             stale = sorted(_folder_cache.items(), key=lambda kv: kv[1]["at"])
             for k, _ in stale[: len(_folder_cache) - _FOLDER_CACHE_MAX]:
                 _folder_cache.pop(k, None)
+        _cache_save_disk_locked()
 
 
 def _cache_drop(account_id: str | None = None) -> int:
@@ -156,6 +223,8 @@ def _cache_drop(account_id: str | None = None) -> int:
         keys = [k for k in _folder_cache if account_id is None or k[0] == str(account_id)]
         for k in keys:
             _folder_cache.pop(k, None)
+        if keys:
+            _cache_save_disk_locked()
     return len(keys)
 
 
@@ -915,6 +984,9 @@ def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int,
             "size_text": "" if is_dir else _size_text(node.get("s")),
             "ext": "" if is_dir else (node.get("ico") or "").strip(),
             "mtime": node.get("t") or "",
+            # `pte` = 115 的「修改时间」（`t` 是创建/添加时间）—— 排序用（红领巾
+            # 2026-10-06：排序要「时间、名称、修改」都支持）。拿不到就回落到 mtime。
+            "ptime": node.get("pte") or node.get("t") or "",
             # ⚠️ 曾经透传 `node["fc"]` 给前端显示「目录 · N 项」——**实测该字段恒为 0**
             #    （2026-10-05 打线上 /folder 实测：根目录 5 个明明有内容的目录全回 0），
             #    显示出来就是个只会说「0 项」的假信息，已从响应里去掉（红领巾要求）。
@@ -1140,6 +1212,11 @@ def suggest_names(body: SuggestIn) -> dict:
             "name": name,
             "is_dir": it.is_dir,
             "suggestions": cands,
+            # 抽出的「片名」单独给一份（不是候选、不进界面按钮）——
+            # 前端拿它当分集文件的「剧名前缀」（根目录片名 → 子目录分集改名）。
+            # 🔴 2026-10-06 起，已规范的名字（`护肝人（2026）` 等）只回「保持原名」，
+            #    suggestions 里不再有 title 档 ⇒ 这个字段就是 rootTitle 的唯一来源。
+            "title": title_of(name) if it.is_dir else None,
             "media": parse_media(name),
             # 只是界面筛选用的提示（命中广告词/域名）—— 绝不据此自动删文件
             "ad_hint": looks_like_ad(name),
@@ -1421,6 +1498,10 @@ def push(body: PushIn) -> dict:
 
 # ----------------------------------------------------------------- 静态
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# 启动时把落盘的目录缓存恢复回内存（过期的丢弃）。放在路由都注册完之后、
+# 对外服务之前 —— 失败只打日志，绝不影响启动。
+_cache_load_disk()
 
 
 if __name__ == "__main__":

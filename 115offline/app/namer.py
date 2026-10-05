@@ -117,8 +117,7 @@ SITE_WORDS = (
 )
 
 # 全部要替换掉的噪声词，长词优先
-_NOISE = tuple(sorted(set(ADS) | set(SITE_WORDS), key=len, reverse=True))
-# ⚠️ 必须用**一个交替正则**一次扫完，不能用 `for w in _NOISE: s.replace(w, " ")`：
+_NOISE = tuple(sorted(set(ADS) | set(SITE_WORDS), key=len, reverse=True))# ⚠️ 必须用**一个交替正则**一次扫完，不能用 `for w in _NOISE: s.replace(w, " ")`：
 #    实测 `最新网址找回：…` 会被 `网址找回` 先吃掉、剩个孤零零的 `最新`
 #    ⇒ 改成 alternation 后是「每个位置取最长匹配」，`最新网址` + `找回` 刚好全覆盖。
 _NOISE_RE = re.compile("|".join(re.escape(w) for w in _NOISE))
@@ -240,8 +239,12 @@ def _is_junk(s: str) -> bool:
 
 
 # 冒号只在「广告提醒句」的语义下才是噪声：`最新网址找回：www.xxx.com`。
-# 正片名里的冒号是正经分隔符，必须留（红领巾 2026-10-05：「一些冒号需要保留」，
+# 正片名里的冒号是正经分隔符，必须**原样保留**（红领巾 2026-10-05：「一些冒号需要保留」，
 # 活案例 `名侦探柯南：犯人犯泽先生` 曾被抹成 `名侦探柯南犯人犯泽先生`）。
+# ⚠️ 2026-10-06 红领巾明确：**全角冒号 `：` 就是他习惯的写法，不要提示改**。
+#   旧版把正片名里的冒号统一成半角 `: `（带空格）⇒ `寂静之地：入侵日（2024）` 会被建议成
+#   `寂静之地:入侵日（2024）`，界面上就冒出一个「改用」胶囊 —— 他要的是**别动它**。
+#   ⇒ 现在只负责「删广告句里的冒号」，**正片名的冒号一个字都不碰**（全角留全角）。
 _COLON_BEFORE_URL_RE = re.compile(
     r"[：:]\s*(?=(?:https?://|www\.|[0-9a-zA-Z\-]+\.(?:com|net|org|cn|cc|tv|me|xyz|top|vip|info|io|la|pw|biz)\b))",
     re.I,
@@ -296,13 +299,15 @@ def _strip_noise(name: str) -> str:
 
 
 def _colon_noise(s: str) -> str:
-    """按**语义**决定冒号去留：广告提醒句里的删掉，正片名里的**保留**（并统一成半角）。
+    """按**语义**决定冒号去留：广告提醒句里的删掉，正片名里的**原样保留**。
 
     删的三种情形（实测都来自「最新网址找回：xxx」这类提醒句）：
       ① 冒号后面紧跟网址 / 域名；
       ② 冒号**前面**那一整段都是广告话术（`最新网址找回：` / `收藏：`）；
       ③ 冒号落在名字结尾（提醒句被拦腰截断）。
-    其余一律保留 ⇒ `名侦探柯南：犯人犯泽先生` 不会被抹成 `名侦探柯南犯人犯泽先生`。
+    其余一律**逐字保留**（全角还是全角、半角还是半角，也不补空格）
+      ⇒ `名侦探柯南：犯人犯泽先生` / `寂静之地：入侵日（2024）` 都不会被改。
+      红领巾 2026-10-06：「全角冒号……不需要提示修改名称，因为我本身就是想这样修改」。
     """
     if not s or (":" not in s and "：" not in s):
         return s
@@ -316,7 +321,7 @@ def _colon_noise(s: str) -> str:
         last_seg = _SEG_SPLIT_RE.split(head)[-1] if head else ""
         if _all_noise(last_seg):                      # ③ 前面整段是广告话术 ⇒ 噪声
             return " "
-        return ": "                                   # 正片名分隔符 ⇒ 保留
+        return m.group(0)                             # 正片名分隔符 ⇒ **原样保留**
 
     return _COLON_RE.sub(repl, s)
 
@@ -372,6 +377,9 @@ def extract_year(name: str) -> str | None:
 # --------------------------------------------------------------------- 片名
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _SEP_SPLIT_RE = re.compile(r"[.\-_·\s]+")
+# 续集号：1~2 位数字的独立段（`寂静之地 2` / `寂静之地2` 里的那个 2）。
+# ⚠️ 4 位年份不会被误收（`_YEAR_RE` 已先删），3 位以上也不会（`\d{1,2}` 限量）。
+_SEQUEL_RE = re.compile(r"^\d{1,2}$")
 
 
 def title_of(name: str) -> str:
@@ -402,11 +410,19 @@ def title_of(name: str) -> str:
         return ""
 
     cjk_segs = [seg for seg in segs if _CJK_RE.search(seg)]
-    keep = cjk_segs if cjk_segs else segs
-    # 纯英文片名时，丢掉纯数字段（多半是年份/分辨率残留）
-    if not cjk_segs:
-        cleaned = [seg for seg in keep if not re.fullmatch(r"\d{1,4}", seg)]
-        keep = cleaned or keep
+
+    # ⚠️ 2026-10-06 修的真 bug：`寂静之地 2（2021）` 会被抽成 `寂静之地` —— **续集号「2」被吃掉**。
+    #    根因：`keep = cjk_segs` 把**所有不含中文的段**一律丢掉，而带空格的续集号是独立一段。
+    #    ⇒ 中文片名时，除中文段外**额外保留紧邻的短序号段**（1~2 位数字 = 续集 / 部数）。
+    #      4 位年份早已被 `_YEAR_RE` 清掉，`1080` 这类 4 位数字也不在 `\d{1,2}` 之内 ⇒ 不会误收。
+    if cjk_segs:
+        first_cjk = next(i for i, seg in enumerate(segs) if _CJK_RE.search(seg))
+        keep = [seg for seg in segs[first_cjk:]
+                if _CJK_RE.search(seg) or _SEQUEL_RE.match(seg)]
+        keep = keep or cjk_segs
+    else:
+        # 纯英文片名时，丢掉纯数字段（多半是年份/分辨率残留）
+        keep = [seg for seg in segs if not re.fullmatch(r"\d{1,4}", seg)] or segs
 
     # ⚠️ 中文段用 `"".join` 会把分隔符一起丢掉：`国家宝藏.收藏版` → `国家宝藏收藏版`
     #    （原来 `.` 丢了没人注意，因为技术标签段本来就被剔掉）。
@@ -415,13 +431,18 @@ def title_of(name: str) -> str:
     #      而 `国家宝藏` + `收藏版` 这种「靠分隔符分出来的两段」→ `国家宝藏.收藏版`。
     if cjk_segs:
         out = keep[0]
+        prev_num = bool(_SEQUEL_RE.match(keep[0]))
         for seg in keep[1:]:
+            seg_cjk = _CJK_RE.search(seg[:1])
             # 相邻两段在中文之间本来就不该无缝拼（中文字→中文字要留分隔符），
-            # 只有「中文 + 数字/英文」这种组合才允许无缝（如 `寒战1994`）
-            if _CJK_RE.search(out[-1:]) and _CJK_RE.search(seg[:1]):
+            # 只有「中文 + 数字/英文」这种组合才允许无缝（如 `寒战1994`）。
+            # ⚠️ 反过来「数字 → 中文」也要断开：`阿凡达 2 水之道` ⇒ `阿凡达2.水之道`
+            #    （否则续集号和副标题会粘成一坨）。
+            if (_CJK_RE.search(out[-1:]) and seg_cjk) or (prev_num and seg_cjk):
                 out += "." + seg
             else:
                 out += seg
+            prev_num = bool(_SEQUEL_RE.match(seg))
         title = out
     else:
         title = " ".join(keep)
@@ -448,6 +469,65 @@ def dir_name(title: str, year: str | None = None, series: bool = False, paren: s
     return title
 
 
+# --------------------------------------------------------------------- 「已经是想要的样子」
+# 🔴 红领巾 2026-10-06 的口径：
+#     「全角冒号、全角半角的括号不需要报错，带系列两个字的不需要报错 —— 这都是我习惯的写法」
+#   他的原话解释是「不需要**提示修改名称**」⇒ 这里判的是**是否已是他要的形态**，
+#   是 ⇒ 不给任何候选（界面就不会冒出「改用 新名」胶囊），只留「保持原名」。
+#
+#   为什么必须显式判定、不能靠「候选==原名」自然过滤：
+#     ① 半角括号 `(2018)`：旧逻辑会推 `（2018）`（全角）当候选 ⇒ 他想留半角就被反复提示。
+#     ② 全角冒号：旧逻辑会把 `：` 改成 `: ` ⇒ 每一次都多一个「改用」。
+#     ③ 带「系列」：`护肝人（系列）` 的 title 抽出来是 `护肝人` ⇒ 会被建议**删掉「（系列）」**，
+#        纯倒退；若这时还带 `add_year`，更会被推成 `护肝人（2026）`。
+_TRAILING_PAREN_RE = re.compile(r"\s*[（(]\s*(系列|(?:(?:19|20)\d{2}))\s*[)）]\s*$")
+_SERIES_MARK_RE = re.compile(r"[（(]\s*系列\s*[)）]")
+
+
+def already_good(name: str) -> bool:
+    """名字是否**已经是红领巾想要的形态**（⇒ 不该给任何「改用」建议）。
+
+    判据（两条都要满足）：
+      ① 形态对：结尾是 `（年份）` / `（系列）`（**全角半角括号都认**），
+         或名字里带 `（系列）` 标记；
+      ② **前半段本身已经干净** —— 去广告后与原文一致、且没有广告特征。
+    ② 是必须的：否则 `护肝人（系列） 6v电影 地址发布页` 这种会被「形态对」蒙混过去、
+      连广告都不清（实测过这种写法）。
+
+    ⚠️ 判 `系列` 时看的是**标记**（`（系列）` / `(系列)`），不是「名字里出现过这两个字」——
+       否则 `系列电影大全` 之类会被误判成「已规范」。
+    """
+    s = (name or "").strip()
+    if not s:
+        return False
+    m = _TRAILING_PAREN_RE.search(s)
+    if m:
+        body = s[: m.start()]
+    else:
+        sm = _SERIES_MARK_RE.search(s)
+        if not sm:
+            return False
+        body = s[: sm.start()] + s[sm.end():]
+    body = body.strip(" .-·_")
+    if not body:
+        return False
+    # 前半段必须已经干净：去广告后不变化、且不含广告特征
+    return clean(body) == body and not _has_ad(body)
+
+
+def _equivalent(a: str, b: str) -> bool:
+    """a 与 b 是否**只是括号全半角 / 冒号全半角 / 多余空格**的差别。
+
+    用于「候选其实等于原名」的判等 —— 避免把纯写法差异当成「需要改」。
+    """
+    def norm(x: str) -> str:
+        x = (x or "").replace("（", "(").replace("）", ")")
+        x = x.replace("：", ":")
+        return _SPACE_RE.sub("", x)
+
+    return norm(a) == norm(b)
+
+
 def suggest(
     name: str,
     add_year: str | None = None,
@@ -458,14 +538,27 @@ def suggest(
     """给出目录名候选（供预览页挑选或直接编辑）。
 
     `add_year` 是「原名里查不到年份」时的兜底（用任务的添加年份）。
+
+    🔴 名字已经是红领巾要的形态（`already_good`）⇒ **只给「保持原名」**，
+       不给任何「改用 X」候选（2026-10-06 他的明确要求）。
     """
     title = (title_override or title_of(name) or clean(name)).strip()
     year_in_name = extract_year(clean(name))
     out: list[dict] = []
 
     def push(mode: str, label: str, value: str, hint: str = "") -> None:
-        if value and all(o["name"] != value for o in out):
-            out.append({"mode": mode, "label": label, "name": value, "hint": hint})
+        if not value:
+            return
+        if any(o["name"] == value for o in out):
+            return
+        # 与原名只是写法差异（括号/冒号全半角、空格）⇒ 不算候选
+        if mode != "keep" and _equivalent(value, name):
+            return
+        out.append({"mode": mode, "label": label, "name": value, "hint": hint})
+
+    # 已经是想要的形态 ⇒ 不给候选（界面只显示「无需改动」）
+    if already_good(name) and not series and not title_override:
+        return [{"mode": "keep", "label": "保持原名", "name": name}]
 
     if series:
         push("series", "系列", f"{sanitize_name(title)}{paren_wrap('系列', paren)}", "多部/多季共用片名")
@@ -475,6 +568,8 @@ def suggest(
         push("title_addyear", "片名+添加年份", dir_name(title, add_year, paren=paren), "原名没有年份，用任务添加年")
     push("title", "只留片名", dir_name(title, None, paren=paren))
     push("keep", "保持原名", name)
+    if not out:
+        out.append({"mode": "keep", "label": "保持原名", "name": name})
     return out
 
 
@@ -505,6 +600,10 @@ def suggest_file(
     name = filename or ""
     if is_episode_file(name):
         return suggest_episode(name, series_title)
+    # 已经是想要的形态（`片名（年份）.ext` / 带「系列」）⇒ 不给候选
+    # （红领巾 2026-10-06：这些是他习惯的写法，不该提示修改）
+    if already_good(_split_ext(name)[0]):
+        return [{"mode": "keep", "label": "保持原名", "name": name}]
     stem, ext = _split_ext(name)
     cleaned = clean(stem)
     raw = _strip_noise(name)
@@ -516,8 +615,14 @@ def suggest_file(
     out: list[dict] = []
 
     def push(mode: str, label: str, value: str, hint: str = "") -> None:
-        if value and value != name and all(o["name"] != value for o in out):
-            out.append({"mode": mode, "label": label, "name": value, "hint": hint})
+        if not value or value == name:
+            return
+        if any(o["name"] == value for o in out):
+            return
+        # 与原名只是写法差异（括号/冒号全半角）⇒ 不算候选
+        if _equivalent(value, name):
+            return
+        out.append({"mode": mode, "label": label, "name": value, "hint": hint})
 
     def with_ext(v: str) -> str:
         return f"{v}.{ext}" if ext else v
@@ -536,7 +641,6 @@ def suggest_file(
     if all(o["name"] != name for o in out):
         out.append({"mode": "keep", "label": "保持原名", "name": name})
     return out
-
 
 # --------------------------------------------------------------------- 分集文件
 def is_episode_file(filename: str) -> bool:
