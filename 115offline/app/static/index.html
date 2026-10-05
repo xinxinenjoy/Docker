@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>115 离线推送</title>
+<style>
+  :root{
+    --bg:#f5f6fa; --card:#fff; --line:#e5e7eb; --text:#111827; --sub:#6b7280;
+    --brand:#4f46e5; --brand-d:#4338ca; --ok:#059669; --err:#dc2626; --warn:#d97706;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    padding-bottom:calc(64px + env(safe-area-inset-bottom));
+  }
+  header{
+    position:sticky; top:0; z-index:20; background:var(--brand); color:#fff;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 12px;
+    display:flex; align-items:center; gap:10px;
+  }
+  header h1{font-size:17px; margin:0; font-weight:600; flex:1}
+  header .acct{
+    background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.3); color:#fff;
+    border-radius:9px; padding:6px 10px; font-size:13px; max-width:46vw;
+  }
+  header .acct option{color:#111827}
+  main{padding:14px 14px 8px}
+  .card{background:var(--card); border-radius:var(--radius); padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(16,24,40,.06)}
+  .card h2{font-size:13px; margin:0 0 10px; color:var(--sub); font-weight:600; letter-spacing:.4px}
+  textarea{
+    width:100%; min-height:150px; resize:vertical; border:1px solid var(--line); border-radius:10px;
+    padding:11px; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:#fbfbfd; color:var(--text); outline:none;
+  }
+  textarea:focus{border-color:var(--brand); background:#fff}
+  input[type=text],input[type=password],select{
+    width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 11px;
+    font-size:14px; background:#fbfbfd; color:var(--text); outline:none;
+  }
+  input:focus,select:focus{border-color:var(--brand); background:#fff}
+  label.f{display:block; font-size:12px; color:var(--sub); margin:10px 0 5px}
+  button{
+    border:0; border-radius:10px; padding:11px 14px; font-size:14px; font-weight:600;
+    background:var(--brand); color:#fff; cursor:pointer; font-family:inherit;
+  }
+  button:active{background:var(--brand-d)}
+  button:disabled{opacity:.5}
+  button.ghost{background:#eef0f7; color:#374151}
+  button.danger{background:#fee2e2; color:var(--err)}
+  button.wide{width:100%; padding:14px; font-size:16px}
+  .row{display:flex; gap:9px; align-items:center}
+  .row.wrap{flex-wrap:wrap}
+  .muted{color:var(--sub); font-size:12px}
+  .pill{display:inline-block; font-size:11px; padding:2px 7px; border-radius:99px; background:#eef0f7; color:#4b5563; margin-right:6px; vertical-align:1px}
+  .pill.magnet{background:#ede9fe; color:#6d28d9}
+  .pill.ed2k{background:#dbeafe; color:#1d4ed8}
+  .pill.http{background:#dcfce7; color:#15803d}
+  .list{margin:8px 0 0; padding:0; list-style:none; max-height:280px; overflow:auto}
+  .list li{
+    display:flex; gap:9px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #f1f2f6; font-size:12.5px;
+  }
+  .list li:last-child{border-bottom:0}
+  .list .u{flex:1; min-width:0; word-break:break-all; color:#374151; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px}
+  .list .x{color:var(--sub); cursor:pointer; padding:0 4px; font-size:15px; line-height:1}
+  .empty{color:var(--sub); font-size:13px; text-align:center; padding:16px 0}
+  .msg{margin-top:10px; padding:10px 12px; border-radius:10px; font-size:13px; display:none}
+  .msg.show{display:block}
+  .msg.ok{background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0}
+  .msg.err{background:#fef2f2; color:#991b1b; border:1px solid #fecaca}
+  .msg.info{background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe}
+  .task{padding:10px 0; border-bottom:1px solid #f1f2f6; font-size:13px}
+  .task:last-child{border-bottom:0}
+  .task .n{word-break:break-all; margin-bottom:3px}
+  .task .m{font-size:11.5px; color:var(--sub); display:flex; gap:8px; flex-wrap:wrap}
+  nav{
+    position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex;
+    background:#fff; border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  nav button{
+    flex:1; background:none; color:var(--sub); border-radius:0; padding:13px 0; font-size:12.5px; font-weight:500;
+  }
+  nav button.on{color:var(--brand); font-weight:700}
+  .hide{display:none !important}
+  details.adv summary{font-size:12.5px; color:var(--brand); cursor:pointer; padding:4px 0; list-style:none}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary::before{content:"▸ "; }
+  details.adv[open] summary::before{content:"▾ "}
+  .mask{position:fixed; inset:0; background:rgba(17,24,39,.55); z-index:50; display:flex; align-items:center; justify-content:center; padding:20px}
+  .mask .box{background:#fff; border-radius:16px; padding:20px; width:100%; max-width:340px}
+  .mask .box h3{margin:0 0 12px; font-size:16px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>115 离线推送</h1>
+  <select class="acct" id="acctSel"></select>
+</header>
+
+<main>
+  <!-- ============ 推送 ============ -->
+  <section id="tab-push">
+    <div class="card">
+      <h2>粘贴磁力 / 链接</h2>
+      <textarea id="input" placeholder="支持一次粘贴多条，每行一条：&#10;magnet:?xt=urn:btih:...&#10;magnet:?xt=urn:btih:...（32 位自动转 40 位）&#10;ed2k://|file|...&#10;https://..."></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost" id="btnParse">解析</button>
+        <button class="ghost" id="btnClear">清空</button>
+        <span class="muted" id="parseInfo"></span>
+      </div>
+      <ul class="list" id="parsed"></ul>
+    </div>
+
+    <div class="card">
+      <h2>保存位置</h2>
+      <select id="dirSel">
+        <option value="">115 默认下载目录</option>
+      </select>
+      <details class="adv" style="margin-top:8px">
+        <summary>手动填写目录 ID / 刷新目录</summary>
+        <label class="f">目录 ID（wp_path_id）</label>
+        <input type="text" id="dirManual" placeholder="留空 = 默认下载目录">
+        <button class="ghost" id="btnLoadDirs" style="margin-top:8px">从 115 拉取目录列表</button>
+      </details>
+    </div>
+
+    <button class="wide" id="btnPush">推送到 115 离线下载</button>
+    <div class="msg" id="pushMsg"></div>
+  </section>
+
+  <!-- ============ 任务 ============ -->
+  <section id="tab-tasks" class="hide">
+    <div class="card">
+      <h2>离线任务</h2>
+      <div class="row" style="margin-bottom:10px">
+        <select id="taskStat" style="flex:1">
+          <option value="0">全部</option>
+          <option value="12">进行中</option>
+          <option value="10">已完成</option>
+          <option value="1">已失败</option>
+        </select>
+        <button class="ghost" id="btnTasks">刷新</button>
+      </div>
+      <div id="taskList"><div class="empty">点「刷新」加载</div></div>
+    </div>
+  </section>
+
+  <!-- ============ 账号 ============ -->
+  <section id="tab-accounts" class="hide">
+    <div class="card">
+      <h2>添加账号</h2>
+      <label class="f">备注名</label>
+      <input type="text" id="newName" placeholder="例如：主号 / 小明">
+      <label class="f">Cookie</label>
+      <textarea id="newCookie" style="min-height:90px" placeholder="从浏览器 F12 → Network → 任意 115 请求的 Cookie 里复制，需含 UID / CID / SEID"></textarea>
+      <button class="wide" id="btnAddAcct" style="margin-top:10px">添加</button>
+      <div class="msg" id="acctMsg"></div>
+    </div>
+    <div class="card">
+      <h2>已配置账号</h2>
+      <div id="acctList"><div class="empty">还没有账号</div></div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button data-tab="push" class="on">推送</button>
+  <button data-tab="tasks">任务</button>
+  <button data-tab="accounts">账号</button>
+</nav>
+
+<script>
+const $  = (s) => document.querySelector(s);
+const TOKEN_KEY = 'p115_token';
+let ACCOUNTS = [];
+let PARSED = [];
+let CURRENT = null;
+
+/* ---------------- 请求封装 ---------------- */
+async function api(path, opts = {}) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch('/api' + path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) { askToken(); throw new Error('需要访问口令'); }
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
+  if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+  return data;
+}
+
+function toast(el, type, text) {
+  el.className = 'msg show ' + type;
+  el.textContent = text;
+}
+
+/* ---------------- 口令 ---------------- */
+function askToken() {
+  if (document.querySelector('.mask')) return;
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+  mask.innerHTML = `<div class="box">
+      <h3>需要访问口令</h3>
+      <input type="password" id="tk" placeholder="请输入访问口令">
+      <button class="wide" id="tkOk" style="margin-top:12px">进入</button>
+    </div>`;
+  document.body.appendChild(mask);
+  $('#tkOk').onclick = () => {
+    localStorage.setItem(TOKEN_KEY, $('#tk').value.trim());
+    mask.remove();
+    boot();
+  };
+}
+
+/* ---------------- 账号 ---------------- */
+async function loadAccounts() {
+  ACCOUNTS = (await api('/accounts')).items || [];
+  const sel = $('#acctSel');
+  sel.innerHTML = '';
+  if (!ACCOUNTS.length) {
+    sel.innerHTML = '<option value="">未配置账号</option>';
+    CURRENT = null;
+  } else {
+    ACCOUNTS.forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = a.name + (a.nickname ? '（' + a.nickname + '）' : '');
+      sel.appendChild(o);
+    });
+    if (!CURRENT || !ACCOUNTS.some(a => a.id === CURRENT)) CURRENT = ACCOUNTS[0].id;
+    sel.value = CURRENT;
+  }
+  renderAccounts();
+}
+$('#acctSel').onchange = () => { CURRENT = $('#acctSel').value; loadDirs(); };
+
+function renderAccounts() {
+  const box = $('#acctList');
+  if (!ACCOUNTS.length) { box.innerHTML = '<div class="empty">还没有账号</div>'; return; }
+  box.innerHTML = '';
+  ACCOUNTS.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'task';
+    row.innerHTML = `<div class="n">${esc(a.name)}</div>
+      <div class="m"><span>尾号 ${esc(a.cookie_tail)}</span><span>${esc(a.checked || '未校验')}</span></div>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost" data-act="check" data-id="${a.id}">校验</button>
+        <button class="danger" data-act="del" data-id="${a.id}">删除</button>
+      </div>`;
+    box.appendChild(row);
+  });
+  box.querySelectorAll('button[data-act]').forEach(btn => {
+    btn.onclick = async () => {
+      const { act, id } = btn.dataset;
+      if (act === 'del') {
+        if (!confirm('确定删除这个账号？')) return;
+        await api('/accounts/' + id, { method: 'DELETE' });
+      } else {
+        btn.disabled = true; btn.textContent = '校验中…';
+        try {
+          const r = await api('/accounts/' + id + '/check', { method: 'POST' });
+          alert(r.ok ? '✅ Cookie 有效' + (r.nickname ? '：' + r.nickname : '') : '❌ Cookie 无效或已过期');
+        } catch (e) { alert('校验失败：' + e.message); }
+        btn.disabled = false; btn.textContent = '校验';
+      }
+      await loadAccounts();
+    };
+  });
+}
+
+$('#btnAddAcct').onclick = async () => {
+  const name = $('#newName').value.trim();
+  const cookie = $('#newCookie').value.trim();
+  const msg = $('#acctMsg');
+  if (!name || !cookie) { toast(msg, 'err', '备注名和 Cookie 都要填'); return; }
+  try {
+    toast(msg, 'info', '添加并校验中…');
+    await api('/accounts', { method: 'POST', body: JSON.stringify({ name, cookie }) });
+    $('#newName').value = ''; $('#newCookie').value = '';
+    toast(msg, 'ok', '添加成功');
+    await loadAccounts(); await loadDirs();
+  } catch (e) { toast(msg, 'err', '添加失败：' + e.message); }
+};
+
+/* ---------------- 目录 ---------------- */
+async function loadDirs() {
+  const sel = $('#dirSel');
+  sel.innerHTML = '<option value="">115 默认下载目录</option>';
+  if (!CURRENT) return;
+  try {
+    const r = await api('/accounts/' + CURRENT + '/dirs?cid=0');
+    if (!r.ok) return;
+    (r.items || []).forEach(it => {
+      const o = document.createElement('option');
+      o.value = it.id; o.textContent = '📁 ' + it.name;
+      sel.appendChild(o);
+    });
+  } catch {}
+}
+$('#btnLoadDirs').onclick = async () => {
+  if (!CURRENT) { alert('先添加账号'); return; }
+  const r = await api('/accounts/' + CURRENT + '/dirs?cid=0');
+  const sel = $('#dirSel');
+  if (!r.ok) { alert('拉取失败：' + (r.error || '未知错误')); return; }
+  sel.innerHTML = '<option value="">115 默认下载目录</option>';
+  (r.items || []).forEach(it => {
+    const o = document.createElement('option');
+    o.value = it.id; o.textContent = '📁 ' + it.name;
+    sel.appendChild(o);
+  });
+  alert('拉到 ' + (r.items || []).length + ' 个目录');
+};
+
+/* ---------------- 解析 ---------------- */
+$('#btnParse').onclick = async () => {
+  const text = $('#input').value;
+  if (!text.trim()) { PARSED = []; renderParsed(); return; }
+  try {
+    const r = await api('/parse', { method: 'POST', body: JSON.stringify({ text }) });
+    PARSED = r.items || [];
+    $('#parseInfo').textContent = '解析到 ' + PARSED.length + ' 条';
+    renderParsed();
+  } catch (e) { $('#parseInfo').textContent = '解析失败：' + e.message; }
+};
+
+$('#btnClear').onclick = () => {
+  $('#input').value = ''; PARSED = []; $('#parseInfo').textContent = ''; renderParsed();
+};
+
+function renderParsed() {
+  const ul = $('#parsed');
+  if (!PARSED.length) { ul.innerHTML = ''; return; }
+  ul.innerHTML = '';
+  PARSED.forEach((p, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="pill ${p.type}">${p.type}</span>
+      <span class="u">${esc(short(p.url))}${p.changed ? ' <span class="muted">（已修正 40 位）</span>' : ''}</span>
+      <span class="x" data-i="${i}">✕</span>`;
+    ul.appendChild(li);
+  });
+  ul.querySelectorAll('.x').forEach(x => {
+    x.onclick = () => { PARSED.splice(+x.dataset.i, 1); $('#parseInfo').textContent = '剩 ' + PARSED.length + ' 条'; renderParsed(); };
+  });
+}
+
+function short(u) { return u.length > 90 ? u.slice(0, 88) + '…' : u; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/* ---------------- 推送 ---------------- */
+$('#btnPush').onclick = async () => {
+  const msg = $('#pushMsg');
+  if (!CURRENT) { toast(msg, 'err', '先在「账号」里添加一个 115 账号'); return; }
+  if (!$('#input').value.trim() && !PARSED.length) { toast(msg, 'err', '先粘贴磁力链接'); return; }
+  const wp = ($('#dirManual').value.trim() || $('#dirSel').value || '');
+  const btn = $('#btnPush');
+  btn.disabled = true;
+  toast(msg, 'info', '推送中…');
+  try {
+    const r = await api('/push', {
+      method: 'POST',
+      body: JSON.stringify({ account_id: CURRENT, text: $('#input').value, wp_path_id: wp }),
+    });
+    toast(msg, r.ok ? 'ok' : 'err',
+      (r.ok ? '✅ 已推送 ' + r.count + ' 条到 115 离线下载' : '⚠️ 115 返回异常：' + (r.message || '未知')) +
+      (r.message && r.ok ? '（' + r.message + '）' : ''));
+    if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; }
+  } catch (e) {
+    toast(msg, 'err', '推送失败：' + e.message);
+  }
+  btn.disabled = false;
+};
+
+/* ---------------- 任务 ---------------- */
+$('#btnTasks').onclick = async () => {
+  if (!CURRENT) { $('#taskList').innerHTML = '<div class="empty">先添加账号</div>'; return; }
+  $('#taskList').innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const r = await api('/accounts/' + CURRENT + '/tasks?stat=' + $('#taskStat').value);
+    const raw = r.raw || {};
+    const list = raw.data || raw.list || raw.tasks || [];
+    if (!Array.isArray(list) || !list.length) { $('#taskList').innerHTML = '<div class="empty">没有任务</div>'; return; }
+    const box = $('#taskList'); box.innerHTML = '';
+    list.forEach(t => {
+      const name = t.name || t.file_name || t.url || '(未命名)';
+      const status = t.status_text || t.status || t.state || '';
+      const pct = t.percent != null ? t.percent + '%' : (t.progress != null ? t.progress + '%' : '');
+      const div = document.createElement('div');
+      div.className = 'task';
+      div.innerHTML = `<div class="n">${esc(name)}</div>
+        <div class="m"><span>${esc(status)}</span>${pct ? '<span>' + esc(pct) + '</span>' : ''}</div>`;
+      box.appendChild(div);
+    });
+  } catch (e) { $('#taskList').innerHTML = '<div class="empty">失败：' + esc(e.message) + '</div>'; }
+};
+
+/* ---------------- Tab ---------------- */
+document.querySelectorAll('nav button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    ['push', 'tasks', 'accounts'].forEach(t => {
+      $('#tab-' + t).classList.toggle('hide', t !== b.dataset.tab);
+    });
+  };
+});
+
+/* ---------------- 启动 ---------------- */
+async function boot() {
+  try {
+    const cfg = await api('/config');
+    if (cfg.need_auth && !localStorage.getItem(TOKEN_KEY)) { askToken(); return; }
+    await loadAccounts();
+    await loadDirs();
+  } catch (e) {
+    if (e.message !== '需要访问口令') console.error(e);
+  }
+}
+boot();
+</script>
+</body>
+</html>

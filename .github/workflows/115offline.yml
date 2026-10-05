@@ -1,0 +1,44 @@
+name: 115offline
+
+# 改 115offline/ 下的东西才触发（monorepo 里一个项目一个 workflow）
+on:
+  push:
+    branches: [main]
+    paths:
+      - '115offline/**'
+      - '.github/workflows/115offline.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 跨架构构建靠 QEMU —— arm64 / armv7 的层都在 amd64 runner 上模拟跑出来的
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: xinxinenjoy
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./115offline
+          # ⚠️ 三个平台都要：amd64 = PC/NAS/云服务器，arm64 = 树莓派4/5+Apple Silicon，
+          #    arm/v7 = 老树莓派3/32位ARM盒子。理由见 compose-project-sop.md §八 ③
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          # 发新版时在这里加/改 tag
+          tags: |
+            xinxinenjoy/115offline:latest
+            xinxinenjoy/115offline:1.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

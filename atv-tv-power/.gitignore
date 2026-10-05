@@ -1,0 +1,14 @@
+keys/
+__pycache__/
+*.pyc
+*.log
+
+# 运行时配置：含 Apple TV / 电视的局域网 IP、配对凭据、Bark key
+# ⇒ 公开仓库里只放 config.example.json（已脱敏）
+config.json
+
+# AI 工作目录（含本机工作日志）
+.workbuddy/
+
+# 一次性排障探针：硬编码了本机设备 IP 与本机绝对路径，只在实际排障时用
+tools/probe/

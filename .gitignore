@@ -1,0 +1,40 @@
+# ============================================================================
+# 本仓库是【公开】仓库 ⇒ 凡是含本机信息（绝对路径 / 内网地址 / 凭据 / 主机名）的
+# 东西一律不进 git。各项目自己的部署细节写在 DEPLOY-LOCAL.md，同样不入库。
+# ============================================================================
+
+# ── 本机部署专用：含绝对路径与宿主机布局，只在本机用 ──
+deploy.sh
+**/deploy.sh
+compose.yaml
+**/compose.yaml
+TODO.md
+**/TODO.md
+DEPLOY-LOCAL.md
+**/DEPLOY-LOCAL.md
+
+# ── 凭据 / 运行数据（绝不入库）──
+.env
+**/.env
+keys/
+**/keys/
+config.json
+**/config.json
+data/
+**/data/
+*.log
+
+# ── AI 工作目录（含本机工作日志）──
+.workbuddy/
+**/.workbuddy/
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── OS 垃圾 ──
+Thumbs.db
+desktop.ini
+.DS_Store

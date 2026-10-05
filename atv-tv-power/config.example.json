@@ -1,0 +1,31 @@
+{
+  "delay_seconds": 5,
+  "poll_seconds": 30,
+  "retries": 3,
+  "retry_interval": 5,
+  "reconnect_delay": 30,
+  "atv": {
+    "host": "192.168.1.100",
+    "credentials": "（留空由程序首次配对生成，或从 keys/atv_credentials.json 填）"
+  },
+  "tv": {
+    "host": "192.168.1.101",
+    "port": 6095,
+    "timeout": 4,
+    "verify_delay": 4
+  },
+  "bark": {
+    "enabled": true,
+    "server": "https://api.day.app",
+    "key": "",
+    "key_file": "keys/bark.json",
+    "group": "docker",
+    "sound": "healthnotification",
+    "icon": "https://example.com/icon.png",
+    "offline_after": 3
+  },
+  "guard": {
+    "enabled": true,
+    "on_unknown": "skip"
+  }
+}
