@@ -117,8 +117,15 @@ _folder_cache: dict[tuple, dict] = {}
 _folder_cache_lock = threading.RLock()
 
 
-def _cache_key(account_id: str, kind: str, cid: str, offset: int, limit: int) -> tuple:
-    return (str(account_id), kind, str(cid), int(offset), int(limit))
+def _cache_key(account_id: str, kind: str, cid: str, offset: int, limit: int,
+               mode: str = "") -> tuple:
+    """缓存键。
+
+    ⚠️ `mode`（`dirs` = 只列目录 / `files` = 目录+文件）必须进键：
+       同一层在两种视图下返回的**条数都不一样**（`nf=1` 时 115 只回目录），
+       共用一份缓存会串味 —— 点「显示文件」却拿到只有目录的旧结果。
+    """
+    return (str(account_id), kind, str(cid), int(offset), int(limit), str(mode or ""))
 
 
 def _cache_get(key: tuple):
@@ -168,9 +175,9 @@ def _ts_text(ts: float) -> str:
 
 
 def _served(kind: str, account_id: str, cid: str, offset: int, limit: int,
-            refresh: bool, producer) -> dict:
+            refresh: bool, producer, mode: str = "") -> dict:
     """缓存优先：命中且没过期就直接给；否则现拉一次并写进缓存。"""
-    key = _cache_key(account_id, kind, cid, offset, limit)
+    key = _cache_key(account_id, kind, cid, offset, limit, mode)
     if not refresh:
         hit = _cache_get(key)
         if hit:
@@ -430,6 +437,8 @@ class ScanIn(BaseModel):
     """扫描（把当前这一层的目录列表存进容器缓存）。"""
     cid: str = "0"
     limit: int = Field(default=200, ge=1, le=200)
+    # `dirs` = 只要目录（115 端 `nf=1`，文件不拉回来）；默认 `files` = 目录 + 文件
+    mode: str = "files"
 
 
 # ----------------------------------------------------------------- 页面
@@ -458,8 +467,10 @@ def scan_folder(account_id: str, body: ScanIn) -> dict:
     红领巾 2026-10-05 的原话就是「扫描只针对当前所处文件夹」。
     """
     started = time.time()
+    mode = "dirs" if body.mode == "dirs" else "files"
     payload = _served("folder", account_id, body.cid, 0, body.limit, True,
-                      lambda: _browse_folder_impl(account_id, body.cid, body.limit, 0))
+                      lambda: _browse_folder_impl(account_id, body.cid, body.limit, 0, mode),
+                      mode=mode)
     items = payload.get("items") or []
     dirs = sum(1 for x in items if x.get("is_dir"))
     return {
@@ -834,8 +845,15 @@ def _list_dirs_impl(account_id: str, cid: str, offset: int, limit: int) -> dict:
 
 @app.get("/api/accounts/{account_id}/folder", dependencies=[Depends(auth)])
 def browse_folder(account_id: str, cid: str = "0", limit: int = 200, offset: int = 0,
-                  refresh: int = 0) -> dict:
-    """列出某目录下的**目录 + 文件**（浏览 / 整理面板用）。
+                  refresh: int = 0, mode: str = "files") -> dict:
+    """列出某目录下的内容（浏览 / 整理面板用）。
+
+    `mode`（红领巾 2026-10-05：原意是「避免每次打开某个目录都拉取内部的所有文件」）
+      · `files`（默认）= 目录 + 文件，走 `show_dir=1`
+      · `dirs`         = **只要目录**，走 115 的 `nf=1`（服务端过滤，文件**根本没被拉回来**）
+    ⚠️ `nf=1` 是 115 自己的参数（p115client 文档：`nf` 「不要显示文件（即仅显示目录）」）
+       ⇒ 这不是「拉回来再丢掉」，而是**真的少拉一半数据**。
+       两种 mode 各自独立缓存（见 `_cache_key` 的 `mode` 维度）。
 
     走容器缓存：命中且没过期就直接给（`from_cache=true`），`refresh=1` 强制重拉。
     缓存策略与理由见上方「目录列表缓存」小节。
@@ -849,16 +867,22 @@ def browse_folder(account_id: str, cid: str = "0", limit: int = 200, offset: int
          实测踩过 —— 有个任务的 file_id 就是这么「看起来正常、其实列的是根目录」。
     """
     return _served("folder", account_id, cid, offset, limit, bool(refresh),
-                   lambda: _browse_folder_impl(account_id, cid, limit, offset))
+                   lambda: _browse_folder_impl(account_id, cid, limit, offset, mode),
+                   mode=("dirs" if mode == "dirs" else "files"))
 
 
-def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int) -> dict:
+def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int,
+                        mode: str = "files") -> dict:
     acc = _find_account(account_id)
     client = _client(acc)
     limit = max(1, min(int(limit), 200))
+    dirs_only = mode == "dirs"
     try:
         data = check_response(client.fs_files({
             "cid": cid, "limit": limit, "offset": int(offset), "show_dir": 1,
+            # ⚠️ `nf=1` = 115 原生的「不要显示文件（仅显示目录）」⇒ 文件根本不会被拉回来。
+            #    这是本工具「别一打开目录就拉全部文件」的正解（服务端过滤，不是拉回来再丢）。
+            **({"nf": 1} if dirs_only else {}),
         }))
     except Exception as exc:
         raise HTTPException(502, f"读取目录失败：{exc}") from exc
@@ -911,6 +935,11 @@ def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int) -> d
         "next_offset": next_offset,
         "has_more": has_more,
         "warning": warning,
+        # 这一层的**真实构成**（115 在 `nf=1` 时会给 folder_count / file_count，
+        # 两者都在 `data` 顶层）—— 前端拿它显示「目录 x · 文件 y」，不用再猜。
+        "dirs_only": dirs_only,
+        "folder_count": data.get("folder_count"),
+        "file_count": data.get("file_count"),
     }
 
 

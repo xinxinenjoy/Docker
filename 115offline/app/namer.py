@@ -123,6 +123,25 @@ _NOISE = tuple(sorted(set(ADS) | set(SITE_WORDS), key=len, reverse=True))
 #    ⇒ 改成 alternation 后是「每个位置取最长匹配」，`最新网址` + `找回` 刚好全覆盖。
 _NOISE_RE = re.compile("|".join(re.escape(w) for w in _NOISE))
 
+# ── 短词 / 长词分开处理（红领巾 2026-10-05：「这类词一般都是广告，
+#    也可以根据**语义**来判断」）───────────────────────────────────────────────
+# 词表**不收窄**（收窄会漏掉真广告），但 2 字词本身也可能是正经作品名的一部分
+# （`收藏版` / `收藏家` / `找回` …）⇒ 短词只在**整段都是广告话术**时才删：
+#    `护肝人.6v电影 … 收藏不迷路` → 段 `收藏` 删干净后为空 ⇒ 删 ✓
+#    `国家宝藏.收藏版`            → 段 `收藏版` 删掉 `收藏` 还剩 `版` ⇒ **保留** ✓
+#    `收藏家.2024`                → 段 `收藏家` 还剩 `家`         ⇒ **保留** ✓
+# 长词（≥3 字：`最新网址` / `电影天堂` / `BT世界网` …）足够特征化，仍全局删。
+_SHORT_NOISE = frozenset(w for w in set(ADS) | set(SITE_WORDS) if len(w) <= 2)
+_LONG_NOISE = frozenset(w for w in set(ADS) | set(SITE_WORDS) if len(w) > 2)
+_NOISE_LONG_RE = re.compile(
+    "|".join(re.escape(w) for w in sorted(_LONG_NOISE, key=len, reverse=True))
+) if _LONG_NOISE else None
+_SHORT_NOISE_RE = re.compile(
+    "|".join(re.escape(w) for w in sorted(_SHORT_NOISE, key=len, reverse=True))
+) if _SHORT_NOISE else None
+# 「一段」= 最长的一串「有内容的字符」（字母 / 数字 / 中日韩字）；标点与分隔符都算边界。
+_SEG_RUN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaffA-Za-z0-9]+")
+
 _BARE_URL_RE = re.compile(r"(?:https?://|www\.)[^\s，。、；;,）)】\]】]+", re.I)
 _BRACKET_RE = re.compile(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)")
 _HOST_HINT_RE = re.compile(
@@ -220,16 +239,86 @@ def _is_junk(s: str) -> bool:
     return s.endswith(("：", ":", "、", "，", ","))
 
 
+# 冒号只在「广告提醒句」的语义下才是噪声：`最新网址找回：www.xxx.com`。
+# 正片名里的冒号是正经分隔符，必须留（红领巾 2026-10-05：「一些冒号需要保留」，
+# 活案例 `名侦探柯南：犯人犯泽先生` 曾被抹成 `名侦探柯南犯人犯泽先生`）。
+_COLON_BEFORE_URL_RE = re.compile(
+    r"[：:]\s*(?=(?:https?://|www\.|[0-9a-zA-Z\-]+\.(?:com|net|org|cn|cc|tv|me|xyz|top|vip|info|io|la|pw|biz)\b))",
+    re.I,
+)
+_COLON_RE = re.compile(r"[：:]")
+_SEG_SPLIT_RE = re.compile(r"[\s.\-_·]+")
+
+
+def _all_noise(seg: str) -> bool:
+    """这一段是不是**整段都是广告话术**（删掉噪声词后一个「有内容的字符」都不剩）。"""
+    return not _core(_NOISE_RE.sub("", seg or ""))
+
+
+def _strip_noise_segmented(s: str) -> str:
+    """短噪声词：**只在「整段皆广告」时才删**（长词已在调用方全局删掉了）。
+
+    判据：把这一段里的短词全刮掉后，还剩不剩「有内容的字符」？
+      剩 ⇒ 短词是正经名字的一部分（`收藏版` 的 `版`）⇒ **整段原样留着**
+      不剩 ⇒ 整段就是广告话术（`收藏`）⇒ 删
+    """
+    if not s or _SHORT_NOISE_RE is None:
+        return s
+
+    def one(m: re.Match) -> str:
+        seg = m.group(0)
+        if not _SHORT_NOISE_RE.search(seg):
+            return seg
+        if _core(_SHORT_NOISE_RE.sub("", seg)):
+            return seg                       # 还有别的内容 ⇒ 短词是名字的一部分，别动
+        return _SHORT_NOISE_RE.sub(" ", seg)
+
+    return _SEG_RUN_RE.sub(one, s)
+
+
 def _strip_noise(name: str) -> str:
-    """删广告 / 站点噪声，**不做「洗完为空就退回原名」的保护**（供 title_of 内部用）。"""
+    """删广告 / 站点噪声，**不做「洗完为空就退回原名」的保护**（供 title_of 内部用）。
+
+    ⚠️ 顺序有讲究，**不能把短词和长词混在一个正则里全局替**：
+       全局替会在分段保护**之前**就把 `收藏` 从 `收藏版` 里挖掉
+       （实测 `国家宝藏.收藏版` 被洗成 `国家宝藏.版`）⇒
+       ⇒ 长词先全局删 → 短词再按段判定。
+    """
     if not name:
         return ""
     s = _strip_bracketed_ad(name)
     s = _BARE_URL_RE.sub(" ", s)
-    s = _NOISE_RE.sub(" ", s)
-    # 全角冒号常出现在「最新网址找回：xxx」这类提醒句里，单独当噪声清掉
-    s = s.replace("：", " ")
+    if _NOISE_LONG_RE is not None:
+        s = _NOISE_LONG_RE.sub(" ", s)
+    s = _strip_noise_segmented(s)
+    s = _colon_noise(s)
     return _tidy(s)
+
+
+def _colon_noise(s: str) -> str:
+    """按**语义**决定冒号去留：广告提醒句里的删掉，正片名里的**保留**（并统一成半角）。
+
+    删的三种情形（实测都来自「最新网址找回：xxx」这类提醒句）：
+      ① 冒号后面紧跟网址 / 域名；
+      ② 冒号**前面**那一整段都是广告话术（`最新网址找回：` / `收藏：`）；
+      ③ 冒号落在名字结尾（提醒句被拦腰截断）。
+    其余一律保留 ⇒ `名侦探柯南：犯人犯泽先生` 不会被抹成 `名侦探柯南犯人犯泽先生`。
+    """
+    if not s or (":" not in s and "：" not in s):
+        return s
+    s = _COLON_BEFORE_URL_RE.sub(" ", s)
+
+    def repl(m: re.Match) -> str:
+        head = s[:m.start()].rstrip()
+        tail = s[m.end():]
+        if not _core(head) or not _core(tail):        # ①②前/后没内容 ⇒ 噪声
+            return " "
+        last_seg = _SEG_SPLIT_RE.split(head)[-1] if head else ""
+        if _all_noise(last_seg):                      # ③ 前面整段是广告话术 ⇒ 噪声
+            return " "
+        return ": "                                   # 正片名分隔符 ⇒ 保留
+
+    return _COLON_RE.sub(repl, s)
 
 
 def clean(name: str) -> str:
@@ -319,7 +408,23 @@ def title_of(name: str) -> str:
         cleaned = [seg for seg in keep if not re.fullmatch(r"\d{1,4}", seg)]
         keep = cleaned or keep
 
-    title = "".join(keep) if cjk_segs else " ".join(keep)
+    # ⚠️ 中文段用 `"".join` 会把分隔符一起丢掉：`国家宝藏.收藏版` → `国家宝藏收藏版`
+    #    （原来 `.` 丢了没人注意，因为技术标签段本来就被剔掉）。
+    #    ⇒ 改成**逐段检查**：只在「两段本身都不含分隔符」时直接拼，
+    #      否则补一个 `.`。这样 `白日焰火` + `2024` → `白日焰火2024`（原行为），
+    #      而 `国家宝藏` + `收藏版` 这种「靠分隔符分出来的两段」→ `国家宝藏.收藏版`。
+    if cjk_segs:
+        out = keep[0]
+        for seg in keep[1:]:
+            # 相邻两段在中文之间本来就不该无缝拼（中文字→中文字要留分隔符），
+            # 只有「中文 + 数字/英文」这种组合才允许无缝（如 `寒战1994`）
+            if _CJK_RE.search(out[-1:]) and _CJK_RE.search(seg[:1]):
+                out += "." + seg
+            else:
+                out += seg
+        title = out
+    else:
+        title = " ".join(keep)
     title = _tidy(title) or ""
     # 只捞到广告残渣时不要硬凑一个「片名」（实测 `…ACME…BT世界网` 会污染成
     # `歪心狼对阵ACMEBT世界网`）⇒ 判不出就返回空，交给调用方兜底

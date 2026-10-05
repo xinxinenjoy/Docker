@@ -267,6 +267,24 @@
 
   .filterbar{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:10px}
 
+  /* 「命名选项」手机吸顶小条 —— 桌面隐藏（桌面左栏的卡片本来就常驻）。
+     为什么不做成页面底部的吸顶条：底部已经被「批量操作栏 + 4 个 tab」占了两层，
+     再加一层会把列表挤没 ⇒ 夹在列表卡片顶部，滚列表时它一直在。 */
+  .ruletape{display:none}
+  @media (max-width:759px){
+    .ruletape{display:flex; align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto;
+      scrollbar-width:none; position:sticky; top:0; z-index:12;
+      margin:-2px -2px 10px; padding:7px 2px;
+      background:rgba(255,255,255,.94); backdrop-filter:blur(6px);
+      border-bottom:1px solid #eef0f8}
+    .ruletape::-webkit-scrollbar{display:none}
+    .ruletape>*{flex:0 0 auto}
+    .ruletape .olabel{font-size:11px; color:var(--sub)}
+    .ruletape .seg button{padding:5px 8px; font-size:11.5px}
+    .ruletape .switch{font-size:11.5px}
+    .ruletape .switch input{width:15px; height:15px}
+  }
+
   .flist{margin:0}
   .frow{display:flex; flex-wrap:wrap; gap:10px; align-items:flex-start; padding:11px 0; border-bottom:1px solid #f1f2f8}
   .frow:last-child{border-bottom:0}
@@ -590,8 +608,10 @@
           <div class="row" style="gap:9px">
             <span class="olabel">括号</span>
             <div class="seg" id="segParen">
-              <button data-paren="full" class="on">全角（）</button>
-              <button data-paren="half">半角()</button>
+              <!-- ⚠️ 别写「全角（）/半角()」—— `（）` 在 12px 下会被看成数字 `0`（实测）。
+                   直接给出**结果长什么样**，一眼就懂（红领巾：要一看就知道干嘛）。 -->
+              <button data-paren="full" class="on">（2026）</button>
+              <button data-paren="half">(2026)</button>
             </div>
           </div>
           <span class="sp"></span>
@@ -601,6 +621,20 @@
 
       <div class="fsmain">
         <div class="card">
+          <!-- 手机专属：命名选项的**吸顶小条**。
+               背景：「命名选项」在手机上排在列表之后（步骤号才不乱），但一改括号 / 系列
+               就得往下翻一大截。红领巾授权我决定（2026-10-05）⇒ 做成**常驻小条**：
+               手机上夹在列表卡片顶部（`position:sticky`），桌面隐藏（桌面左栏本来就常驻）。
+               ⚠️ 它是 `#fsRuleRow` 的精简镜像，两边靠 syncParenSeg / syncSeries 同步状态。 -->
+          <div class="ruletape" id="fsRuleTape">
+            <span class="olabel">命名</span>
+            <div class="seg" id="segParenMini">
+              <button data-paren="full" class="on">（2026）</button>
+              <button data-paren="half">(2026)</button>
+            </div>
+            <label class="switch"><input type="checkbox" id="fsSeriesMini"><span>多季</span></label>
+          </div>
+
           <div class="filterbar">
             <div class="seg" id="segKind">
               <button data-kind="all" class="on">全部</button>
@@ -717,6 +751,12 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const TOKEN_KEY = 'p115_token';
 const PAREN_KEY = 'p115_paren';
+const KIND_KEY = 'p115_fskind';
+/* 整理页的筛选档位存下来 —— 不然每次重进都回到「全部」，想「只拉目录」就得再点一次 */
+const KIND_KEY_GET = () => {
+  const v = localStorage.getItem(KIND_KEY);
+  return ['all', 'dir', 'file', 'ad', 'chg'].indexOf(v) >= 0 ? v : 'all';
+};
 
 let ACCOUNTS = [];
 let CURRENT = null;
@@ -1327,9 +1367,20 @@ async function fsLoad(cid, opts) {
     FS = {
       cid: String(cid), path: [{ id: '0', name: '根目录' }], items: [], total: null,
       next: 0, more: false, warning: '', fromCache: false, cachedAt: '', age: 0,
-      sel: new Set(), edits: {}, cands: {}, kind: 'all',
+      sel: new Set(), edits: {}, cands: {},
+      /* 筛选档位跨重载记住（红领巾想「只拉目录」就只设一次） */
+      kind: opts.kind || (FS && FS.kind) || KIND_KEY_GET(),
       series: $('#fsSeries').checked, addYear: keepAddYear, rootTitle: '',
       selfName: opts.selfName || '', selfSugg: [], selfMedia: {}, selfEdit: null, busy: false,
+      /* 「只拉目录」= **由筛选器决定**，不做隐式默认。
+         红领巾 2026-10-05：「我之前说的只在根目录显示文件，本质上是为了避免每次打开
+         某个目录都拉取内部的所有文件，你自己判断」⇒ 结论：
+           · 点筛选器「目录」→ 走 115 原生 `nf=1`，文件**根本不会被拉回来**
+             （实测「最近接收」116 项/390ms → 32 项/107ms）
+           · 其余档位（全部/文件/广告/待改）→ 需要文件，正常拉
+         ⚠️ 为什么不把「只目录」做成默认：像 `歪心狼对阵ACME…` 那种**只有文件、没有子目录**
+            的落地目录会显示成空的，看着像坏了。默认必须是「能看见东西」的那个。 */
+      folderCount: null, fileCount: null, dirsOnly: false,
       /* 展开态在手机 / 桌面分别默认折叠 / 展开；用户点过之后就听用户的 */
       selfOpen: FS && FS.selfOpen !== undefined ? FS.selfOpen : (window.innerWidth >= 760),
     };
@@ -1343,8 +1394,10 @@ async function fsLoad(cid, opts) {
 
   try {
     const refresh = opts.refresh ? 1 : 0;
+    /* 筛选器「目录」⇒ 服务端只回目录；其余档位都要文件 */
+    const mode = (FS.kind === 'dir') ? 'dirs' : 'files';
     const r = await api('/accounts/' + CURRENT + '/folder?cid=' + encodeURIComponent(cid) +
-      '&offset=' + offset + '&limit=200&refresh=' + refresh);
+      '&offset=' + offset + '&limit=200&refresh=' + refresh + '&mode=' + mode);
     if (offset === 0 || FS.cid !== String(cid)) {
       FS.cid = r.cid || String(cid);
       FS.path = r.path || [];
@@ -1359,6 +1412,9 @@ async function fsLoad(cid, opts) {
     FS.fromCache = !!r.from_cache;
     FS.cachedAt = r.cached_at || '';
     FS.age = r.cache_age || 0;
+    FS.dirsOnly = !!r.dirs_only;
+    FS.folderCount = (r.folder_count === undefined ? null : r.folder_count);
+    FS.fileCount = (r.file_count === undefined ? null : r.file_count);
     if (!FS.selfName) {
       const last = (FS.path || []).slice(-1)[0];
       if (last && String(last.id) === String(FS.cid) && String(FS.cid) !== '0') FS.selfName = last.name;
@@ -1474,6 +1530,7 @@ function renderFsShell() {
   $$('#segKind button').forEach(b => b.classList.toggle('on', b.dataset.kind === FS.kind));
   syncParenSeg();
   $('#fsSeries').checked = !!FS.series;
+  $('#fsSeriesMini').checked = !!FS.series;   /* 手机吸顶小条的镜像 */
 }
 
 function fsFiltered() {
@@ -1494,7 +1551,14 @@ function renderFsList() {
   const box = $('#fsList');
 
   if (!FS.items.length) {
-    box.innerHTML = '<div class="empty">这一层是空的（或者还没扫描）</div>';
+    /* 空的两种含义要分清：真空 vs「你选了只拉目录、而这层恰好没子目录」。
+       后者如果不讲清，看着就像坏了（只有文件的落地目录就是这种情况）。
+       ⚠️ 别拿 `fileCount` 判断 —— 实测 `nf=1` 时 115 会把 `file_count` 也报成 0
+          （「最近接收」明明有 84 个文件），用它会得出「没有文件」的错误结论。 */
+    box.innerHTML = FS.dirsOnly
+      ? '<div class="empty">这一层没有子目录 · 当前是「目录」档、**没有拉取文件**'
+        + '<br><button class="ghost sm" id="fsShowFiles">换成「全部」看文件</button></div>'
+      : '<div class="empty">这一层是空的（或者还没扫描）</div>';
   } else if (!rows.length) {
     box.innerHTML = '<div class="empty">当前筛选条件下没有条目</div>';
   } else {
@@ -1533,12 +1597,17 @@ function renderFsList() {
     }).join('');
   }
 
-  const shownDirs = rows.filter(x => x.is_dir).length;
-  const shownFiles = rows.length - shownDirs;
+  const shownFiles = rows.filter(x => !x.is_dir).length;
+  /* 底部统计：`dirs` 档下 115 会把 `file_count` 也报 0（不可信），所以不显示文件数，
+     改成明说「只拉了目录」—— 免得像在骗人。 */
   $('#fsMoreWrap').innerHTML = FS.more
     ? `<button class="ghost sm" id="fsMore">加载更多（已 ${FS.items.length}` +
       (FS.total ? ' / 共 ' + FS.total : '') + ' 项）</button>'
-    : (FS.items.length ? `<span class="muted">共 ${FS.items.length} 项 · 目录 ${shownDirs} · 文件 ${shownFiles}</span>` : '');
+    : (FS.items.length
+        ? `<span class="muted">共 ${FS.items.length} 项目录` +
+          (FS.dirsOnly ? ' · 当前是「目录」档，未拉取文件' : ` · 文件 ${shownFiles}`) +
+          '</span>'
+        : '');
 
   bindFsList();
   updateFsBar();
@@ -1546,6 +1615,9 @@ function renderFsList() {
 
 function bindFsList() {
   if (!FS) return;
+  /* 空态里那个「换成全部看文件」按钮 —— 它是 renderFsList 动态插进来的，只能在这儿绑 */
+  const sf = $('#fsShowFiles');
+  if (sf) sf.onclick = () => { if (FS) { FS.kind = 'all'; localStorage.setItem(KIND_KEY, 'all'); fsLoad(FS.cid, { refresh: false }); } };
   /* 名字：目录 ⇒ 点一下直接进去（不再另设「进入」按钮，少一个要点的东西）；
            文件 ⇒ 点一下展开 / 收起完整名字。
      目录想看全名就双击（给个 tooltip 兜底），别让「进目录」被截断需求挤掉。 */
@@ -1643,26 +1715,46 @@ function updateFsBar() {
 }
 
 /* ---------- 控件绑定 ---------- */
-$$('#segParen button').forEach(b => b.onclick = async () => {
-  PAREN = b.dataset.paren;
+/* 括号档：主控件在左栏卡片（#segParen），手机吸顶小条是它的镜像（#segParenMini）。
+   ⚠️ 两处都要绑、且改一处要同步另一处 —— 否则手机上点了小条、翻上去看主控件还是旧的。 */
+async function setParen(p) {
+  PAREN = p;
   localStorage.setItem(PAREN_KEY, PAREN);
   syncParenSeg();
   if (FS) { await fsSuggest(); renderFsShell(); renderFsList(); }
-});
+}
+$$('#segParen button, #segParenMini button').forEach(b => b.onclick = () => setParen(b.dataset.paren));
 function syncParenSeg() {
-  $$('#segParen button').forEach(x => x.classList.toggle('on', x.dataset.paren === PAREN));
+  $$('#segParen button, #segParenMini button')
+    .forEach(x => x.classList.toggle('on', x.dataset.paren === PAREN));
 }
 $$('#segKind button').forEach(b => b.onclick = () => {
   if (!FS) return;
+  const wasDirsOnly = FS.kind === 'dir';
   FS.kind = b.dataset.kind;
+  localStorage.setItem(KIND_KEY, FS.kind);
+  /* ⚠️ 「目录」档走的是**服务端只回目录**（`nf=1`），数据面跟别的档位不一样
+     ⇒ 在「目录」与「非目录」之间切换时必须**重新拉一次**，不能只靠前端过滤
+     （否则从「目录」切到「全部」会看不到文件，像丢数据）。
+     同侧切换（全部↔文件↔广告↔待改）纯前端过滤即可。 */
+  if (wasDirsOnly !== (FS.kind === 'dir')) {
+    FS.sel = new Set();
+    fsLoad(FS.cid, { refresh: false });
+    return;
+  }
   renderFsShell(); renderFsList();
 });
-$('#fsSeries').onchange = async () => {
+/* 系列开关：同样两处（左栏 #fsSeries + 手机小条 #fsSeriesMini） */
+async function setSeries(on) {
+  $('#fsSeries').checked = on;
+  $('#fsSeriesMini').checked = on;
   if (!FS) return;
-  FS.series = $('#fsSeries').checked;
+  FS.series = on;
   await fsSuggest();
   renderFsShell(); renderFsList();
-};
+}
+$('#fsSeries').onchange = () => setSeries($('#fsSeries').checked);
+$('#fsSeriesMini').onchange = () => setSeries($('#fsSeriesMini').checked);
 $('#fsSelAll').onclick = () => {
   if (!FS) return;
   fsFiltered().forEach(it => FS.sel.add(it.file_id));
