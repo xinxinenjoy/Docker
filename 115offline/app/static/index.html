@@ -120,7 +120,9 @@
   button.wide{width:100%; padding:14px; font-size:15.5px; border-radius:14px; background:var(--grad);
     box-shadow:0 10px 22px -12px rgba(108,92,231,.95)}
   .seg{display:inline-flex; background:#eff0f9; border-radius:10px; padding:3px; gap:2px}
-  .seg button{background:none; color:#5c6076; padding:6px 11px; font-size:12.5px; border-radius:8px}
+  /* 分段按钮不许被压扁（否则容器一窄，「全部」会被折成上下两个字） */
+  .seg button{background:none; color:#5c6076; padding:6px 11px; font-size:12.5px; border-radius:8px;
+    flex:0 0 auto; white-space:nowrap}
   .seg button.on{background:#fff; color:var(--brand); box-shadow:0 1px 3px rgba(27,29,43,.12)}
 
   .row{display:flex; gap:9px; align-items:center}
@@ -206,23 +208,52 @@
   .modal .mbox{padding:13px 16px; overflow:auto; flex:1}
   .modal .mf{padding:12px 16px; border-top:1px solid var(--line); display:flex; gap:9px; flex-wrap:wrap; align-items:center}
 
+  /* ---------- 通用小件（一眼看出是干嘛的，不靠说明文字） ---------- */
+  .cardhead{display:flex; align-items:center; gap:9px; margin:0 0 12px}
+  .cardhead .ico{font-size:15px; line-height:1}
+  .cardhead h2{font-size:15px; margin:0; font-weight:700; flex:0 0 auto}
+  .cardhead .sp{flex:1; min-width:0}
+  /* 折叠摘要（手机）：一行就能看出「这卡是干嘛的 + 会变成什么」 */
+  .cardhead.click{cursor:pointer; -webkit-tap-highlight-color:transparent}
+  .cardhead .chev{font-size:11px; color:var(--sub); flex:0 0 auto; transition:transform .15s}
+  #fsSelfCard.collapsed .chev{transform:rotate(-90deg)}
+  #fsSelfCard.collapsed .cardhead{margin-bottom:0}
+  .peek{font-size:12px; color:var(--brand); min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; max-width:56%}
+  .iconbtn{background:#eff0f9; color:#4a4e68; padding:8px 11px; font-size:12.5px; border-radius:10px;
+    display:inline-flex; align-items:center; gap:6px; font-weight:600; line-height:1.15}
+  .iconbtn:hover:not(:disabled){background:#e5e7f6}
+  .switch{display:inline-flex; align-items:center; gap:8px; font-size:12.5px; color:#4a4e68; cursor:pointer}
+  .switch input{width:17px; height:17px}
+  .olabel{font-size:12px; color:var(--sub); flex:0 0 auto}
+  .optrow{display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding-top:12px; margin-top:12px; border-top:1px dashed var(--line)}
+  #fsSelfCard.atRoot .optrow{padding-top:0; margin-top:0; border-top:0}
+  .optrow .sp{flex:1; min-width:0}
+
   /* ---------- 网盘整理 ---------- */
-  .fsbar{display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap}
-  .fsbar .grow{min-width:200px}
-  .cachemeta{font-size:11.5px; color:var(--sub); display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-top:4px}
+  .fsbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:space-between}
+  .fsbar .grow{min-width:200px; flex:1 1 240px}
+  .crumbrow{display:flex; gap:9px; align-items:center; flex-wrap:wrap}
+  .cachetag{font-size:11.5px; color:var(--sub); display:inline-flex; gap:5px; align-items:center; white-space:nowrap}
+  /* ⋯ 菜单：把「说明」类文字全部收进来，界面里不再出现长句 */
+  .menu{position:relative}
+  .menu>summary{list-style:none; cursor:pointer; background:#eff0f9; color:#4a4e68; padding:9px 12px;
+    border-radius:10px; font-size:14px; font-weight:700; line-height:1}
+  .menu>summary::-webkit-details-marker{display:none}
+  .menu[open]>summary{background:var(--brand); color:#fff}
+  .menupanel{position:absolute; right:0; top:calc(100% + 7px); z-index:32; background:#fff;
+    border:1px solid var(--line); border-radius:13px; padding:12px; width:min(322px,78vw); text-align:left;
+    box-shadow:0 20px 44px -24px rgba(27,29,43,.85)}
+  .menupanel h4{margin:0 0 5px; font-size:11.5px; color:#4a4e68; font-weight:700}
+  .menupanel p{margin:0 0 11px; font-size:11.5px; line-height:1.7; color:var(--sub)}
+  .menupanel p:last-child{margin-bottom:0}
+  .menupanel button{width:100%; justify-content:center}
 
   /* 「原名 → 新名」对照行 —— 替掉旧版「同一个名字铺三遍」的乱象 */
   .cmp{margin:9px 0 0}
-  /* 手机：让「命名选项」排到列表之后。
-     做法是 .fsside 用 display:contents 变成"透明盒子"，三个卡片直接成为
-     .fslayout 的 flex item，再靠 order 排序 —— 否则 DOM 顺序决定一切。
-     ⚠️ 否则会出现「命名选项②」排在「这一层有什么①」上面，步骤号看着错乱。 */
   .fslayout{display:flex; flex-direction:column; gap:14px}
   .fslayout .card{margin-bottom:0}
-  .fsside{display:contents}
-  #fsSelfCard{order:1}
-  .fsmain{order:2}
-  #fsRuleCard{order:3}
   .cmpline{display:flex; gap:9px; align-items:center; margin-bottom:7px}
   .cmpline .lbl{font-size:11.5px; color:var(--sub); flex:0 0 30px; text-align:right}
   .cmpline .old{flex:1; min-width:0; font-size:13px; color:#6b7089; word-break:break-all;
@@ -235,21 +266,30 @@
   .candchips button .lb{opacity:.6; font-weight:400}
 
   .filterbar{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-bottom:10px}
-  .filterbar .sep{color:#dcdfec}
 
   .flist{margin:0}
-  .frow{display:flex; gap:10px; align-items:flex-start; padding:11px 0; border-bottom:1px solid #f1f2f8}
+  .frow{display:flex; flex-wrap:wrap; gap:10px; align-items:flex-start; padding:11px 0; border-bottom:1px solid #f1f2f8}
   .frow:last-child{border-bottom:0}
   .frow .ck{margin-top:3px}
   .frow .ico{font-size:16px; line-height:1.3; flex:0 0 auto}
-  .frow .fmain{flex:1; min-width:0}
+  .frow .fmain{flex:1 1 160px; min-width:0}
   .frow .fn{font-size:13.5px; line-height:1.45; word-break:break-all; cursor:pointer}
   .frow .fn.one{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:normal}
   .frow .fm{font-size:11px; color:var(--sub); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap; align-items:center}
-  .frow .fedit{margin-top:8px; display:flex; gap:6px; align-items:center; width:100%}
+  /* 右侧动作区：只有出现「→ 新名」时才换行占满一行，否则 ✎ 就跟名字同排 */
+  .frow .fright{display:flex; gap:6px; align-items:center; flex-wrap:wrap; flex:0 0 auto}
+  /* 「推荐的新名」——只在真的能改时出现，点一下就是改名 */
+  .newchip{background:#eef0ff; color:#5b4bd6; font-weight:500; font-size:12.5px; padding:7px 10px;
+    border-radius:9px; display:inline-flex; align-items:center; gap:6px; max-width:100%; text-align:left}
+  .newchip .ar{opacity:.5; flex:0 0 auto}
+  .newchip .nm{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:min(52vw,420px)}
+  .newchip:hover:not(:disabled){background:#e3e6ff}
+  .newchip .spinner{margin:0 2px 0 0}
+  .frow .fedit{margin-top:8px; display:flex; gap:7px; align-items:center}
+  .frow .fedit .lbl{font-size:11px; color:var(--sub); flex:0 0 auto}
   .frow .fedit input{flex:1; min-width:0; font-size:12.5px; padding:8px 9px; border-radius:9px;
     font-family:ui-monospace,Menlo,Consolas,monospace}
-  .frow.keep .fn{color:#9aa0b8}
+  .frow.keep .fn{color:#9599ad}
   .frow.on{background:#fafaff; border-radius:10px}
 
   .actionbar{
@@ -277,13 +317,38 @@
   .spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(108,92,231,.25);border-top-color:var(--brand);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes spin{to{transform:rotate(360deg)}}
 
-  /* ---------- 桌面 ---------- */
-  @media (min-width:880px){
+  /* ---------- 手机专属微调 ----------
+     ⚠️ 必须放在所有基础规则**之后**：同为单类选择器时，靠后的规则赢；
+     写在前面会被后面 `.filterbar{flex-wrap:wrap}` 这类基础规则盖掉（已踩）。 */
+  @media (max-width:759px){
+    /* 路径单行横向滚动 —— 否则一个长目录名就能把工具条撑成三行 */
+    .crumbs{flex:1 1 0; flex-wrap:nowrap; min-width:0; overflow-x:auto;
+      scrollbar-width:none; -webkit-overflow-scrolling:touch}
+    .crumbs::-webkit-scrollbar{display:none}
+    .crumbs a,.crumbs .cur{flex:0 0 auto}
+    .crumbrow{flex-wrap:wrap}
+    /* 名字默认给两行（长名字能直观看个大概，点一下再全展开） */
+    .frow .fn.one{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+      overflow:hidden; white-space:normal; word-break:break-all}
+    /* 有「→ 新名」的行：动作区单独占一行，✎ / 进入 跟着新名排 */
+    .frow.has-new .fright{flex:1 1 100%; padding-left:2px}
+    /* 手机省地方：行内动作只留图标（桌面才带「改名」两个字） */
+    .frow .iconbtn .bt{display:none}
+    /* 筛选项多：先收紧内边距让它们一行放得下，再允许横滑兜底，别把「全选 / 清空」挤成两行 */
+    .fsmain .filterbar{flex-wrap:nowrap; gap:7px}
+    .fsmain .filterbar>button{flex:0 0 auto; white-space:nowrap; padding:7px 9px}
+    .fsmain .filterbar .seg{flex:0 1 auto; min-width:0; overflow-x:auto; scrollbar-width:none}
+    .fsmain .filterbar .seg button{padding:6px 9px}
+    .fsmain .filterbar .seg::-webkit-scrollbar{display:none}
+  }
+
+  /* ---------- 中屏（平板 / 窄窗口）：两栏 + 顶部胶囊导航 ---------- */
+  @media (min-width:760px){
     body{padding-bottom:26px}
     body.barOn{padding-bottom:26px}
     main{padding:18px 18px 10px}
     nav{
-      position:sticky; top:0; z-index:38; border:0; background:rgba(244,245,251,.92);
+      position:sticky; top:0; z-index:38; border:0; background:rgba(244,245,251,.94);
       backdrop-filter:blur(8px); max-width:1200px; margin:0 auto; padding:10px 18px; gap:8px;
       border-bottom:1px solid #e9eaf4;
     }
@@ -295,24 +360,60 @@
     .grid2{display:grid; grid-template-columns:1.08fr .92fr; gap:14px; align-items:start}
     .grid2 .card{margin-bottom:0}
     .grid2 .col{display:flex; flex-direction:column; gap:14px}
-    .tiles{grid-template-columns:1fr 1fr}
     .drawer .panel{width:min(820px,100%)}
 
-    /* 整理页：左栏操作、右栏列表 */
-    .fslayout{display:grid; grid-template-columns:350px minmax(0,1fr); gap:14px; align-items:start}
-    .fsside{position:sticky; top:72px; display:flex; flex-direction:column; gap:14px}
+    /* 整理页：左「改名 / 命名选项」、右「这一层的内容」 */
+    .fslayout{display:grid; grid-template-columns:320px minmax(0,1fr); gap:14px; align-items:start}
+    #fsSelfCard{position:sticky; top:70px}
     .actionbar{position:sticky; bottom:10px; border-radius:12px; border:1px solid var(--line);
       margin-top:12px; box-shadow:0 8px 24px -18px rgba(27,29,43,.9)}
 
-    /* 列表行变「表格感」：勾选 / 图标 / 名字+信息 / 新名+操作 */
-    .frow{display:grid; grid-template-columns:24px 22px minmax(0,1fr) minmax(260px,.85fr);
-      gap:10px; align-items:center; padding:9px 0}
+    /* 列表行变「表格感」：勾选 / 图标 / 名字+信息 / 操作 */
+    .frow{display:grid; grid-template-columns:24px 22px minmax(0,1fr) auto;
+      gap:10px; align-items:center; padding:10px 0}
     .frow .ck{margin-top:0}
-    .frow .fedit{margin-top:0; width:auto}
+    .frow .fright{flex:0 0 auto; justify-content:flex-end; padding-left:0}
+    .frow .fedit{margin-top:6px}
     .flist{max-height:none}
   }
-  @media (min-width:1180px){
-    .fslayout{grid-template-columns:380px minmax(0,1fr)}
+
+  /* ---------- 桌面：独立外壳（左侧栏常驻 + 右主区独立滚动） ---------- */
+  @media (min-width:1080px){
+    html,body{height:100%}
+    body{
+      padding:0; overflow:hidden; display:grid;
+      grid-template-columns:242px minmax(0,1fr); grid-template-rows:auto 1fr;
+    }
+    body.barOn{padding-bottom:0}
+
+    /* 左栏：品牌（紫）+ 导航（白），顶到底铺满 */
+    header{grid-column:1; grid-row:1; border-radius:0}
+    header .hwrap{display:block; padding:22px 20px 18px}
+    .brand{min-width:0}
+    .brand p{display:none}   /* 242px 宽塞不下这句，折行反而更乱 */
+    .acctwrap{margin-top:16px; flex-direction:column; align-items:stretch; gap:6px}
+    .acctwrap .lb{opacity:.75}
+    select.acct{width:100%; max-width:none}
+    nav{
+      grid-column:1; grid-row:2; position:static; flex-direction:column; align-items:stretch;
+      gap:4px; padding:14px 12px 18px; background:#fff; border:0; border-right:1px solid var(--line);
+      overflow:auto;
+    }
+    nav button{flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:11px; text-align:left;
+      padding:11px 13px; border-radius:11px; font-size:14px; background:none; color:#5c6076}
+    nav button .ni{font-size:17px; width:20px; text-align:center}
+    nav button:hover{background:#f7f8fd}
+    nav button.on{background:#f1f0ff; color:var(--brand)}
+    nav button.on .ni{filter:none}
+
+    /* 主区：自己滚，内容居中不铺满超宽屏 */
+    main{grid-column:2; grid-row:1/3; overflow-y:auto; padding:0 0 40px}
+    main>section{max-width:1460px; margin:0 auto; padding:20px 28px 0}
+
+    #fsSelfCard{position:sticky; top:16px}
+  }
+  @media (min-width:1500px){
+    .fslayout{grid-template-columns:360px minmax(0,1fr)}
   }
 </style>
 </head>
@@ -348,10 +449,8 @@
       <div class="col">
         <div class="card">
           <div class="step"><span class="no">01</span>
-            <div><h2>粘贴链接 / 暗号</h2>
-              <div class="sub">粘完点「解析链接」检查，确认条数后再推送</div></div>
+            <div><h2>粘贴链接 / 暗号</h2></div>
           </div>
-          <div class="flow"><i>1 粘贴</i><b>›</b><i>2 选目录</i><b>›</b><i>3 推送</i></div>
           <div class="hints">
             <span>每次最多 100 条</span>
             <span>百家姓 · 核心价值观 · 佛曰</span>
@@ -372,8 +471,7 @@
       <div class="col">
         <div class="card">
           <div class="step"><span class="no">02</span>
-            <div><h2>保存位置</h2>
-              <div class="sub">下载完会落到这个 115 目录（记住为账号默认，下次自动复用）</div></div>
+            <div><h2>保存位置</h2></div>
           </div>
           <div class="dirbox">
             <div class="dirpath" id="dirPath">115 默认下载目录</div>
@@ -389,7 +487,6 @@
 
         <div class="card">
           <button class="wide" id="btnPush">推送到 115 离线下载</button>
-          <div class="muted" style="text-align:center; margin-top:9px">云端处理，随时在「任务记录」查看</div>
           <div class="msg" id="pushMsg"></div>
         </div>
       </div>
@@ -400,7 +497,7 @@
   <section id="tab-tasks" class="hide">
     <div class="card">
       <div class="step"><span class="no">01</span>
-        <div><h2>离线任务</h2><div class="sub">下载完了点「整理」跳到网盘，改名 / 清理那个目录</div></div>
+        <div><h2>离线任务</h2></div>
       </div>
       <div class="row wrap" style="margin-bottom:11px">
         <select id="taskStat" class="grow" style="max-width:190px">
@@ -416,7 +513,7 @@
 
     <div class="card">
       <div class="step"><span class="no">02</span>
-        <div><h2>回收站</h2><div class="sub">本工具删掉的东西都在这里，可勾选还原</div></div>
+        <div><h2>回收站</h2></div>
       </div>
       <div class="row wrap" style="margin-bottom:11px">
         <button class="ghost" id="btnRecycle">刷新回收站</button>
@@ -434,28 +531,40 @@
   <!-- ==================== 网盘整理 ==================== -->
   <section id="tab-files" class="hide">
     <div class="card fsbar">
-      <div class="grow">
+      <div class="grow crumbrow">
         <div class="crumbs" id="fsCrumbs"><span class="cur">根目录</span></div>
-        <div class="cachemeta">
-          <span id="fsCacheTag" class="tag fresh">还没扫描</span>
-          <span id="fsCacheInfo" class="muted"></span>
-        </div>
+        <span id="fsCacheTag" class="tag fresh">未扫描</span>
+        <span id="fsCacheInfo" class="cachetag"></span>
       </div>
       <div class="row wrap">
-        <button class="line sm" id="fsScan">扫描这一层</button>
-        <button class="ghost sm" id="fsRoot">根目录</button>
-        <button class="ghost sm" id="fsDefaultDir">默认目录</button>
-        <button class="ghost sm" id="fsClearCache">清缓存</button>
+        <button class="iconbtn" id="fsScan">⟳ 扫描</button>
+        <button class="iconbtn" id="fsRoot">🏠 根目录</button>
+        <button class="iconbtn" id="fsDefaultDir">⭐ 默认目录</button>
+        <details class="menu" id="fsMenu">
+          <summary>⋯</summary>
+          <div class="menupanel">
+            <h4>命名规则</h4>
+            <p>目录 <code class="k">片名（年份）</code> · 多季 <code class="k">第1季</code> ·
+               分集 <code class="k">剧名.SxxExx.第 N 集.集标题.ext</code></p>
+            <h4>缓存</h4>
+            <p>扫描只问 115 要「当前这一层」，不递归整棵树。5 分钟自动过期；
+               改名 / 删除 / 还原 / 推送之后立即失效。</p>
+            <button class="ghost sm" id="fsClearCache">清空缓存</button>
+          </div>
+        </details>
       </div>
     </div>
 
     <div class="fslayout">
-      <aside class="fsside">
-        <div class="card hide" id="fsSelfCard">
-          <div class="step"><span class="no" id="fsSelfNo">1</span>
-            <div><h2>给「当前目录」改名</h2>
-              <div class="sub">只改这一个目录。不想改就点「保持原名」，或直接跳过这一步</div></div>
-          </div>
+      <div class="card" id="fsSelfCard">
+        <div class="cardhead click" id="fsSelfHead">
+          <span class="ico" id="fsSelfIco">✏️</span>
+          <h2 id="fsSelfTitle">给当前目录改名</h2>
+          <span class="sp"></span>
+          <span class="peek" id="fsSelfPeek"></span>
+          <span class="chev" id="fsSelfChev">▾</span>
+        </div>
+        <div id="fsSelfBody">
           <div class="cmp">
             <div class="cmpline"><span class="lbl">原名</span><span class="old" id="fsSelfOld"></span></div>
             <div class="cmpline"><span class="lbl">新名</span><input type="text" id="fsSelfNew"></div>
@@ -464,68 +573,41 @@
           <button class="wide" id="fsSelfApply" style="margin-top:11px">应用改名</button>
           <div class="msg" id="fsSelfMsg"></div>
         </div>
-
-        <div class="card" id="fsRuleCard">
-          <div class="step"><span class="no">⚙</span>
-            <div><h2>命名选项</h2><div class="sub">只影响「推荐的新名字」，点哪档就填哪档</div></div>
-          </div>
-          <div class="row wrap" style="gap:10px">
-            <span class="muted">括号</span>
+        <div class="optrow" id="fsRuleRow">
+          <div class="row" style="gap:9px">
+            <span class="olabel">括号</span>
             <div class="seg" id="segParen">
               <button data-paren="full" class="on">全角（）</button>
               <button data-paren="half">半角()</button>
             </div>
           </div>
-          <label class="row" style="gap:7px;cursor:pointer;margin-top:9px">
-            <input type="checkbox" id="fsSeries"><span class="muted">按「（系列）」命名顶层目录</span>
-          </label>
-          <div class="muted" style="margin-top:9px; line-height:1.7">
-            规则：目录 <code class="k">片名（年份）</code> · 多季 <code class="k">第1季</code> ·
-            分集 <code class="k">剧名.SxxExx.第 N 集.集标题.ext</code>
-          </div>
-          <details class="adv" style="margin-top:6px">
-            <summary>扫描 / 缓存是怎么算的</summary>
-            <div class="muted" style="line-height:1.75">
-              · 点「扫描这一层」才会去问 115，结果存进容器，**只扫当前这一层，不递归整棵树**（递归才触发风控）。<br>
-              · 再点进来先读缓存，省一次请求；默认 5 分钟后自然过期。<br>
-              · 改名 / 删除 / 还原 / 推送之后，缓存立刻作废，看到的永远是最新的。
-            </div>
-          </details>
+          <span class="sp"></span>
+          <label class="switch"><input type="checkbox" id="fsSeries"><span>多季用（系列）代替年份</span></label>
         </div>
-      </aside>
+      </div>
 
       <div class="fsmain">
         <div class="card">
-          <div class="step"><span class="no" id="fsListNo">3</span>
-            <div><h2>这一层有什么</h2>
-              <div class="sub">勾选 → 底部批量改名 / 批量删除（删除进回收站，可还原）</div></div>
-          </div>
-
           <div class="filterbar">
             <div class="seg" id="segKind">
               <button data-kind="all" class="on">全部</button>
-              <button data-kind="dir">只看目录</button>
-              <button data-kind="file">只看文件</button>
+              <button data-kind="dir">目录</button>
+              <button data-kind="file">文件</button>
+              <button data-kind="ad">广告</button>
+              <button data-kind="chg">待改</button>
             </div>
-            <span class="sep">|</span>
-            <label class="row" style="gap:6px;cursor:pointer">
-              <input type="checkbox" id="fsOnlyAd"><span class="muted">只看疑似广告</span>
-            </label>
-            <label class="row" style="gap:6px;cursor:pointer">
-              <input type="checkbox" id="fsOnlyChg"><span class="muted">只看可整理</span>
-            </label>
             <span class="grow"></span>
             <button class="ghost sm" id="fsSelAll">全选</button>
             <button class="ghost sm" id="fsSelNone">清空</button>
           </div>
 
           <div id="fsWarn" class="msg err" style="margin:0 0 10px"></div>
-          <div id="fsList" class="flist"><div class="empty">点上面「扫描这一层」加载</div></div>
+          <div id="fsList" class="flist"><div class="empty">点上面「⟳ 扫描」加载这一层</div></div>
           <div id="fsMoreWrap" style="text-align:center; margin-top:11px"></div>
         </div>
 
         <div class="actionbar" id="fsBar">
-          <span class="cnt" id="fsCount">已选 0 项</span>
+          <span class="cnt" id="fsCount">勾选条目后可批量操作</span>
           <span class="muted" id="fsBarBusy"></span>
           <button class="line sm" id="fsBatchRename" disabled>批量改名</button>
           <button class="danger sm" id="fsBatchDelete" disabled>批量删除</button>
@@ -582,7 +664,7 @@
 
     <div class="card">
       <div class="step"><span class="no">C</span>
-        <div><h2>已配置账号</h2><div class="sub">可改名、换 cookie、设默认保存目录</div></div>
+        <div><h2>已配置账号</h2></div>
       </div>
       <div id="acctList"><div class="empty">还没有账号</div></div>
     </div>
@@ -754,7 +836,7 @@ $('#acctSel').onchange = () => {
   TASKS = []; RBSEL = new Set(); FS = null;
   $('#taskList').innerHTML = '<div class="empty">点「刷新」加载</div>';
   $('#rbList').innerHTML = '<div class="empty">还没加载</div>';
-  $('#fsList').innerHTML = '<div class="empty">点上面「扫描这一层」加载</div>';
+  $('#fsList').innerHTML = '<div class="empty">点上面「⟳ 扫描」加载这一层</div>';
   PARSED = []; renderParsed();
   if (!$('#tab-accounts').classList.contains('hide')) loadUsage();
   if (!$('#tab-files').classList.contains('hide')) fsLoad(defaultCid(), { refresh: false });
@@ -1232,9 +1314,11 @@ async function fsLoad(cid, opts) {
     FS = {
       cid: String(cid), path: [{ id: '0', name: '根目录' }], items: [], total: null,
       next: 0, more: false, warning: '', fromCache: false, cachedAt: '', age: 0,
-      sel: new Set(), edits: {}, cands: {}, kind: 'all', onlyAd: false, onlyChg: false,
+      sel: new Set(), edits: {}, cands: {}, kind: 'all',
       series: $('#fsSeries').checked, addYear: keepAddYear, rootTitle: '',
       selfName: opts.selfName || '', selfSugg: [], selfMedia: {}, selfEdit: null, busy: false,
+      /* 展开态在手机 / 桌面分别默认折叠 / 展开；用户点过之后就听用户的 */
+      selfOpen: FS && FS.selfOpen !== undefined ? FS.selfOpen : (window.innerWidth >= 760),
     };
     renderFsShell();
     $('#fsList').innerHTML = '<div class="empty"><span class="spinner"></span>读取中…</div>';
@@ -1318,30 +1402,38 @@ function renderFsShell() {
       (last ? '' : '<span class="sep">/</span>');
   }).join('');
   $$('#fsCrumbs a').forEach(a => a.onclick = () => fsLoad(a.dataset.cid, { refresh: false }));
+  /* 路径横向滚动时默认停在最右（当前目录在闪），不用手动滑 */
+  const cr = $('#fsCrumbs');
+  if (cr && cr.scrollWidth > cr.clientWidth + 2) cr.scrollLeft = cr.scrollWidth;
 
-  /* 缓存状态 */
-  const tag = $('#fsCacheTag');
+  /* 缓存状态 —— 只留最短的标签，细则都在 ⋯ 里 */
+  const tag = $('#fsCacheTag'), cinfo = $('#fsCacheInfo');
   if (FS.fromCache) {
     tag.className = 'tag cache';
-    tag.textContent = '来自缓存';
-    $('#fsCacheInfo').textContent = '缓存于 ' + (FS.cachedAt || '—') + '（' + agoText(FS.age) + '）· 共 ' +
-      (FS.total === null || FS.total === undefined ? FS.items.length : FS.total) + ' 项';
+    tag.textContent = '缓存';
+    cinfo.textContent = (FS.cachedAt || '—') + ' · ' + agoText(FS.age);
   } else if (FS.cachedAt) {
     tag.className = 'tag fresh';
-    tag.textContent = '刚扫描';
-    $('#fsCacheInfo').textContent = '扫描于 ' + FS.cachedAt + ' · 共 ' +
-      (FS.total === null || FS.total === undefined ? FS.items.length : FS.total) + ' 项';
+    tag.textContent = '已扫描';
+    cinfo.textContent = FS.cachedAt;
   } else {
     tag.className = 'tag fresh';
-    tag.textContent = '还没扫描';
-    $('#fsCacheInfo').textContent = '点右上「扫描这一层」去 115 拉这一层的列表';
+    tag.textContent = '未扫描';
+    cinfo.textContent = '';
   }
 
-  /* 当前目录改名卡（在根目录时没有「当前目录」可改） */
+  /* 根目录没有「当前目录」可改 ⇒ 这张卡就只剩命名选项。
+     手机屏小：默认折叠成一行摘要（标题 + 「→ 新名」），点标题展开 —— 这样
+     工具条下面紧跟着就是列表，不用先滚过一整张卡才看到主内容。 */
   const atRoot = String(FS.cid) === '0';
-  $('#fsSelfCard').classList.toggle('hide', atRoot);
-  $('#fsSelfNo').textContent = '1';
-  $('#fsListNo').textContent = atRoot ? '1' : '2';
+  const open = !!FS.selfOpen;
+  $('#fsSelfCard').classList.toggle('atRoot', atRoot);
+  $('#fsSelfCard').classList.toggle('collapsed', !open && !atRoot);
+  $('#fsSelfTitle').textContent = atRoot ? '命名选项' : '给当前目录改名';
+  $('#fsSelfIco').textContent = atRoot ? '🏷️' : '✏️';
+  $('#fsSelfChev').classList.toggle('hide', atRoot);
+  $('#fsSelfBody').classList.toggle('hide', atRoot || !open);
+  $('#fsRuleRow').classList.toggle('hide', !atRoot && !open);
 
   if (!atRoot) {
     const name = fsSelfName();
@@ -1354,15 +1446,19 @@ function renderFsShell() {
     const chips = (FS.selfSugg || []).map((s, i) =>
       `<button data-selfcand="${i}" class="${s.name === val ? 'on' : ''}">${esc(s.name)}<span class="lb"> · ${esc(s.label)}</span></button>`
     ).join('');
-    $('#fsSelfCands').innerHTML = chips || '<span class="muted">这个目录名洗不动，保持原名即可</span>';
+    $('#fsSelfCands').innerHTML = chips || '<span class="muted">洗不动，不用改</span>';
     $('#fsSelfApply').disabled = !val || val === name;
-    $('#fsSelfApply').textContent = val === name ? '无需改动' : '把当前目录改名为上面这个';
+    $('#fsSelfApply').textContent = val === name ? '无需改动' : '应用改名';
+    /* 折叠时标题右边直接给结论：改了会变成什么（展开态就不重复了） */
+    const peek = (!open && val !== name) ? '→ ' + val : '';
+    $('#fsSelfPeek').textContent = peek;
+    $('#fsSelfPeek').title = peek;
+  } else {
+    $('#fsSelfPeek').textContent = '';
   }
 
   /* 筛选控件回填 */
   $$('#segKind button').forEach(b => b.classList.toggle('on', b.dataset.kind === FS.kind));
-  $('#fsOnlyAd').checked = !!FS.onlyAd;
-  $('#fsOnlyChg').checked = !!FS.onlyChg;
   syncParenSeg();
   $('#fsSeries').checked = !!FS.series;
 }
@@ -1370,11 +1466,11 @@ function renderFsShell() {
 function fsFiltered() {
   if (!FS) return [];
   return FS.items.filter(it => {
+    const c = FS.cands[it.file_id] || { suggestions: [] };
     if (FS.kind === 'dir' && !it.is_dir) return false;
     if (FS.kind === 'file' && it.is_dir) return false;
-    const c = FS.cands[it.file_id] || { suggestions: [] };
-    if (FS.onlyAd && !c.ad_hint) return false;
-    if (FS.onlyChg && !hasChange(it.name, c.suggestions || [])) return false;
+    if (FS.kind === 'ad' && !c.ad_hint) return false;
+    if (FS.kind === 'chg' && !hasChange(it.name, c.suggestions || [])) return false;
     return true;
   });
 }
@@ -1395,23 +1491,28 @@ function renderFsList() {
       const val = (it.file_id in FS.edits) ? FS.edits[it.file_id] : (cand || it.name);
       const changed = val !== it.name;
       const on = FS.sel.has(it.file_id);
-      return `<div class="frow${changed ? '' : ' keep'}${on ? ' on' : ''}" data-row="${esc(it.file_id)}">
+      return `<div class="frow${changed ? ' has-new' : ' keep'}${on ? ' on' : ''}" data-row="${esc(it.file_id)}">
         <input type="checkbox" class="ck" data-sel="${esc(it.file_id)}"${on ? ' checked' : ''}>
         <span class="ico">${it.is_dir ? '📁' : '📄'}</span>
         <div class="fmain">
-          <div class="fn one" data-full="${esc(it.name)}" title="点一下展开/收起完整名字">${esc(it.name)}</div>
+          <div class="fn one" title="点一下展开 / 收起完整名字">${esc(it.name)}</div>
           <div class="fm">
             ${it.is_dir ? '<span class="tag dir">目录' + (it.children !== null && it.children !== undefined ? ' · ' + it.children + ' 项' : '') + '</span>' : ''}
             ${it.size_text ? '<span>' + esc(it.size_text) + '</span>' : ''}
             ${it.ext ? '<span class="mono">.' + esc(it.ext) + '</span>' : ''}
             ${it.mtime ? '<span>' + esc(fmtTs(it.mtime)) + '</span>' : ''}
-            ${c.ad_hint ? '<span class="tag ad">疑似广告</span>' : ''}
+            ${c.ad_hint ? '<span class="tag ad">广告</span>' : ''}
           </div>
-          <div class="fedit">
-            <input type="text" data-edit="${esc(it.file_id)}" value="${esc(val)}" placeholder="新名字（留空表示不改）">
+          <div class="fedit hide">
+            <span class="lbl">新名</span>
+            <input type="text" data-edit="${esc(it.file_id)}" value="${esc(val)}" placeholder="留空表示不改">
             <button class="line sm" data-apply="${esc(it.file_id)}"${changed ? '' : ' disabled'}>改</button>
-            ${it.is_dir ? '<button class="ghost sm" data-enter="' + esc(it.file_id) + '">进入</button>' : ''}
           </div>
+        </div>
+        <div class="fright">
+          ${changed ? `<button class="newchip" data-cand="${esc(it.file_id)}" title="点一下直接改成这个名字"><span class="ar">→</span><span class="nm">${esc(val)}</span></button>` : ''}
+          <button class="iconbtn" data-open="${esc(it.file_id)}" title="手动填新名">✎<span class="bt">改名</span></button>
+          ${it.is_dir ? '<button class="ghost sm" data-enter="' + esc(it.file_id) + '">进入</button>' : ''}
         </div>
       </div>`;
     }).join('');
@@ -1420,9 +1521,9 @@ function renderFsList() {
   const shownDirs = rows.filter(x => x.is_dir).length;
   const shownFiles = rows.length - shownDirs;
   $('#fsMoreWrap').innerHTML = FS.more
-    ? `<button class="ghost sm" id="fsMore">加载更多（已列出 ${FS.items.length}` +
-      (FS.total ? ' / 共 ' + FS.total + ' 项' : '') + '）</button>'
-    : (FS.items.length ? `<span class="muted">已列出全部 ${FS.items.length} 项（目录 ${shownDirs} · 文件 ${shownFiles}）</span>` : '');
+    ? `<button class="ghost sm" id="fsMore">加载更多（已 ${FS.items.length}` +
+      (FS.total ? ' / 共 ' + FS.total : '') + ' 项）</button>'
+    : (FS.items.length ? `<span class="muted">共 ${FS.items.length} 项 · 目录 ${shownDirs} · 文件 ${shownFiles}</span>` : '');
 
   bindFsList();
   updateFsBar();
@@ -1431,12 +1532,31 @@ function renderFsList() {
 function bindFsList() {
   if (!FS) return;
   $$('#fsList .fn.one').forEach(el => el.onclick = () => el.classList.toggle('one'));
-  $$('#fsList input[data-edit]').forEach(inp => inp.oninput = () => {
-    FS.edits[inp.dataset.edit] = inp.value;
-    const it = FS.items.find(x => x.file_id === inp.dataset.edit) || {};
-    const btn = $('#fsList button[data-apply="' + inp.dataset.edit + '"]');
-    if (btn) btn.disabled = (inp.value === it.name);
-    updateFsBar();
+  /* ✎ 展开 / 收起「手动填新名」——只动 DOM，不重渲染（保住滚动位置与已输入内容） */
+  $$('#fsList button[data-open]').forEach(b => b.onclick = () => {
+    const ed = b.closest('.frow').querySelector('.fedit');
+    if (ed.classList.contains('hide')) {
+      ed.classList.remove('hide');
+      const i = ed.querySelector('input');
+      if (i) { i.focus(); i.select(); }
+    } else {
+      ed.classList.add('hide');
+    }
+  });
+  $$('#fsList input[data-edit]').forEach(inp => {
+    inp.oninput = () => {
+      const fid = inp.dataset.edit;
+      FS.edits[fid] = inp.value;
+      const it = FS.items.find(x => x.file_id === fid) || {};
+      const btn = inp.closest('.fedit').querySelector('button');
+      if (btn) btn.disabled = (inp.value === it.name);
+      updateFsBar();
+    };
+    inp.onkeydown = e => {
+      if (e.key !== 'Enter') return;
+      const btn = inp.closest('.fedit').querySelector('button');
+      if (btn && !btn.disabled) btn.click();
+    };
   });
   $$('#fsList input[data-sel]').forEach(cb => cb.onchange = () => {
     if (cb.checked) FS.sel.add(cb.dataset.sel); else FS.sel.delete(cb.dataset.sel);
@@ -1444,12 +1564,25 @@ function bindFsList() {
     if (row) row.classList.toggle('on', cb.checked);
     updateFsBar();   /* ⚠️ 旧版只刷了底栏、没刷上面的计数 ⇒ 出现「已选 0 项」却勾着 1 个 */
   });
+  /* 「→ 新名」chip：直接按推荐名改这一项 */
+  $$('#fsList button[data-cand]').forEach(b => b.onclick = () => {
+    const fid = b.dataset.cand;
+    const it = FS.items.find(x => x.file_id === fid);
+    if (!it) return;
+    const name = bestCandidate(it.name, (FS.cands[fid] || {}).suggestions || []);
+    if (name && name !== it.name) {
+      doRename([{ file_id: fid, new_name: name, ext: it.is_dir ? null : (it.ext || null) }]);
+    }
+  });
+  /* 手动改名（编辑器里的「改」）*/
   $$('#fsList button[data-apply]').forEach(b => b.onclick = () => {
     const fid = b.dataset.apply;
     const it = FS.items.find(x => x.file_id === fid);
     if (!it) return;
-    const inp = $('#fsList input[data-edit="' + fid + '"]');
-    doRename([{ file_id: fid, new_name: inp.value, ext: it.is_dir ? null : (it.ext || null) }]);
+    const inp = b.closest('.fedit').querySelector('input');
+    const v = ((inp && inp.value) || '').trim();
+    if (!v || v === it.name) return;
+    doRename([{ file_id: fid, new_name: v, ext: it.is_dir ? null : (it.ext || null) }]);
   });
   $$('#fsList button[data-enter]').forEach(b => b.onclick = () => fsLoad(b.dataset.enter, { refresh: false }));
   const more = $('#fsMore');
@@ -1498,8 +1631,6 @@ $$('#segKind button').forEach(b => b.onclick = () => {
   FS.kind = b.dataset.kind;
   renderFsShell(); renderFsList();
 });
-$('#fsOnlyAd').onchange = () => { if (FS) { FS.onlyAd = $('#fsOnlyAd').checked; renderFsList(); } };
-$('#fsOnlyChg').onchange = () => { if (FS) { FS.onlyChg = $('#fsOnlyChg').checked; renderFsList(); } };
 $('#fsSeries').onchange = async () => {
   if (!FS) return;
   FS.series = $('#fsSeries').checked;
@@ -1529,13 +1660,25 @@ $('#fsDefaultDir').onclick = () => {
 };
 $('#fsClearCache').onclick = async () => {
   if (!CURRENT) return;
+  const m = $('#fsMenu'); if (m) m.open = false;
   try {
     const r = await api('/accounts/' + CURRENT + '/cache', { method: 'DELETE' });
     alert('已清掉 ' + r.cleared + ' 层缓存，下次点开重新拉。');
     if (FS) await fsLoad(FS.cid, { refresh: true });
   } catch (e) { alert('清缓存失败：' + e.message); }
 };
+/* ⋯ 菜单：点到外面就收起来 */
+document.addEventListener('click', ev => {
+  const m = $('#fsMenu');
+  if (m && m.open && !m.contains(ev.target)) m.open = false;
+});
 $('#fsSelfNew').oninput = () => { if (FS) FS.selfEdit = $('#fsSelfNew').value; };
+/* 点标题展开 / 收起这张卡（根目录时没有可折叠的部分） */
+$('#fsSelfHead').onclick = () => {
+  if (!FS || String(FS.cid) === '0') return;
+  FS.selfOpen = !FS.selfOpen;
+  renderFsShell();
+};
 $('#fsSelfCands').onclick = (ev) => {
   const b = ev.target.closest('button[data-selfcand]');
   if (!b || !FS) return;
@@ -1576,7 +1719,7 @@ $('#fsBatchDelete').onclick = () => {
     '\n\n分 ' + groups + ' 批串行执行' + (eta ? '，约 ' + eta + ' 秒' : '') +
     '\n删除后会进 115 回收站，可在「任务记录 → 回收站」还原。' +
     '\n⚠️ 115 的删除是异步任务：回收站里可能延迟几十秒~几分钟才出现；' +
-    '\n要确认删没删掉，重新「扫描这一层」看（别立刻看回收站就断定失败）。')) return;
+    '\n要确认删没删掉，重新「⟳ 扫描」看（别立刻看回收站就断定失败）。')) return;
   doDelete(sel);
 };
 
