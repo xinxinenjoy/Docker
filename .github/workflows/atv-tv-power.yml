@@ -30,7 +30,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./atv-tv-power
-          # arm/v7 在 Dockerfile 里走特殊分支（跳过 miniaudio，它没有 32 位 ARM wheel）
+          # ⚠️ 三个平台都要：amd64 = PC/NAS/云服务器，arm64 = 树莓派4/5+Apple Silicon，
+          #    arm/v7 = 老树莓派3/32位ARM盒子。arm/v7 上 cffi/miniaudio 需现场编译，
+          #    Dockerfile 已为该平台单独装工具链。
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |

@@ -1,1 +1,6 @@
+# pyatv 会连带装上 miniaudio（C 扩展）—— ⚠️ pyatv/helpers.py 在 import 期就 `import miniaudio`，
+# 所以不能用 --no-deps 跳过它，少了它连 `import pyatv` 都会失败。
+# ⚠️ miniaudio 只在 PyPI 上发过 cp37 的 armv7l 轮子 ⇒ 32 位 ARM 上必须现场编译，
+#    故 Dockerfile 为 arm/v7 单独装了 gcc/g++/libffi-dev/libasound2-dev。
+#    平台支持见仓库根 README 的「支持的平台」一节。
 pyatv==0.18.0
