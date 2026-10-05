@@ -8,6 +8,11 @@ on:
       - '.github/workflows/atv-tv-power.yml'
   workflow_dispatch:
 
+# 连推多个提交时只保留最新一次构建：旧的同 workflow run 会被自动取消，避免排队干等。
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
