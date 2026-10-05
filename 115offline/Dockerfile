@@ -14,20 +14,19 @@ ENV PIP_INDEX_URL=$PIP_INDEX \
 WORKDIR /app
 
 COPY requirements.txt ./
-
-# arm/v7（32 位 ARM）上网盘 SDK 拉进来的 brotli / zstandard / cffi 都没有预编译 wheel，
-# pip 只能从源码编译，而 python:3.12-slim 里不含编译器 ⇒ 仅在 arm/v7 上装一套工具链。
-# amd64 / arm64 的依赖全都有 wheel，这一步直接跳过、什么都不装。
-# libffi-dev 是编译 cffi 所需，同时带来运行期要用的 libffi8。
-ARG TARGETARCH
-ARG TARGETVARIANT
-RUN if [ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ]; then \
-      apt-get update && \
-      apt-get install -y --no-install-recommends gcc g++ libffi-dev && \
-      rm -rf /var/lib/apt/lists/*; \
-    fi
-
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ⚠️ 本镜像只发布 linux/amd64 与 linux/arm64 —— 【不出 arm/v7】。原因（构建日志实测）：
+#    arm/v7 上 brotli / zstandard / cffi 都没有预编译轮子（piwheels 也没有 cp312 的），
+#    必须现场编译 ⇒ 光 pip install 一项就是 1819s，整条 arm/v7 腿 1880s（≈31 分钟），
+#    占整个构建时长的 88%，而它只多覆盖树莓派 3 这类老设备。不划算，故不提供。
+#    真要恢复：把下面这段加在 RUN pip install 之前，并恢复 workflow 里的 linux/arm/v7。
+#      ARG TARGETARCH
+#      ARG TARGETVARIANT
+#      RUN if [ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ]; then \
+#            apt-get update && apt-get install -y --no-install-recommends gcc g++ libffi-dev && \
+#            rm -rf /var/lib/apt/lists/*; \
+#          fi
 
 COPY app/ ./app/
 

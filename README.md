@@ -13,13 +13,13 @@
 
 ## 支持的平台
 
-每个镜像都同时构建下面三个平台，`docker pull` 时 Docker 会自动挑选匹配的架构 —— 使用者无需做任何事：
+`docker pull` 时 Docker 会自动挑选匹配的架构 —— 使用者无需做任何事。
 
-| 平台 | 覆盖设备 |
-|:---|:---|
-| `linux/amd64` | x86-64 的 PC / NAS / 云服务器 |
-| `linux/arm64` | 树莓派 4 / 5、Apple Silicon、ARM NAS、各类开发板 |
-| `linux/arm/v7` | 树莓派 3、部分 32 位 ARM 电视盒子 |
+| 平台 | 覆盖设备 | 覆盖情况 |
+|:---|:---|:---|
+| `linux/amd64` | x86-64 的 PC / NAS / 云服务器 | 全部镜像 |
+| `linux/arm64` | 树莓派 4 / 5、Apple Silicon、ARM NAS、各类开发板 | 全部镜像 |
+| `linux/arm/v7` | 树莓派 3、部分 32 位 ARM 电视盒子 | 视项目而定（见各项目 README） |
 
 ## 怎么用
 
@@ -51,3 +51,11 @@ docker run -d --name 115offline \
 也可在 [Actions](../../actions) 页面手动触发（`workflow_dispatch`）。
 
 > 构建依赖仓库 secret `DOCKERHUB_TOKEN`（Docker Hub Access Token，权限 **Read & Write**）。
+
+## 维护者流程
+
+1. 改 `115offline/` 或 `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
+2. **镜像推送成功后，必须同步更新 Docker Hub 仓库页的说明与使用方法。**
+   Hub 页面是别人看到的第一眼 —— 镜像更新了、说明还停在旧版，等于误导。
+   **以各目录下的 `README.md` 为准**同步（Hub 的 Overview 与短描述都从它来）。
+3. 验收以 `docker manifest inspect <镜像>` 为准，别只看 CI 是不是绿的。

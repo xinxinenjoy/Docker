@@ -9,7 +9,7 @@
 > **两套变量必须配，否则起来也用不了：**
 >
 > | 变量 | 必填 | 说明 |
-> |---|---|---|
+> |:---|:---|:---|
 > | `ACCESS_TOKEN` | 建议必填 | 访问口令。**一旦映射到公网，不设它等于把账号交出去** |
 > | `DATA_DIR` | 默认 `/data` | 数据目录（存 115 cookie），**必须挂到宿主机**，否则容器重建后账号全丢 |
 >
@@ -32,12 +32,15 @@
 ## 支持的平台
 
 | 平台 | 覆盖设备 |
-|---|---|
+|:---|:---|
 | `linux/amd64` | x86-64 的 PC / NAS / 云服务器 |
-| `linux/arm64` | 树莓派 4 / 5 · Apple Silicon · ARM NAS · 各类开发板 |
-| `linux/arm/v7` | 树莓派 3 / 部分 32 位 ARM 电视盒子 |
+| `linux/arm64` | 树莓派 4 / 5、Apple Silicon、ARM NAS、各类开发板 |
 
-镜像名 `xinxinenjoy/115offline`，`docker pull` 时 Docker 会**自动挑对应架构**，你不用做任何事。
+镜像名 `xinxinenjoy/115offline`。`docker pull` 时 Docker 会**自动挑对应架构**，你不用做任何事。
+
+> ⚠️ **不提供 `linux/arm/v7`（32 位 ARM）** —— 该平台下 `brotli` / `zstandard` / `cffi` 都没有预编译轮子
+> （piwheels 也没有 cp312 的），必须现场编译：实测**单是安装依赖就要 30 分钟**，占整个构建时长的 88%，
+> 而它只多覆盖树莓派 3 这类老设备。**树莓派 4 / 5 及以上请用 `linux/arm64`**（装 64 位系统即可）。
 
 ---
 
@@ -91,7 +94,7 @@ docker build -t 115offline:latest .
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
-|---|---|---|
+|:---|:---|:---|
 | `ACCESS_TOKEN` | 空 | 访问口令。设置后打开网页需先输入。**一旦映射到公网，务必设一个长的** |
 | `DATA_DIR` | `/data` | 数据目录，里面是 `accounts.json`（存 115 cookie） |
 | `TZ` | 容器系统 | 时区，如 `Asia/Shanghai` |

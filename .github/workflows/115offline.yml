@@ -32,9 +32,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./115offline
-          # ⚠️ 三个平台都要：amd64 = PC/NAS/云服务器，arm64 = 树莓派4/5+Apple Silicon，
-          #    arm/v7 = 老树莓派3/32位ARM盒子。理由见 compose-project-sop.md §八 ③
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          # amd64 = PC/NAS/云服务器，arm64 = 树莓派4/5+Apple Silicon+ARM NAS。
+          # ⚠️ 故意【不出 arm/v7】：该平台依赖全无预编译轮子、必须现场编译，
+          #    实测单独一腿要 31 分钟（占整个构建 88%），只多覆盖树莓派 3 这类老设备。
+          platforms: linux/amd64,linux/arm64
           push: true
           # 发新版时在这里加/改 tag
           tags: |
@@ -42,3 +43,16 @@ jobs:
             xinxinenjoy/115offline:1.0
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # 镜像推上去之后，把仓库里的 README 同步到 Hub 仓库页（短描述 + Overview）。
+      # 规则见仓库根 README 的「维护者流程」—— 镜像更新了、说明还停在旧版 = 误导。
+      # ⚠️ 用 PAT 走 /v2/users/login/ 换 JWT：PAT 【不能】当 Bearer 头用（会 401），
+      #    但可以当 password 提交（2026-10-05 实测）。
+      - name: Sync Docker Hub description
+        env:
+          DOCKERHUB_USERNAME: xinxinenjoy
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_REPO: 115offline
+          README_PATH: 115offline/README.md
+          SHORT_DESCRIPTION: 自托管 115 离线下载推送工具：网页粘贴磁力，一键推送
+        run: python3 .github/scripts/sync-hub-description.py

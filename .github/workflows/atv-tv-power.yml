@@ -39,3 +39,14 @@ jobs:
             xinxinenjoy/atv-tv-power:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # 镜像推上去之后，把仓库里的 README 同步到 Hub 仓库页（短描述 + Overview）。
+      # 规则见仓库根 README 的「维护者流程」—— 镜像更新了、说明还停在旧版 = 误导。
+      - name: Sync Docker Hub description
+        env:
+          DOCKERHUB_USERNAME: xinxinenjoy
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_REPO: atv-tv-power
+          README_PATH: atv-tv-power/README.md
+          SHORT_DESCRIPTION: Apple TV 待机时自动关掉旁边那台电视
+        run: python3 .github/scripts/sync-hub-description.py

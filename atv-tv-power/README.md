@@ -17,14 +17,18 @@ Apple TV ──Companion 协议推送(实时)──▶ 本服务 ──HTTP 6095
 ## 支持的平台
 
 | 平台 | 覆盖设备 |
-|---|---|
+|:---|:---|
 | `linux/amd64` | x86-64 的 PC / NAS / 云服务器 |
 | `linux/arm64` | 树莓派 4 / 5 · Apple Silicon · ARM NAS · 各类开发板 |
 | `linux/arm/v7` | 树莓派 3 / 部分 32 位 ARM 电视盒子 |
 
 镜像名 `xinxinenjoy/atv-tv-power`。
 
-> ⚠️ 32 位 ARM（`arm/v7`）在 Dockerfile 里走**特殊分支**：`pyatv` 依赖的 `miniaudio` 没有 32 位 ARM 的预编译 wheel，而本项目只用 pyatv 的**开关机**能力、完全不碰音频流 ⇒ arm/v7 上跳过 `miniaudio`。
+> ℹ️ **`arm64` / `arm/v7` 这两个平台在构建时会现场编译 `miniaudio`** —— 它在 PyPI 上只发
+> x86-64 / macOS / Windows 的轮子，Linux 的 aarch64 与 armv7l **一个都没有**，而 `pyatv` 在
+> `import` 期就要用它（`pyatv/helpers.py` 无 `try/except`），绕不开。
+> Dockerfile 因此只在非 amd64 平台装编译工具链。**这只影响首次构建**（之后命中 CI 层缓存），
+> 你 `docker pull` 现成镜像的话与此无关。
 
 ---
 
@@ -75,7 +79,7 @@ services:
 `config.json`：
 
 | 键 | 默认 | 说明 |
-|---|---|---|
+|:---|:---|:---|
 | `delay_seconds` | 20 | ATV 待机后等多久才关电视。期间若 ATV 被唤醒则取消（防误触） |
 | `poll_seconds` | 30 | **心跳探活间隔**（也是状态对账间隔）—— 每轮真发一次 `fetch_attention_state()`，顺带发现推送漏掉的事件。别调得比 5s 还小（探活本身有 5s 超时） |
 | `retries` / `retry_interval` | 3 / 5 | 关电视失败重试次数与间隔 |
@@ -108,7 +112,7 @@ services:
 **根因**：pyatv 把设备上报的原始状态做了**有损压缩**（`companion/__init__.py` 的 `_system_status_to_power_state`）：
 
 | 设备原始状态（`SystemStatus`） | pyatv 交给我们的 `PowerState` |
-|---|---|
+|:---|:---|
 | `Asleep` (0x01) | `Off` |
 | `Screensaver` (0x02) | `On` ← **三合一** |
 | `Awake` (0x03) | `On` ← **区分被抹掉** |
@@ -121,7 +125,7 @@ services:
 **决策表**：
 
 | 待机前的原始状态 | 推断 | 动作 |
-|---|---|---|
+|:---|:---|:---|
 | `Awake` | 你正在用 ATV，是按遥控器主动关机 | **关电视** |
 | `Screensaver` / `Idle` | ATV 闲置后自己睡着的 | **不关电视** |
 | 拿不到（降级） | 判据失效 | 按 `guard.on_unknown`（默认 `skip` 不关）+ Bark 告警 |
@@ -131,7 +135,7 @@ services:
 **为什么不能从电视侧判断**（三条路都堵死了，别再试）：
 
 | 途径 | 结论 |
-|---|---|
+|:---|:---|
 | 电视 6095 | **没有任何「读当前输入源 / 前台 App」的接口** —— 17 个候选全 404（网传的 `getCurrentApp` 是内容农场编的）。开机状态下反复切 App / HDMI 源共 6 次，`url`/`build`/`platform`/`stream` 四个字段零变化 |
 | UPnP 49152 | 是纯 DLNA **DMR**，只有三个标准服务，**零厂商扩展状态属性** |
 | ADB 5555 | 电视每次关机都会把「ADB 调试」复位 ⇒ 不可持续（已弃用） |
@@ -143,7 +147,7 @@ services:
 ### Apple TV 侧
 
 | # | 结论 | 影响 |
-|---|------|------|
+|:---|:---|:---|
 | 1 | pyatv 的 `StateProducer.listener` setter 内部是 `weakref.ref(target)` | **listener 必须被强引用持有**；写成 `atv.power.listener = MyListener()` 会因对象当场被 GC 而**永远收不到推送** |
 | 2 | ATV 待机后 Companion 长连接**不断**，待机事件实时送达 | 可用长连接 + 推送，无需轮询 |
 | 3 | ATV 待机时 `7000`/`49153` 端口**仍然开放** | 不能靠探端口判断 ATV 电源状态 |
@@ -153,7 +157,7 @@ services:
 ### ⚠️ 长连接保活
 
 | 事实 | 影响 |
-|---|---|
+|:---|:---|
 | pyatv 的 Companion 协议**没有任何保活**：协议内无应用层心跳、无周期任务；`tcp_keepalive()` 只被 MRP 协议调用，**Companion 一次都没调** | 长空闲后连接被路由器 / AP **静默回收**（TCP 半开）时，客户端**无从察觉** |
 | `atv.power.power_state` 读的是 pyatv 的**内存缓存**（`companion/__init__.py` 的 `return self._power_state`），**不发任何网络请求** | ⚠️ **拿它当探活 = 假探活**：连接死了它既不报错、还一直返回旧值 |
 | 真正走网络的只有 `CompanionAPI.fetch_attention_state()`（pyatv 内置 5s 超时 ⇒ 连接死了必然失败） | 本服务每 `poll_seconds` 调它一次作**心跳**，失败即退出会话、重连 |
@@ -165,13 +169,13 @@ services:
 ### 电视侧
 
 | 状态 | TCP 6095 | `/request?action=isalive` |
-|---|---|---|
+|:---|:---|:---|
 | 开机 | 开放 | `200 OK` |
 | 待机 | 超时 | 超时 |
 | 关机瞬间 | — | `502`（过渡态） |
 
 | # | 结论 | 影响 |
-|---|------|------|
+|:---|:---|:---|
 | 6 | 6095 是该类电视自带的局域网 HTTP 控制接口，**不需要 token / ADB / 开发者选项** | 这是官方 App / 语音助手控制电视的本地通道 |
 | 7 | `keyevent` 是**切换语义**（`power` = 开/关翻转） | 发键前必须确认电视处于开机态，否则会把已关的电视**打开** |
 | 8 | 待机时 6095 完全不响应 | 无法用它开机；开机由 ATV 的 CEC 负责 |
@@ -200,7 +204,7 @@ python atv_tv_power.py --test-bark      # 手动推一条 Bark，验证告警通
 ## 排障
 
 | 现象 | 原因 / 处理 |
-|---|---|
+|:---|:---|
 | `找不到 Apple TV` | 设备换 IP 或休眠较深。核对 `config.json` 的 host；`atvremote scan` 复查 |
 | 日志有 `ATV 进入待机` 但电视没关 | 先看紧随其后的那行：若写「**跳过关电视 —— 待机前 = Screensaver**」，这是**预期**的防误关；若写「关电视：…」再对照「复查状态」，显式 `off` 说明电视本就关着（正常） |
 | 电视该关却没关 | 跑 `python atv_tv_power.py --show-state` 看判据怎么判的；再看 ATV 设置里屏保 / 睡眠时长。若判据**降级**（会推 🟡 告警），把 `guard.on_unknown` 改 `close` 可退回旧行为 |
@@ -217,7 +221,7 @@ python atv_tv_power.py --test-bark      # 手动推一条 Bark，验证告警通
 ## 工具
 
 | 脚本 | 用途 |
-|---|---|
+|:---|:---|
 | `tools/pair_atv.py` | 与 Apple TV 做 Companion 配对，产出 `keys/atv_credentials.json`（PIN 显示在电视上） |
 | `tools/test_guard.py` | **防误关判据的回归测试**：离线跑决策表（不连设备、不发请求）。改动判据函数后**务必先跑它** |
 | `tools/test_heartbeat.py` | **连接探活的回归测试**：离线验证「连接死了必须被发现」—— 反例（`fetch` 抛异常 → 会话退出并清理干净）、正例（健康时不退出）、状态对账、拿不到 API 时不误判。改动心跳 / 会话循环后**务必先跑它** |
