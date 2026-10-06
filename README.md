@@ -2,11 +2,11 @@
 
 > ## 🚧 开发中 —— 暂不对外推荐
 >
-> 这两个镜像还在迭代，**功能没定稿**，接口与配置都可能变。
+> 这三个镜像还在迭代，**功能没定稿**，接口与配置都可能变。
 > 请先别把它推荐给别人 —— 等定稿后再说。
 >
 > （另一个原因：**每次推 `main` 都会自动触发一次 Docker Hub 构建**。迭代期频繁推送 =
-> 频繁构建等待。已给两个 workflow 配 `concurrency.cancel-in-progress`，连推多个提交只构建最后一次。）
+> 频繁构建等待。已给三个 workflow 配 `concurrency.cancel-in-progress`，连推多个提交只构建最后一次。）
 
 自建 Docker 镜像的源码仓库 —— **一个子目录一个项目**，由 GitHub Actions 自动构建镜像并发布到 Docker Hub。
 
@@ -15,6 +15,7 @@
 | 镜像 | 说明 |
 |:---|:---|
 | [`115offline`](https://hub.docker.com/r/xinxinenjoy/115offline) | 115 网盘离线下载推送工具：手机网页粘贴磁力，一键推给 115 |
+| [`115organize`](https://hub.docker.com/r/xinxinenjoy/115organize) | 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控 |
 | [`atv-tv-power`](https://hub.docker.com/r/xinxinenjoy/atv-tv-power) | Apple TV 开关机联动（Home Assistant / 推送通知） |
 
 镜像全名为 `xinxinenjoy/<项目名>`，源码在仓库内同名目录下。
@@ -45,6 +46,7 @@ docker run -d --name 115offline \
 各项目的环境变量与完整步骤见对应目录下的说明：
 
 - [`115offline/README.md`](115offline/README.md)
+- [`115organize/README.md`](115organize/README.md)
 - [`atv-tv-power/README.md`](atv-tv-power/README.md)
 
 ## 怎么构建
@@ -54,15 +56,20 @@ docker run -d --name 115offline \
 | Workflow | 触发路径 |
 |:---|:---|
 | [`115offline.yml`](.github/workflows/115offline.yml) | `115offline/**` |
+| [`115organize.yml`](.github/workflows/115organize.yml) | `115organize/**` |
 | [`atv-tv-power.yml`](.github/workflows/atv-tv-power.yml) | `atv-tv-power/**` |
 
 也可在 [Actions](../../actions) 页面手动触发（`workflow_dispatch`）。
 
 > 构建依赖仓库 secret `DOCKERHUB_TOKEN`（Docker Hub Access Token，权限 **Read & Write**）。
+>
+> ⚠️ `115organize.yml` 比另两个多一个 `test` job：**先跑 74 个离线单测，过了才构建**。
+> 那个项目的风险不在编译不过，而在**规则判错**（垃圾判错 = 正片被搬走；
+> `conflict_policy` 忘了传 = 文件被覆盖且不可恢复）—— 这类错误只有用例能拦。
 
 ## 维护者流程
 
-1. 改 `115offline/` 或 `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
+1. 改 `115offline/` / `115organize/` / `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
 2. **镜像推送成功后，必须同步更新 Docker Hub 仓库页的说明与使用方法。**
    Hub 页面是别人看到的第一眼 —— 镜像更新了、说明还停在旧版，等于误导。
    **以各目录下的 `README.md` 为准**同步（Hub 的 Overview 与短描述都从它来）。

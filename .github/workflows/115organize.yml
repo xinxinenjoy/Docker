@@ -1,0 +1,73 @@
+name: 115organize
+
+# 改 115organize/ 下的东西才触发（monorepo 里一个项目一个 workflow）
+on:
+  push:
+    branches: [main]
+    paths:
+      - '115organize/**'
+      - '.github/workflows/115organize.yml'
+  workflow_dispatch:
+
+# 连推多个提交时只保留最新一次构建：旧的同 workflow run 会被自动取消，避免排队干等。
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  # ⚠️ 先跑单测再构建 —— 本项目的风险不在「编译不过」，而在**规则判错**：
+  #    垃圾判错 = 正片被搬走；`conflict_policy` 忘了传 = 文件被覆盖且不可恢复。
+  #    这些错误构建期发现不了，只有那 74 个用例能拦。
+  #    用例全是纯离线的（可注入时钟 / 假 client），跑完只要 1 秒。
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 跑单测（不装任何第三方依赖）
+        working-directory: ./115organize
+        run: python -m unittest discover -s tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ⚠️ 没有 QEMU / 没有多架构（沿用 2026-10-05 的拍板：只保留 x86-64）。
+      #    runner 本身就是 amd64 ⇒ 构建是**原生**的，不再有模拟开销。
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: xinxinenjoy
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./115organize
+          platforms: linux/amd64
+          push: true
+          # 发新版时在这里加/改 tag
+          tags: |
+            xinxinenjoy/115organize:latest
+            xinxinenjoy/115organize:1.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 镜像推上去之后，把仓库里的 README 同步到 Hub 仓库页（短描述 + Overview）。
+      # 规则见仓库根 README 的「维护者流程」—— 镜像更新了、说明还停在旧版 = 误导。
+      # ⚠️ Hub 页面只放「功能 + 用法」精简版（DOCKERHUB.md），完整文档留在仓库 README.md。
+      - name: Sync Docker Hub description
+        env:
+          DOCKERHUB_USERNAME: xinxinenjoy
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_REPO: 115organize
+          README_PATH: 115organize/DOCKERHUB.md
+          SHORT_DESCRIPTION: 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控
+        run: python3 .github/scripts/sync-hub-description.py

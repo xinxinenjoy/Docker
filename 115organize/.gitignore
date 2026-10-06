@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+data/
+*.log
+.venv/
+venv/
+
+# 本机自测产物（目录树导出件、报告、跑出来的快照）。含真实盘上目录名，不进公开仓库。
+localdata/
