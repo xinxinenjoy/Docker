@@ -127,6 +127,31 @@ class TestMetaScanCache(unittest.TestCase):
             db2 = MetaDB(Path(tmp))
             self.assertEqual(db2.lookup("IPZZ-137")["actress"], "三上悠亚")
 
+    def test_默认fetch_javbus_解析_不真打网(self):
+        """默认 javbus 解析器 —— 用假 opener 顶掉网络，验证 HTML 解析逻辑。"""
+        import tempfile as _tf
+        from pathlib import Path as _P
+        from unittest.mock import patch
+
+        html = """<html><head><title>IPZZ-137 xxx - JavBus</title></head><body>
+        <h3>IPZZ-137 真夏の輪 庵ひめか</h3>
+        <div class="star-name"><a href="https://www.javbus.com/star/zjy" title="庵ひめか">庵ひめか</a></div>
+        <div class="info">メーカー：<a href="#">Idea Pocket</a></div>
+        </body></html>"""
+
+        with _tf.TemporaryDirectory() as tmp:
+            db = MetaDB(_P(tmp))
+            scan = MetaScan(db, delay_min=0, delay_max=0)
+            fake = type("FakeResp", (), {"__enter__": lambda s: s,
+                                        "__exit__": lambda *a: None,
+                                        "read": lambda s: html.encode("utf-8")})()
+            fake_opener = type("FakeOpener", (), {
+                "open": lambda s, req, timeout=20: fake})()
+            with patch.object(scan, "_opener", return_value=fake_opener):
+                got = scan._fetch_javbus("IPZZ-137")
+            self.assertEqual(got["actress"], "庵ひめか")
+            self.assertIn("真夏の輪", got["title"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

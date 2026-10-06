@@ -18,7 +18,9 @@
 """
 from __future__ import annotations
 
+import os
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +29,9 @@ from . import number
 from .metadb import MetaDB
 
 __all__ = ["MetaScan", "pick_sources", "SOURCES", "SOURCE_ALIASES"]
+
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 
 # 各源「怎么被访问」的描述 —— 只写 URL 形态与识别逻辑，不在这里发起任何请求。
 # 具体请求由 `_scan_one` 里的 fetch 函数做（可被测试替身顶掉）。
@@ -143,11 +148,94 @@ class MetaScan:
         time.sleep(random.uniform(self.delay_min, self.delay_max))
 
     def _default_fetch(self, src: str, avid: str) -> dict:
-        """真实 fetch。⚠️ 本站这几个源反爬都不弱 —— 只 GET、不重试、结果解析保守。
+        """真实 fetch（2026-10-06 实测接线）。
 
-        这是「缺省实现」；测试/离线环境用 `fetch=` 注入替身，不真发请求。
+        主力 = **javbus**：`xx=1` cookie 绕过年龄验证，页面直接给**日文女优名**
+        （红领巾 2026-10-06 定「日文名/罗马音为基础」正合用）。
+        javdb 搜索页反爬（结果靠 JS），作兜底尝试。
+        FC2 / xcity / mgstage / avsox 的 URL 形态待真机续测 —— 先走 javbus 兜底。
+
+        ⚠️ 只 GET、不重试、解析保守 —— 拿不到就返回空，让上层切源。
         """
-        raise NotImplementedError(
-            "metascan 的真实 fetch 未接线 —— 部署时通过环境变量/配置启用；"
-            "本地自测请注入假 fetch"
-        )
+        if src == "javbus":
+            return self._fetch_javbus(avid)
+        if src == "javdb":
+            return self._fetch_javdb(avid)
+        # 其余源（fc2/xcity/mgstage/avsox/jav321）暂未接线，返回空让上层切 javbus
+        return {}
+
+    # ------------------------------------------------------------ 各源实现
+    def _opener(self):
+        """带代理 + 浏览器 UA 的 opener。代理可被环境变量覆盖。"""
+        import ssl
+        import urllib.request as u
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        handlers = []
+        proxy = os.environ.get("META_PROXY", "").strip()
+        if proxy:
+            handlers.append(u.ProxyHandler({"https": proxy, "http": proxy}))
+        handlers.append(u.HTTPSHandler(context=ctx))
+        return u.build_opener(*handlers)
+
+    def _get(self, url: str, *, cookie: str = "", timeout: int = 20) -> str:
+        import urllib.request as u
+
+        headers = {"User-Agent": _UA, "Accept-Language": "zh-CN,zh;q=0.9",
+                   "Accept": "text/html,application/xhtml+xml"}
+        if cookie:
+            headers["Cookie"] = cookie
+        req = u.Request(url, headers=headers)
+        with self._opener().open(req, timeout=timeout) as resp:
+            raw = resp.read()
+        return raw.decode("utf-8", "replace")
+
+    def _fetch_javbus(self, avid: str) -> dict:
+        """javbus 番号页：`https://www.javbus.com/<番号>`。
+
+        实测（2026-10-06）：
+          · `xx=1` cookie 绕过年龄验证页
+          · 女优：`<div class="star-name"><a title="庵ひめか">庵ひめか</a></div>`
+          · 标题：`<h3>IPZZ-137 真夏の輪… 庵ひめか</h3>`
+        """
+        url = f"https://www.javbus.com/{avid}"
+        html = self._get(url, cookie="xx=1")
+        if not html or "javbus" not in html.lower():
+            return {}
+
+        # 女优：div.star-name 里的 a[title]
+        actress = ""
+        m = re.search(r'<div class="star-name">\s*<a[^>]*title="([^"]+)"', html)
+        if m:
+            actress = m.group(1).strip()
+        # 标题：h3（去掉开头番号 + 结尾女优，只要中间片名）
+        title = ""
+        t = re.search(r"<h3>(.*?)</h3>", html, re.S)
+        if t:
+            title = re.sub(r"<[^>]+>", " ", t.group(1))
+            title = re.sub(r"\s+", " ", title).strip()
+            # 去掉番号和女优尾巴（保留中间部分）
+            title = title.replace(avid, "").replace(actress, "").strip(" -–")
+        # 片商：页面 info 行里的「メーカー」
+        maker = ""
+        m = re.search(r"メーカー[：:]\s*<a[^>]*>([^<]+)</a>", html)
+        if m:
+            maker = m.group(1).strip()
+        return {"actress": actress, "maker": maker, "title": title}
+
+    def _fetch_javdb(self, avid: str) -> dict:
+        """javdb 搜索（兜底）。实测搜索页反爬（结果靠 JS/登录），大概率拿不到 ——
+        拿到就拿，拿不到返回空让上层继续。
+        """
+        url = f"https://javdb.com/search?q={avid}&f=all"
+        try:
+            html = self._get(url)
+        except Exception:
+            return {}
+        actress = ""
+        m = re.search(r'<div class="actors">\s*<a[^>]*>([^<]+)</a>', html)
+        if m:
+            actress = m.group(1).strip()
+        return {"actress": actress, "maker": "", "title": ""}
