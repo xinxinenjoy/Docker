@@ -26,7 +26,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 跑单测（不装任何第三方依赖）
+      # ⚠️ 早期测试「纯标准库」不装依赖就能跑；网页层（test_web）引入后
+      #    import 就需要 fastapi/httpx —— 必须装依赖。依赖很薄（见 requirements.txt），
+      #    装一下只多 5~10 秒，换来网页层 43 个用例能上 CI。
+      - name: 装依赖
+        working-directory: ./115organize
+        run: pip install -r requirements.txt httpx
+      - name: 跑单测
         working-directory: ./115organize
         run: python -m unittest discover -s tests
 
