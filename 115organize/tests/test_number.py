@@ -54,6 +54,21 @@ class TestGetId(unittest.TestCase):
         self.assertEqual(number.get_id("第一會所新片@SIS001@300MIUM-1446"), "300MIUM-1446")
         self.assertEqual(number.series_of("300MIUM-1446"), "300MIUM")
 
+    def test_污染前缀纠错(self):
+        """`manipzz-137` 是站点前缀污染，真实番号 `IPZZ-137`（IPZZ 系列）。
+
+        ⛔ 不能照名字硬认成 `MANIPZZ` 系列 —— 那是错误归属。
+        """
+        for raw in ("manipzz-137", "MANIPZZ-137", "manipzz-137ch", "Manipzz-137-C"):
+            with self.subTest(raw=raw):
+                self.assertEqual(number.get_id(raw), "IPZZ-137", f"{raw} 应纠错为 IPZZ-137")
+                self.assertEqual(number.series_of(number.get_id(raw)), "IPZZ")
+        # 正常 IPZZ 不受影响
+        self.assertEqual(number.get_id("IPZZ-137"), "IPZZ-137")
+        self.assertEqual(number.get_id("ipzz-916ch"), "IPZZ-916")
+        # 不认识的形态原样返回（不瞎改）
+        self.assertEqual(number.dedupe_prefix("ABP-303"), "ABP-303")
+
     def test_无码站日期番号(self):
         """1Pondo 系：`1Pondo-041614_791` —— 硬套通用规则会得到残号 `PONDO-04161`。"""
         self.assertEqual(number.get_id("1Pondo-041614_791-HD"), "PONDO-041614_791")

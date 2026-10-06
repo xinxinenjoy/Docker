@@ -136,6 +136,9 @@ class Config:
     # ---------------------------------------------------------------- 整理范围
     # ⚠️ 相对 115 根目录的路径。目录树导出里的一级目录就是它。
     root_path: str = field(default_factory=lambda: _env("ROOT_PATH") or "云下载")
+    # tidy 模式的目标根 —— 与「整理根」平级，同在 115 根目录下。
+    # 红领巾 2026-10-06 定：按女优细化时，整理好的往「涩涩存档」里放。
+    tidy_target: str = field(default_factory=lambda: _env("TIDY_TARGET") or "涩涩存档")
 
     # ---------------------------------------------------------------- 番号系列
     series_enable: bool = field(default_factory=lambda: _flag("SERIES_ENABLE", True))
@@ -182,6 +185,9 @@ class Config:
     throttle_max: float = field(default_factory=lambda: _float("THROTTLE_MAX", 5.0))
     throttle_batch: int = field(default_factory=lambda: _int("THROTTLE_BATCH", 200))
     throttle_rest: float = field(default_factory=lambda: _float("THROTTLE_REST", 60.0))
+    # tidy 批处理参数（红领巾 2026-10-06 定：一次 3-5 个、批间长休、别太快）
+    tidy_batch: int = field(default_factory=lambda: _int("TIDY_BATCH", 3))
+    tidy_batch_rest: float = field(default_factory=lambda: _float("TIDY_BATCH_REST", 30.0))
     # 运行时间窗（如 `02:00-06:00`；留空 = 不限）。窗外不发起请求、就地等。
     window: str = field(default_factory=lambda: _env("WINDOW"))
     # 连续失败到这个数就停手冷却（风控/网络抖动的共同症状都是连续失败）

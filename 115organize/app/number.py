@@ -26,7 +26,39 @@ __all__ = [
     "kind_of",
     "has_cjk",
     "Kind",
+    "dedupe_prefix",
 ]
+
+# --------------------------------------------------------------- 站点前缀污染纠错
+# ⚠️ 红领巾 2026-10-06 定：**核对番号时不能照名字硬认系列** —— `manipzz-137` 这类
+#    是站点前缀污染（真实番号是 `IPZZ-137`，属于 IPZZ 系列），不能当 `MANIPZZ` 系列。
+#    这里是「污染前缀 → 真实前缀」的映射表。命中后整体替换，再走正常识别。
+#    前缀形态可能是「字母串」也可能是「字母串+数字」（如 manipzz 后面直接跟番号数字）。
+#    ⚠️ 只做**前缀**替换：`manipzz-137` → `IPZZ-137`；不会碰「名字中间夹着」的。
+_PREFIX_FIXES: dict[str, str] = {
+    "manipzz": "IPZZ",       # 污染名 → 真实片商 Idea Pocket 的 IPZZ 系
+}
+
+# 也要防「污染前缀 + 规范后缀」的混合形态：`manipzz-137ch` / `manipzz-137-C`
+# 先把尾巴剥掉再做前缀替换，这样 `manipzz-137ch` 也能干净地纠成 `IPZZ-137`。
+_PREFIX_FIX_SPLIT_RE = re.compile(r"(?i)^([a-z0-9]{2,20})[-_\.]?(\d{2,6})(.*)$")
+
+
+def dedupe_prefix(name: str) -> str:
+    """把站点前缀污染名还原成真实番号形态。
+
+    `manipzz-137` → `IPZZ-137`（前缀被映射表替换，数字/尾巴保留）。
+    不认识的形态原样返回 —— 宁可少认，不瞎改。
+    """
+    s = (name or "").strip()
+    m = _PREFIX_FIX_SPLIT_RE.match(s)
+    if not m:
+        return s
+    prefix, digits, tail = m.group(1).lower(), m.group(2), m.group(3)
+    real = _PREFIX_FIXES.get(prefix)
+    if not real:
+        return s
+    return f"{real}-{digits}{tail}"
 
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
@@ -192,7 +224,19 @@ def get_id(name: str) -> str:
 
     ⚠️ 顺序敏感 —— 每一条「更具体的形态」都必须排在通用规则之前，否则会被通用规则
        切出**看起来对、其实错**的番号（`300MIUM-1446` → `MIUM-1446` 就是典型）。
+
+    ⚠️ 2026-10-06 起**先做污染前缀纠错**（`manipzz-137` → `IPZZ-137`），
+       纠错命中则用纠错后的名字走正常识别；没命中才用原名。
     """
+    fixed = dedupe_prefix(name)
+    if fixed != name:
+        got = _raw_get_id(fixed)
+        if got:
+            return got
+    return _raw_get_id(name)
+
+
+def _raw_get_id(name: str) -> str:
     norm = normalize_name(name)
     if not norm:
         return ""
@@ -222,7 +266,7 @@ def get_id(name: str) -> str:
     # --- 去掉域名后再试一次（`madoubt.com HMN-870`）--------------------------
     no_domain = re.sub(r"\w{3,10}\.(?:COM|NET|APP|XYZ|CC|ME|LA|TV|IO)", "", norm, flags=re.I)
     if no_domain != norm:
-        got = get_id(no_domain)
+        got = _raw_get_id(no_domain)
         if got:
             return got
 
@@ -283,7 +327,7 @@ def get_id(name: str) -> str:
 
     # --- `)(` 当分隔符的少数片子 ------------------------------------------
     if ")(" in norm:
-        got = get_id(norm.replace(")(", "-"))
+        got = _raw_get_id(norm.replace(")(", "-"))
         if got:
             return got
     return ""

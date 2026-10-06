@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import report as report_mod
@@ -240,6 +241,58 @@ def cmd_clear_state(cfg: Config, log, args) -> int:
     return 0
 
 
+def cmd_tidy(cfg: Config, log, args) -> int:
+    """整理当前目录（tidy 模式）：小批量、一步到位、批间长休。
+
+    用法：
+      python -m app tidy                 # 列当前整理根下的目录，等你挑一批
+      python -m app tidy --list          # 只列出可处理的目录，不动
+      python -m app tidy --names A B C   # 直接处理指定目录
+      python -m app tidy --batch 3       # 每批几个（默认 TIDY_BATCH=3）
+    """
+    from .metadb import MetaDB
+    from .metascan import MetaScan
+    from .tidy import Tidy
+    from .v115 import V115, build_client, load_cookie
+
+    db = MetaDB(cfg.data_dir, log)
+    scan = MetaScan(db, log=log)
+    throttle = Throttle(cfg=cfg, log=log)
+    v = V115(build_client(load_cookie(cfg)), cfg, throttle, log)
+    tidy = Tidy(v, cfg, log=log, db=db, scan=scan)
+
+    if args.list or (not args.names and not args.yes):
+        # 列当前根下的一级目录（不翻页太多，只列一层）
+        root_cid = v.root_cid()
+        nodes = v.list_dir(root_cid, dirs_only=True)
+        log("info", f"整理根 `{cfg.root_path}` 下共 {len(nodes)} 个目录：")
+        for n in sorted(nodes, key=lambda x: x.name)[: args.limit or 200]:
+            log("info", f"  {n.name}")
+        if not args.names:
+            log("info", "（想处理其中几个：`python -m app tidy --names <名字> …`）")
+        return 0
+
+    names = args.names or []
+    if args.yes and not names:
+        # --yes 没给名字 ⇒ 取根下的目录（最多 batch 个）
+        root_cid = v.root_cid()
+        nodes = sorted(v.list_dir(root_cid, dirs_only=True), key=lambda x: x.name)
+        names = [n.name for n in nodes][: cfg.tidy_batch]
+        log("info", f"--yes 未指定名字，取前 {len(names)} 个：{names}")
+
+    log("info", f"tidy 处理 {len(names)} 个目录（每批 {cfg.tidy_batch} 个，批间休 {cfg.tidy_batch_rest}s）")
+    res = tidy.run_batch(names)
+    out = _reports_dir(cfg)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    (out / f"tidy-{stamp}.json").write_text(
+        json.dumps(res.as_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
+    log("info", f"tidy 完成：处理 {res.done} / 失败 {res.failed} / 跳过 {len(res.skipped)}；"
+                f"请求 {res.requests}")
+    for s in res.skipped:
+        log("info", f"  跳过：{s}")
+    return 0 if not res.failed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="115organize", description="115 网盘慢速整理工具")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -277,6 +330,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("clear-state", help="清断点")
     sc.set_defaults(func=cmd_clear_state)
+
+    st = sub.add_parser("tidy", help="★ 整理当前目录（小批量、一步到位）")
+    st.add_argument("--names", nargs="+", default=None, help="要处理的目录名（可多个）")
+    st.add_argument("--batch", type=int, default=None, help="每批几个（默认 TIDY_BATCH）")
+    st.add_argument("--list", action="store_true", help="只列出可处理目录，不动")
+    st.add_argument("--limit", type=int, default=200, help="--list 时最多列多少个")
+    st.add_argument("--yes", action="store_true", help="没给名字时取前 batch 个直接处理")
+    st.set_defaults(func=cmd_tidy)
     return p
 
 
