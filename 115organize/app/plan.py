@@ -212,6 +212,9 @@ def build_plan(tree: Tree, cfg: Config, *, max_depth: int = 2) -> Plan:
     #    不去重会让同一个文件产出两条动作（实测出现过）。
     top_files = list(dict.fromkeys(
         f for f in tree.files_of(root) if f not in RESERVED_DIRS))
+    # 根下条目数 —— 给耗时估算用。⚠️ `fs_files` **不递归**，列根目录只有这一层的量级，
+    #    拿 `tree_stats["dirs"+"files"]`（整棵树）去算页数会高估一个数量级。
+    plan.tree_stats["root_entries"] = len(top_dirs) + len(top_files)
 
     # ------------------------------------------------------------ ① 番号索引
     dir_id: dict[str, str] = {}

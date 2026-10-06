@@ -63,10 +63,19 @@ class FakeClient:
 
     def fs_history_receive_list(self, payload: dict) -> dict:
         self.calls.append(("fs_history_receive_list", dict(payload)))
+        # ⚠️ 照 2026-10-06 真机返回写：`data` 是 **dict**（`{total, list}`），条目在 `data.list` 里
         return self._maybe_fail("fs_history_receive_list") or {
             "state": True,
-            "data": [{"id": "f1", "n": "DLDSS-532", "t": 1759700000, "cid": "c1"},
-                     {"id": "f2", "n": "some.file.mp4", "t": 1759700001, "fid": "z9"}],
+            "data": {"total": 2, "list": [
+                {"id": "rec1", "type": 7, "file_id": "3312870825789104125",
+                 "parent_id": "c1", "parent_name": "115电视剧",
+                 "file_name": "美剧【怪奇物语】1-4季 4K中字【255G】",
+                 "create_time": 1759700000, "update_time": 1759700000},
+                {"id": "rec2", "type": 7, "file_id": "",
+                 "parent_id": "ROOT", "parent_name": "云下载",
+                 "file_name": "主谋_The Mastermind.srt等2个文件",
+                 "create_time": 1759700001, "update_time": 1759700001},
+            ]},
         }
 
     # --- 写 ---------------------------------------------------------------
@@ -79,11 +88,14 @@ class FakeClient:
         if name not in self.made:
             self._n += 1
             self.made[name] = f"m{self._n}"
-        return {"state": True, "id": self.made[name]}
+        # ⚠️ 真机形态：id 在 **`data.file_id`** 里，顶层**没有** id（2026-10-06 实测）
+        return {"state": True, "data": {"file_id": self.made[name], "is_private": "0"}}
 
     def fs_dir_getid2(self, payload: dict) -> dict:
         self.calls.append(("fs_dir_getid2", dict(payload)))
-        return {"state": True, "id": self.made.get(payload.get("path") or "", "")}
+        return {"state": True,
+                "data": {"file_id": self.made.get(payload.get("path") or "", ""),
+                         "is_private": "0"}}
 
     def fs_move(self, payload: dict) -> dict:
         self.calls.append(("fs_move", dict(payload)))
@@ -207,7 +219,10 @@ class TestMoveConflict(unittest.TestCase):
         self.assertEqual(policy, {"f1": {"action": "keep_both"},
                                   "f2": {"action": "keep_both"}})
         self.assertEqual(p["pid"], "pidX")
-        self.assertEqual(p["fid[]"], ["f1", "f2"], "fid 要用数组形态传")
+        # `fid[0]`/`fid[1]` 而不是 `fid[]` 挂 list —— 照 p115client 自己处理 id 序列的写法
+        self.assertEqual(p["fid[0]"], "f1")
+        self.assertEqual(p["fid[1]"], "f2")
+        self.assertNotIn("fid[]", p, "⛔ 别再退回 `fid[]`+list：那段序列化行为随 requests 版本变")
 
     def test_空列表不发请求(self):
         client = FakeClient()
@@ -240,6 +255,32 @@ class TestEnsureDir(unittest.TestCase):
         v._targets[""] = "ROOT"
         self.assertEqual(v.ensure_dir(""), "ROOT")
         self.assertEqual(client.calls, [])
+
+    def test_目录id在data_file_id里而不是顶层id(self):
+        """⛔ 2026-10-06 真机实测：两个查目录的接口**形态不一样**。
+
+            fs_dir_getid   → {"state":true, "id":"438124340056368324"}            ← 顶层 id
+            fs_dir_getid2  → {"state":true, "data":{"file_id":"3533…"}}           ← data.file_id
+
+        `fs_makedirs` 就是 `fs_dir_getid2(is_create=1)` 的封装 ⇒ 同一形态。
+        只按顶层 `id`/`cid` 取 ⇒ `ensure_dir()` 拿不到 id ⇒ 抛「建目录失败」
+        ⇒ **全量计划里 1,183 条 mkdir 第一步就全崩**。
+        """
+        client = FakeClient()
+        v = make_v(client)
+        self.assertTrue(v.ensure_dir("DLDSS"), "必须能从 data.file_id 里取到 id")
+        raw = client.fs_makedirs({"path": "另一个"})
+        self.assertNotIn("id", raw, "真机返回的顶层就是没有 id —— 免得以后有人「顺手」改回去")
+        self.assertTrue(raw["data"]["file_id"])
+
+    def test_拿不到id才会走兜底第二次请求(self):
+        """正常情况（`data.file_id` 有值）只发 1 次请求，别白多花一次。"""
+        client = FakeClient()
+        v = make_v(client)
+        v.ensure_dir("DLDSS")
+        self.assertEqual(sum(1 for n, _ in client.calls if n == "fs_dir_getid2"), 0,
+                         "能直接拿到 id 就不该调兜底")
+        self.assertEqual(sum(1 for n, _ in client.calls if n == "fs_makedirs"), 1)
 
 
 class TestError(unittest.TestCase):
@@ -289,18 +330,51 @@ class TestRenameDelete(unittest.TestCase):
         v = make_v(client)
         v.delete(["f1", "f2"])
         p = client.payload_of("fs_delete")
-        self.assertEqual(p["fid[]"], ["f1", "f2"])
+        self.assertEqual(p["fid[0]"], "f1")
+        self.assertEqual(p["fid[1]"], "f2")
 
 
 class TestReceiveList(unittest.TestCase):
-    def test_最近接收归一化(self):
-        client = FakeClient()
-        v = make_v(client)
+    """⚠️ 这个接口的返回形态跟 `fs_files` **完全是两套**，用真机样本钉住。"""
+
+    def test_data是dict不是list(self):
+        """曾经按 `data` 是 list 解析 ⇒ **静默拿到空表** ⇒ 自动化那半直接失效。"""
+        v = make_v(FakeClient())
         items = v.receive_list(limit=50)
-        self.assertEqual(len(items), 2)
-        self.assertTrue(items[0]["is_dir"], "有 cid 无 fid ⇒ 目录")
-        self.assertFalse(items[1]["is_dir"], "有 fid ⇒ 文件")
-        self.assertEqual(items[0]["id"], "c1", "目录的 id 要取 cid")
+        self.assertEqual(len(items), 2, "条目在 data.list 里，不是 data 本身")
+
+    def test_字段口径(self):
+        v = make_v(FakeClient())
+        it = v.receive_list(limit=50)[0]
+        self.assertEqual(it["record_id"], "rec1", "`id` 是接收记录的 id，不是文件的")
+        self.assertEqual(it["file_id"], "3312870825789104125")
+        self.assertEqual(it["file_name"], "美剧【怪奇物语】1-4季 4K中字【255G】")
+        self.assertEqual(it["parent_id"], "c1")
+        self.assertEqual(it["parent_name"], "115电视剧", "落在哪个目录 —— 发现新目录全靠它")
+        self.assertEqual(it["time"], 1759700000)
+
+    def test_空file_id不等于目录(self):
+        """`file_id=''` 是多文件聚合项（`xxx.srt等2个文件`），**不是目录**。"""
+        v = make_v(FakeClient())
+        agg = v.receive_list(limit=50)[1]
+        self.assertEqual(agg["file_id"], "")
+        self.assertEqual(agg["parent_name"], "云下载")
+        self.assertNotIn("is_dir", agg, "本接口根本不说它是不是目录，别自己编这个字段")
+
+    def test_限额真的传下去(self):
+        client = FakeClient()
+        make_v(client).receive_list(limit=7)
+        self.assertEqual(client.payload_of("fs_history_receive_list")["limit"], 7)
+
+    def test_万一哪天data直接给list也不能崩(self):
+        client = FakeClient()
+        client.fs_history_receive_list = lambda payload: {
+            "state": True,
+            "data": [{"id": "r", "file_id": "f", "file_name": "x",
+                      "parent_id": "p", "parent_name": "P"}]}
+        items = make_v(client).receive_list(limit=5)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["file_name"], "x")
 
 
 if __name__ == "__main__":

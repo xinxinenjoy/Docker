@@ -107,6 +107,31 @@ def _msg(resp: Any) -> str:
     return str(resp)
 
 
+def _dir_id(resp: Any) -> str:
+    """从目录类接口的返回里取目录 id。
+
+    ⚠️ **两个接口把 id 放在不同地方**（2026-10-06 真机实测，不是猜的）：
+
+        fs_dir_getid   GET /files/getid       → {"state":true, "id":"438124340056368324"}
+                                                ⇒ 顶层 `id`
+        fs_dir_getid2  GET /files/get_path_id → {"state":true, "data":{"file_id":"3533…", "is_private":"0"}}
+                                                ⇒ **`data.file_id`**，顶层没有 `id`
+
+    `fs_makedirs` 在 p115client 里就是 `fs_dir_getid2(is_create=1)` 的封装 ⇒ 同一形态。
+
+    ⛔ 曾经只按顶层 `id`/`cid` 取 ⇒ `ensure_dir()` 两级都拿不到 id ⇒ 抛「建目录失败」。
+       在全量计划里那是 **1,183 条 mkdir 全部失败**（第一步就崩）。
+    """
+    if not isinstance(resp, dict):
+        return ""
+    data = resp.get("data")
+    if isinstance(data, dict):
+        got = data.get("file_id") or data.get("cid") or data.get("id")
+        if got:
+            return str(got)
+    return str(resp.get("id") or resp.get("cid") or "")
+
+
 # --------------------------------------------------------------------------- 主体
 class V115:
     def __init__(self, client: Any, cfg: Config, throttle: Throttle, log: Any = None):
@@ -179,7 +204,7 @@ class V115:
         if self._targets.get("") :
             return self._targets[""]
         resp = self._call("fs_dir_getid", {"path": self.cfg.root_path})
-        cid = str((resp or {}).get("id") or (resp or {}).get("cid") or "")
+        cid = _dir_id(resp)
         if not cid:
             # 兜底：从根目录列举里按名字找
             for node in self.list_dir("0", dirs_only=True):
@@ -194,23 +219,43 @@ class V115:
     def receive_list(self, limit: int = 100) -> list[dict]:
         """「最近接收」列表 —— 自动化巡检靠它发现新目录（115 没有 webhook，只能轮询）。
 
-        ⚠️ id 口径跟 `list_dir` **必须一致**：目录取 `cid`、文件取 `fid`。
-           115 的这套返回里**也有 `id` 字段**，但它对目录不是 cid ——
-           直接取 `id` 会让后面 `fs_move` 拿着一个不存在的 fid 去移。
+        ⚠️ 这套返回**跟 `fs_files` 完全是两套字段**，别混用（2026-10-06 真机实测）：
+
+            {"state": true, "data": {"total": 32, "list": [ {...}, ... ]}}
+
+          · `data` 是 **dict**（不是 list），条目在 `data.list` 里 ⇒
+            按 `isinstance(data, list)` 去解析会**静默拿到空表**，自动化那半直接失效。
+          · `id`         —— 这条**接收记录**的 id，⛔ 不是文件 id（曾经当 fid 用，是错的）
+          · `file_id`    —— 文件 id；**空串 = 多文件聚合项**（如 `xxx.srt等2个文件`）
+                            ⛔ 空串**不代表是目录** —— 「not file_id 就是目录」这个判据是错的
+          · `file_name`  —— 接到的条目名
+          · `parent_id` / `parent_name` —— 它落在**哪个目录**下 ★ 发现新目录的关键
+          · `create_time` / `update_time` —— unix 秒
+
+        实测样本：
+            id=3312870825… file_id=3312870825… fname='美剧【怪奇物语】1-4季 4K中字【255G】' pname='115电视剧'
+            id=3328667864… file_id=''          fname='主谋_The Mastermind.srt等2个文件'       pname='主谋（2025）'
         """
         resp = self._call("fs_history_receive_list", {"limit": limit})
-        items = (resp or {}).get("data") or (resp or {}).get("list") or []
-        out = []
+        data = (resp or {}).get("data")
+        if isinstance(data, dict):
+            items = data.get("list") or []
+        elif isinstance(data, list):         # 兜底：万一哪天改成直接给 list
+            items = data
+        else:
+            items = (resp or {}).get("list") or []
+        out: list[dict] = []
         for it in items if isinstance(items, list) else []:
             if not isinstance(it, dict):
                 continue
-            is_dir = not it.get("fid")
             out.append({
-                "id": str((it.get("cid") if is_dir else it.get("fid"))
-                          or it.get("id") or ""),
-                "name": it.get("n") or it.get("name") or "",
-                "time": it.get("t") or it.get("time") or "",
-                "is_dir": is_dir,
+                "record_id": str(it.get("id") or ""),
+                "file_id": str(it.get("file_id") or ""),
+                "file_name": it.get("file_name") or it.get("n") or "",
+                "parent_id": str(it.get("parent_id") or ""),
+                "parent_name": it.get("parent_name") or "",
+                "time": it.get("create_time") or it.get("update_time") or "",
+                "raw": it,
             })
         return out
 
@@ -218,7 +263,10 @@ class V115:
     def ensure_dir(self, rel_path: str) -> str:
         """确保 `root/rel_path` 存在（不存在则**逐级创建**），返回其 id。
 
-        `fs_mkdir` 不建中间层，所以用 `fs_makedirs`（它是对 `fs_dir_getid2(is_create=1)` 的封装）。
+        `fs_mkdir` 不建中间层，所以用 `fs_makedirs`
+        （p115client 里它就是对 `fs_dir_getid2(is_create=1)` 的封装）。
+
+        ⚠️ id 在 **`data.file_id`** 里而不是顶层 `id` —— 取法统一走 `_dir_id()`。
         """
         rel = rel_path.strip("/")
         if not rel:
@@ -233,13 +281,13 @@ class V115:
                 parent = self._targets[cur]
                 continue
             resp = self._call("fs_makedirs", {"path": part, "parent_id": parent})
-            cid = str((resp or {}).get("id") or (resp or {}).get("cid") or "")
+            cid = _dir_id(resp)
             if not cid:
-                # 已存在时有的版本只回 state —— 回退到按路径查 id
+                # 兜底：万一某个版本新建时只回 state，按路径再问一次
                 r2 = self._call("fs_dir_getid2", {"path": part, "parent_id": parent})
-                cid = str((r2 or {}).get("id") or (r2 or {}).get("cid") or "")
+                cid = _dir_id(r2)
             if not cid:
-                raise V115Error(f"建目录失败：{cur}")
+                raise V115Error(f"建目录失败：{cur}（返回里没有 id：{resp}）")
             self._targets[cur] = cid
             parent = cid
         return parent
@@ -250,14 +298,19 @@ class V115:
         return json.dumps({str(f): {"action": "keep_both"} for f in fids}, ensure_ascii=False)
 
     def move(self, fids: list[str], pid: str) -> bool:
-        """移动（可一次多个，115 限制 5 万个以内）。⚠️ 不并发、不覆盖。"""
+        """移动（可一次多个，115 限制 5 万个以内）。⚠️ 不并发、不覆盖。
+
+        ⚠️ 载荷键用 `fid[0]`/`fid[1]`… 而不是 `fid[]` 后面挂一个 list：
+           p115client 自己对「传 id 序列」的内部实现就是 `{f"fid[{i}]": fid}`；
+           而 `fid[]` 挂 list 会走 requests 的序列化，编成什么样随版本变 ——
+           照库自己的写法走，就不用赌那一段（这是照抄，不是猜）。
+        """
         if not fids:
             return True
-        resp = self._call("fs_move", {
-            "fid[]": list(fids),
-            "pid": pid,
-            "conflict_policy": self._conflict_policy(fids),
-        })
+        payload: dict[str, Any] = {f"fid[{i}]": f for i, f in enumerate(fids)}
+        payload["pid"] = pid
+        payload["conflict_policy"] = self._conflict_policy(fids)
+        resp = self._call("fs_move", payload)
         return _ok(resp)
 
     def rename(self, pairs: list[tuple[str, str]]) -> bool:
@@ -269,10 +322,14 @@ class V115:
         return _ok(resp)
 
     def delete(self, fids: list[str]) -> bool:
-        """删除（**进 115 回收站**，可还原）。⚠️ 不并发、与还原互斥。"""
+        """删除（**进 115 回收站**，可还原）。⚠️ 不并发、与还原互斥。
+
+        载荷键用 `fid[i]`，理由同 `move`（照 p115client 自己的实现走）。
+        """
         if not fids:
             return True
-        resp = self._call("fs_delete", {"fid[]": list(fids)})
+        payload = {f"fid[{i}]": f for i, f in enumerate(fids)}
+        resp = self._call("fs_delete", payload)
         return _ok(resp)
 
     def move_check_conflict(self, fids: list[str], pid: str) -> dict:

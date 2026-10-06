@@ -73,6 +73,32 @@ def _clean(name: str) -> str:
     return name.strip()
 
 
+def _parse_line(line: str) -> tuple[int, str] | None:
+    """一行 → `(depth, name)`；认不出来返回 None。
+
+    ⚠️ depth 口径：**根 = 0，它的直接子项 = 1**。
+       曾经写成 `len(indent) // 2 + 1`，第一层成了 2 —— 于是 `top_level`（depth==1）恒为空，
+       `stats()` 报 `top_level=0`，看起来像「什么都没解析出来」。
+    """
+    line = line.rstrip()
+    m = _BAR_RE.match(line)                      # `| |-名字`
+    if m:
+        return len(m.group("indent")) // 2, _clean(m.group("name"))
+    m = _BAR_ROOT_RE.match(line)                 # `|——根目录`
+    if m:
+        return 0, _clean(m.group("name"))
+    m = _TREE_RE.match(line)                     # `│   ├── 名字`
+    if m:
+        # ⚠️ 这个格式的缩进是**树符号**（`tree` 命令风格，每级 4 个字符），最外层没有缩进 ⇒
+        #    层数 = 缩进宽度 // 4 + 1。用 `//2` 会把最外层算成 0（当成根）：
+        #    `├── 云下载` 无缩进 ⇒ 0//2=0 ⇒ 被当成根，整棵树就断了。
+        return len(m.group("indent")) // 4 + 1, _clean(m.group("name"))
+    m = _INDENT_RE.match(line)                   # 纯空格/Tab 缩进
+    if m:
+        return len(m.group("indent").replace("\t", "    ")) // 2, _clean(m.group("name"))
+    return 0, _clean(line)                       # 顶格行
+
+
 @dataclass
 class TreeEntry:
     name: str
@@ -240,50 +266,29 @@ def parse_text(text: str, source: str = "") -> Tree:
                 return maybe
 
     tree = Tree(source=source)
+    rows = [r for r in (_parse_line(ln) for ln in lines) if r and r[1]]
+    if not rows:
+        raise TreeParseError("没解析出任何条目 —— 格式不认识，把前 20 行发我看看")
+
     # (depth, path) 栈，用于挂父节点
     stack: list[tuple[int, str]] = []
-    last_dir_path = ""
 
-    for ln in lines:
-        line = ln.rstrip()
-        name = ""
-        depth = -1
-
-        m = _BAR_RE.match(line)
-        if m:
-            depth = len(m.group("indent")) // 2 + 1
-            name = _clean(m.group("name"))
-        else:
-            m = _BAR_ROOT_RE.match(line)
-            if m:
-                depth = 0
-                name = _clean(m.group("name"))
-            else:
-                m = _TREE_RE.match(line)
-                if m:
-                    indent = m.group("indent")
-                    depth = len(re.sub(r"[│|]", "", indent)) // 2 + 1
-                    name = _clean(m.group("name"))
-                else:
-                    m = _INDENT_RE.match(line)
-                    if m:
-                        indent = m.group("indent").replace("\t", "    ")
-                        depth = len(indent) // 2 + 1
-                        name = _clean(m.group("name"))
-                    else:
-                        # 顶格行（没有缩进）
-                        depth = 0
-                        name = _clean(line)
-
-        if not name:
-            continue
+    for i, (depth, name) in enumerate(rows):
         if depth == 0:
             tree.root_name = name
             tree.entries[name] = TreeEntry(name, name, 0, True, "")
             tree.dirs.append(name)
             stack = [(0, name)]
-            last_dir_path = name
             continue
+
+        # ★ 判「目录 or 文件」的唯一可靠判据：**下一行的缩进比它更深**。
+        #   ⛔ 绝不能按「名字带扩展名」判 —— 本盘大量目录名本身就是个视频文件名
+        #      （`MIDA-753.mp4` 是**目录**，里面装着一个同名的 `MIDA-753.mp4` 文件）。
+        #      误判成「文件」会连锁出两个后果：
+        #        ① 它不进目录栈 ⇒ 它的子项被挂到**上一层**（实测：同名条目在 `files` 里
+        #           出现两次，`云下载` 下凭空多出 3,600+ 个「文件」，真机只有 154 个）
+        #        ② 计划里对它生成 `move_file` / `trash` 动作 ⇒ 执行时拿**文件的规则去动目录**。
+        is_dir = i + 1 < len(rows) and rows[i + 1][0] > depth
 
         # 挂到最近的、depth 更小的祖先上
         while stack and stack[-1][0] >= depth:
@@ -297,16 +302,10 @@ def parse_text(text: str, source: str = "") -> Tree:
                 suffix += 1
             path = f"{path}#{suffix}"
 
-        _TREE_FILE_EXT = _FILE_EXT_RE
-        seen_before = name in tree.files.get(parent, [])
-        # 判定「目录 or 文件」：同一行的名字后面若出现更深的一行，它就是目录。
-        # 这里先按「有扩展名 ⇒ 文件」猜测，稍后统一修正（见 _fixup）。
-        is_dir = not _TREE_FILE_EXT.search(name) and not seen_before
         tree.entries[path] = TreeEntry(name, path, depth, is_dir, parent)
         if is_dir:
             tree.dirs.append(path)
             stack.append((depth, path))
-            last_dir_path = path
         else:
             tree.files.setdefault(parent, []).append(name)
 

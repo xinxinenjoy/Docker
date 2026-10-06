@@ -156,7 +156,18 @@ class Daemon:
 
     # ------------------------------------------------------------------ 检测
     def detect_new(self) -> list[str]:
-        """找出这一轮要处理的目录：快照 diff（新增）+ 最近接收（时间窗内）。"""
+        """找出这一轮要处理的目录：快照 diff（新增）+ 最近接收（时间窗内）。
+
+        ⚠️ 「最近接收」的判据（2026-10-06 真机实测后定的）：
+           条目给的是 `parent_id` / `parent_name`（落在哪）而不是「它自己是不是目录」——
+           因为它可能是**多文件聚合项**（`file_id` 空、名叫 `xxx.srt等2个文件`），
+           那种既不是目录也不是单个文件。所以：
+
+             ① 落在**整理根下** 且 名字正好是根下的某个目录 ⇒ 那就是新目录
+             ② 落在**某个已有目录里** ⇒ 那个目录也要顺带整理（接收进来的会夹广告件）
+
+           两种都收，才是「最近接收了什么」的完整含义。
+        """
         v = self._client()
         root_dirs, _files = list_root(v, self.cfg)
         current = {n.name: n.id for n in root_dirs}
@@ -171,9 +182,14 @@ class Daemon:
         fresh = snap.new_dirs(current)
         received: list[str] = []
         try:
+            root_id = v.root_cid()          # 已缓存，不额外发请求
             items = recent_filter(v.receive_list(limit=200), self.cfg.recent_days)
-            received = [it["name"] for it in items
-                        if it.get("is_dir") and it.get("name") in current]
+            for it in items:
+                fname = (it.get("file_name") or "").strip()
+                if it.get("parent_id") == root_id and fname in current:
+                    received.append(fname)          # ① 新东西直接落在根下
+                elif it.get("parent_name") in current:
+                    received.append(it["parent_name"])   # ② 落进已有目录
         except Exception as exc:
             self.log("warning", f"「最近接收」拉取失败（不影响快照 diff）：{exc}")
 

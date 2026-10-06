@@ -53,7 +53,9 @@ def build_live_plan(v: V115, cfg: Config, targets: list[str] | None = None,
     plan = Plan(created=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), root=cfg.root_path,
                 config={k: val for k, val in cfg.all().items() if k != "cookie"},
                 tree_stats={"source": "(实时列举)", "dirs": len(root_dirs),
-                            "files": len(root_files)})
+                            "files": len(root_files),
+                            # 根下条目数 = 列根目录要翻几页的依据（`fs_files` 不递归）
+                            "root_entries": len(root_dirs) + len(root_files)})
 
     # 本批次的番号统计（用于决定要不要新建系列目录）
     batch_series: dict[str, list[Node]] = {}

@@ -163,5 +163,88 @@ class TestRecentFilter(unittest.TestCase):
         self.assertEqual(len(recent_filter(items, days=0)), 2)
 
 
+class TestDetectNew(unittest.TestCase):
+    """`detect_new` 的判据 —— 2026-10-06 真机跑过 `receive_list` 之后重写的。
+
+    ⚠️ 这层曾经用 `it["name"]` + `it["is_dir"]` 筛「最近接收」。那两个字段**接口里根本没有**，
+       所以它**永远收不到任何东西**，而且不报错 —— 自动化那半会静默失效
+       （表现是「容器在跑，但新目录永远不进整理队列」，极难查）。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.cfg = Config()
+        self.cfg.data_dir = Path(self._tmp.name)
+        self.cfg.recent_days = 3
+        self.logs: list[tuple[str, str]] = []
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _daemon(self, dirs: dict[str, str], receive: list[dict] | None = None):
+        from app.daemon import Daemon
+        from app.v115 import Node
+        d = Daemon(self.cfg, lambda lvl, msg: self.logs.append((lvl, msg)))
+        now = datetime.now().timestamp()
+
+        class Fake:
+            def root_cid(self) -> str:
+                return "ROOT"
+
+            def list_dir(self, cid: str, dirs_only: bool = False) -> list:
+                return [Node(id=i, name=n, is_dir=True) for n, i in dirs.items()]
+
+            def receive_list(self, limit: int = 100) -> list[dict]:
+                # 真机字段：record_id/file_id/file_name/parent_id/parent_name/time
+                return [dict(it, time=it.get("time") or now) for it in (receive or [])]
+
+        d.v = Fake()
+        return d
+
+    def test_首次运行只建基线不处理(self):
+        d = self._daemon({"A": "1"})
+        self.assertEqual(d.detect_new(), [])
+        self.assertEqual(Snapshot.load(self.cfg).dirs, {"A": "1"})
+
+    def test_快照diff出新增目录(self):
+        Snapshot(dirs={"A": "1"}).save(self.cfg)
+        d = self._daemon({"A": "1", "B": "2"})
+        self.assertEqual(d.detect_new(), ["B"])
+
+    def test_接收项落在根下_那就是新目录(self):
+        Snapshot(dirs={"A": "1"}).save(self.cfg)
+        d = self._daemon({"A": "1", "B": "2"}, receive=[
+            {"record_id": "r1", "file_id": "", "file_name": "B",
+             "parent_id": "ROOT", "parent_name": "云下载"}])
+        self.assertEqual(d.detect_new(), ["B"])
+
+    def test_接收项落进已有目录_那个目录也要顺带整理(self):
+        """接收进来的会夹广告件，所以「落在谁里面」谁就要过一遍。"""
+        Snapshot(dirs={"A": "1", "B": "2"}).save(self.cfg)
+        d = self._daemon({"A": "1", "B": "2"}, receive=[
+            {"record_id": "r1", "file_id": "f9", "file_name": "inside.mp4",
+             "parent_id": "1", "parent_name": "A"}])
+        self.assertEqual(d.detect_new(), ["A"])
+
+    def test_聚合项不会被误当目录(self):
+        """`file_id=''` 是「多文件聚合」而不是目录；名字又不在根下 ⇒ 不该产生候选。"""
+        Snapshot(dirs={"A": "1"}).save(self.cfg)
+        d = self._daemon({"A": "1"}, receive=[
+            {"record_id": "r1", "file_id": "", "file_name": "主谋.srt等2个文件",
+             "parent_id": "ROOT", "parent_name": "云下载"}])
+        self.assertEqual(d.detect_new(), [])
+
+    def test_接收拉取失败不影响快照diff(self):
+        Snapshot(dirs={"A": "1"}).save(self.cfg)
+        d = self._daemon({"A": "1", "B": "2"})
+
+        def boom(limit: int = 100):
+            raise RuntimeError("115 抽风")
+
+        d.v.receive_list = boom                       # type: ignore[method-assign]
+        self.assertEqual(d.detect_new(), ["B"], "快照 diff 是主力，接收只是补充线索")
+        self.assertTrue(any("最近接收" in m for _lvl, m in self.logs), "失败要留日志")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -327,5 +327,63 @@ class TestResult(Base):
         self.assertEqual(v.moved, [], "源不存在还发移动请求就是错的")
 
 
+class TestCleanupDirGate(Base):
+    """清理动作遇到**目录**怎么办 —— 2026-10-06 真机对照之后才意识到的问题。
+
+    115 的目录树导出**没有类型标记**，而本盘大量广告外壳是**目录**
+    （`文宣`、`原创文宣`、`看片资源`、`18禁成人游戏八款附带礼包码`），名字又没有扩展名
+    ⇒ 离线阶段分不清它和「空目录」。两条路：默认允许动目录（判据是按名字做的，目录一样成立，
+    且默认动作 `quarantine` 可整目录撤销）；`JUNK_ALLOW_DIR=0` 则只报不改。
+    """
+
+    OP = [Op(kind="trash", path="片A/文宣", reason="推广话术", group="junk")]
+
+    def _fake(self) -> FakeV:
+        v = FakeV()
+        v.add_dir("", "片A")
+        v.add_dir("片A", "文宣")            # 广告目录：名字无扩展名、没子项
+        return v
+
+    def test_默认允许清目录(self):
+        """不放开就达不成诉求 —— 广告外壳会一直留在原地。"""
+        cfg = make_cfg(self.tmp, dry_run=False, junk_action="quarantine")
+        v = self._fake()
+        _r, v, ex = self.build(self.OP, cfg, v)
+        self.assertEqual(ex.dirs_in_pool, 1, "该被识别成目录并处理")
+        self.assertEqual(len(v.moved), 1, "应移进隔离区（可整目录撤销）")
+        self.assertEqual(v.deleted, [], "隔离档绝不能调删除")
+
+    def test_保守档只清文件_目录跳过并计数(self):
+        cfg = make_cfg(self.tmp, dry_run=False, junk_action="quarantine", junk_allow_dir=False)
+        v = self._fake()
+        _r, v, ex = self.build(self.OP, cfg, v)
+        self.assertEqual(ex.skipped_dirs, 1)
+        self.assertEqual(ex.dirs_in_pool, 0)
+        self.assertEqual(v.moved, [], "保守档下目录一律不动")
+
+    def test_保守档不影响清文件(self):
+        cfg = make_cfg(self.tmp, dry_run=False, junk_action="quarantine", junk_allow_dir=False)
+        v = FakeV()
+        v.add_dir("", "片A")
+        v.add_file("片A", "广告.mp4")
+        _r, v, ex = self.build(
+            [Op(kind="trash", path="片A/广告.mp4", reason="推广", group="junk")], cfg, v)
+        self.assertEqual(len(v.moved), 1)
+        self.assertEqual(ex.skipped_dirs, 0, "文件不该被这道闸误伤")
+
+    def test_移动的类型必须对得上(self):
+        """`move_file` 却遇到目录 ⇒ 跳过（不是报错、更不是硬移）。"""
+        cfg = make_cfg(self.tmp, dry_run=False)
+        v = FakeV()
+        v.add_dir("", "片A")
+        v.add_dir("片A", "其实是个目录.mp4")
+        _r, v, ex = self.build(
+            [Op(kind="move_file", path="片A/其实是个目录.mp4", target="S", group="series")],
+            cfg, v)
+        self.assertEqual(v.moved, [], "类型不符不能硬移")
+        self.assertEqual(len(ex.errors), 1)
+        self.assertIn("类型不符", ex.errors[0]["error"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

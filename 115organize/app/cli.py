@@ -74,9 +74,15 @@ def _estimate_for(plan: Plan, cfg: Config) -> dict:
         sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file") and op.new_name)
     n_move = sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file"))
     n_trash = sum(1 for op in plan.ops if op.kind == "trash")
-    files = plan.tree_stats.get("files", 0)
-    dirs = plan.tree_stats.get("dirs", 0)
-    root_pages = max(1, (dirs + files) // 200 + 1)
+    # ⚠️「列根目录」的页数按**根下条目数**算 —— `fs_files` **不递归**，只列一层。
+    #    拿整棵树的 dirs+files 会高估一个数量级（实测：根下 7,698 项 ⇒ 39 页；
+    #    整棵树 71,944 项算出来是 360 页，白吓人）。
+    root_entries = plan.tree_stats.get("root_entries")
+    if not root_entries:
+        root_entries = sum(1 for op in plan.ops if not op.src_dir) or 1
+    root_pages = max(1, (root_entries + 199) // 200)
+    # 下面各项都取**上界**（宁可估久，别让人以为很快）：清理那两项尤其粗 ——
+    # 实际是「每个源目录只列一次」+「每 500 条才发一次移动请求」。
     est = (root_pages                                   # 列根目录
            + n_mkdir                                    # 建目标目录
            + (n_rename + 99) // 100                     # 改名分批

@@ -66,6 +66,8 @@ class Executor:
         self._dircache: dict[str, str] = {}               # 相对路径 → cid
         self.errors: list[dict] = []
         self.done = 0
+        self.skipped_dirs = 0                            # 清理时被跳过的「目录」条数
+        self.dirs_in_pool = 0                            # 清理里实际是目录、且被处理的条数
         self.state_path = Path(cfg.data_dir) / "run-state.json"
         self.state: dict = {"passes": {p: 0 for p in PASSES}, "updated": ""}
 
@@ -175,6 +177,8 @@ class Executor:
             "errors": self.errors,
             "throttle": self.v.throttle.stats.as_dict(),
             "skipped_manual": manual,
+            "skipped_dirs": self.skipped_dirs,
+            "trash_dirs": self.dirs_in_pool,
             "unroutable": len(unknown),
         }
 
@@ -272,10 +276,16 @@ class Executor:
 
         by_target: dict[str, list[tuple[Op, Any]]] = defaultdict(list)
         for op in ops:
-            node = self._find(op.src_dir, op.name)
+            # ⚠️ 类型必须对得上：`move_dir` 只移目录、`move_file` 只移文件。
+            #    目录树导出**分不清「空目录」和「文件」**（导出格式没有类型标记），
+            #    实测约 50 个空目录会被记成「文件」。`fs_move` 对目录照样有效 ⇒
+            #    少了这道校验**不会报错**，只会静默把目录按文件的意图移走。
+            want_dir = op.kind == "move_dir"
+            node = self._find(op.src_dir, op.name, want_dir=want_dir)
             if node is None:
-                self.log("warning", f"移动：源不存在，跳过 {op.path}")
-                self._fail(op, "源不存在（可能已处理）")
+                self.log("warning", f"移动：源不存在或类型不符"
+                                    f"（预期{'目录' if want_dir else '文件'}），跳过 {op.path}")
+                self._fail(op, "源不存在或类型不符（可能已处理）")
                 continue
             target = op.target or self.cfg.root_path
             by_target[target].append((op, node))
@@ -319,14 +329,32 @@ class Executor:
             return
 
         pool: list[tuple[Op, Any]] = []
+        skipped_dirs = skipped_missing = dirs_in_pool = 0
         for i, op in enumerate(ops):
             if i < done_before:
                 continue
             node = self._find(op.src_dir, op.name)
             if node is None:
-                self.log("warning", f"清理：文件不存在，跳过 {op.path}")
+                skipped_missing += 1
                 continue
+            if node.is_dir and not self.cfg.junk_allow_dir:
+                # `JUNK_ALLOW_DIR=0` 的保守档：清理只对文件生效。
+                # 背景见 `config.py` —— 导出格式**分不清「广告目录」和「空目录」**
+                # （实测两者都表现为「无扩展名、没有子项」），保守档下宁可只报不改。
+                skipped_dirs += 1
+                continue
+            if node.is_dir:
+                dirs_in_pool += 1        # 允许动目录；单独计数，回执里要说清
             pool.append((op, node))
+        if skipped_dirs or skipped_missing:
+            self.log("info", f"清理：跳过 {skipped_dirs} 条目录（JUNK_ALLOW_DIR=0）、"
+                             f"{skipped_missing} 条已不存在")
+        if dirs_in_pool:
+            self.log("info", f"清理：其中 {dirs_in_pool} 条实际是**目录** —— "
+                             f"广告外壳在本盘多数长成目录（`文宣` / `看片资源` / …），"
+                             f"判据是按名字做的，对目录一样成立")
+        self.skipped_dirs = skipped_dirs
+        self.dirs_in_pool = dirs_in_pool
         if not pool:
             self._checkpoint("trash", len(ops), max_requests)
             return
