@@ -410,38 +410,59 @@
     .flist{max-height:none}
   }
 
-  /* ---------- 桌面：独立外壳（左侧栏常驻 + 右主区独立滚动） ---------- */
+  /* ---------- 桌面：横幅 + 横向 tab + 内容居中（红领巾 2026-10-06 定稿） ----------
+     原先是「左侧常驻导航栏」，他觉得在 PC 上很难看 ⇒ 换成设计稿那套：
+     整页是一张**居中的圆角卡片**（两侧留灰边），卡片里自上而下 =
+       ① 紫色渐变横幅（品牌 + 副标题 + 右侧「当前账号」）
+       ② 横向 tab（选中项给一条紫色下划线）
+       ③ 内容区（卡片内自己滚 ⇒ 横幅与 tab 常驻，内容居中、宽屏不铺满）
+     ⚠️ 纯 CSS，DOM 一个没动 —— 手机（<760）与平板（760~1079）完全不受影响。 */
   @media (min-width:1080px){
-    html,body{height:100%}
+    /* ⚠️ 灰底必须给 html：只写在 body 上会被「body 背景向画布传播」吃走，
+       那样卡片两侧的留边也是白的，等于没有留边（阴影看着像糊了一圈）。 */
+    html{height:100%; background:var(--bg)}
     body{
-      padding:0; overflow:hidden; display:grid;
-      grid-template-columns:242px minmax(0,1fr); grid-template-rows:auto 1fr;
+      height:100%; width:min(1200px, calc(100% - 28px)); margin:0 auto; padding:0;
+      overflow:hidden; display:grid; grid-template-rows:auto auto minmax(0,1fr);
+      background:#fff; border-radius:18px;
+      box-shadow:0 24px 70px -40px rgba(27,29,43,.6), 0 0 0 1px rgba(232,233,242,.85);
     }
     body.barOn{padding-bottom:0}
 
-    /* 左栏：品牌（紫）+ 导航（白），顶到底铺满 */
-    header{grid-column:1; grid-row:1; border-radius:0}
-    header .hwrap{display:block; padding:22px 20px 18px}
+    /* ① 横幅：品牌在左、账号在右；顶部圆角由 body 的 overflow 裁出来 */
+    header{grid-row:1; border-radius:0}
+    header .hwrap{max-width:none; padding:20px 30px 18px; align-items:center}
     .brand{min-width:0}
-    .brand p{display:none}   /* 242px 宽塞不下这句，折行反而更乱 */
-    .acctwrap{margin-top:16px; flex-direction:column; align-items:stretch; gap:6px}
-    .acctwrap .lb{opacity:.75}
-    select.acct{width:100%; max-width:none}
+    .brand h1{font-size:19px}
+    .brand p{display:block}
+    .acctwrap{margin-left:auto; flex-direction:column; align-items:flex-end; gap:5px}
+    .acctwrap .lb{opacity:.8}
+    select.acct{width:auto; min-width:190px; max-width:none; text-align:left}
+
+    /* ② 横向 tab：贴横幅下沿；选中项用下划线，不用背景色块 */
     nav{
-      grid-column:1; grid-row:2; position:static; flex-direction:column; align-items:stretch;
-      gap:4px; padding:14px 12px 18px; background:#fff; border:0; border-right:1px solid var(--line);
-      overflow:auto;
+      grid-row:2; position:static; left:auto; right:auto; bottom:auto;
+      flex-direction:row; gap:2px; margin:0; padding:0 20px; max-width:none;
+      background:#fff; border:0; border-bottom:1px solid var(--line);
+      backdrop-filter:none; overflow:visible;
     }
-    nav button{flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:11px; text-align:left;
-      padding:11px 13px; border-radius:11px; font-size:14px; background:none; color:#5c6076}
-    nav button .ni{font-size:17px; width:20px; text-align:center}
-    nav button:hover{background:#f7f8fd}
-    nav button.on{background:#f1f0ff; color:var(--brand)}
+    nav button{
+      flex:0 0 auto; flex-direction:row; align-items:center; justify-content:center;
+      gap:8px; padding:14px 16px; border-radius:0; background:none;
+      color:var(--sub); font-size:14px; font-weight:600; position:relative;
+    }
+    nav button .ni{font-size:16px; width:auto}
+    nav button:hover{background:#fafaff; color:#4a4e68}
+    nav button.on{background:none; color:var(--brand)}
+    nav button.on::after{
+      content:''; position:absolute; left:14px; right:14px; bottom:0; height:2.5px;
+      border-radius:3px; background:var(--brand);
+    }
     nav button.on .ni{filter:none}
 
-    /* 主区：自己滚，内容居中不铺满超宽屏 */
-    main{grid-column:2; grid-row:1/3; overflow-y:auto; padding:0 0 40px}
-    main>section{max-width:1460px; margin:0 auto; padding:20px 28px 0}
+    /* ③ 内容区：卡片内自己滚；内容居中，超宽屏不铺满 */
+    main{grid-row:3; overflow-y:auto; padding:0; background:var(--bg)}
+    main>section{max-width:1120px; margin:0 auto; padding:22px 30px 44px}
 
     #fsSelfCard{position:sticky; top:16px}
   }
@@ -529,34 +550,50 @@
   <!-- ==================== 任务记录 ==================== -->
   <section id="tab-tasks" class="hide">
     <div class="card">
-      <div class="step"><span class="no">01</span>
-        <div><h2>离线任务</h2></div>
+      <div class="seg" id="segTasks" style="margin-bottom:12px">
+        <button data-sub="log" class="on">本地推送记录</button>
+        <button data-sub="cloud">115 云端任务</button>
+        <button data-sub="rb">回收站</button>
       </div>
-      <div class="row wrap" style="margin-bottom:11px">
-        <select id="taskStat" class="grow" style="max-width:190px">
-          <option value="10">已完成</option>
-          <option value="12">下载中</option>
-          <option value="0">全部</option>
-        </select>
-        <button class="ghost" id="btnTasks">刷新</button>
-        <span class="muted" id="taskInfo"></span>
-      </div>
-      <div id="taskList"><div class="empty">点「刷新」加载</div></div>
-    </div>
 
-    <div class="card">
-      <div class="step"><span class="no">02</span>
-        <div><h2>回收站</h2></div>
+      <!-- ---- ① 本地推送记录：本工具自己发出去的每一笔（成功 / 失败都记） ---- -->
+      <div id="sub-log">
+        <div class="row wrap" style="margin-bottom:11px">
+          <span class="muted" id="logCap">加载中…</span>
+          <span class="grow"></span>
+          <button class="ghost sm" id="btnLog">刷新</button>
+          <button class="danger sm" id="btnLogClear">清空本地记录</button>
+        </div>
+        <div class="msg" id="logMsg"></div>
+        <div id="logList"><div class="empty">加载中…</div></div>
       </div>
-      <div class="row wrap" style="margin-bottom:11px">
-        <button class="ghost" id="btnRecycle">刷新回收站</button>
-        <span class="muted" id="rbInfo"></span>
+
+      <!-- ---- ② 115 云端任务（任务列表在 115 那边） ---- -->
+      <div id="sub-cloud" class="hide">
+        <div class="row wrap" style="margin-bottom:11px">
+          <select id="taskStat" class="grow" style="max-width:190px">
+            <option value="10">已完成</option>
+            <option value="12">下载中</option>
+            <option value="0">全部</option>
+          </select>
+          <button class="ghost" id="btnTasks">刷新</button>
+          <span class="muted" id="taskInfo"></span>
+        </div>
+        <div id="taskList"><div class="empty">点「刷新」加载</div></div>
       </div>
-      <div id="rbList"><div class="empty">还没加载</div></div>
-      <div class="row wrap hide" id="rbBar" style="margin-top:11px">
-        <button class="ghost sm" id="rbSelNone">清空选择</button>
-        <button class="line sm" id="rbRevert">还原选中</button>
-        <span class="muted" id="rbSelInfo"></span>
+
+      <!-- ---- ③ 回收站 ---- -->
+      <div id="sub-rb" class="hide">
+        <div class="row wrap" style="margin-bottom:11px">
+          <button class="ghost" id="btnRecycle">刷新回收站</button>
+          <span class="muted" id="rbInfo"></span>
+        </div>
+        <div id="rbList"><div class="empty">还没加载</div></div>
+        <div class="row wrap hide" id="rbBar" style="margin-top:11px">
+          <button class="ghost sm" id="rbSelNone">清空选择</button>
+          <button class="line sm" id="rbRevert">还原选中</button>
+          <span class="muted" id="rbSelInfo"></span>
+        </div>
       </div>
     </div>
   </section>
@@ -744,6 +781,7 @@ let ACCOUNTS = [];
 let CURRENT = null;
 let PARSED = [];
 let TASKS = [];
+let LOGS = [];
 let RBSEL = new Set();
 let PICK = { cid: '', path: [{ id: '0', name: '根目录' }] };
 let PICKVIEW = { cid: '0', path: [], items: [] };
@@ -756,6 +794,9 @@ let FS = null;
 const PAREN = 'full';
 /* 排序档位与方向（红领巾 2026-10-06：时间 / 名称 / 修改都要能排） */
 const SORT_KEY = 'p115_fssort', SORT_DIR_KEY = 'p115_fssortdir';
+/* 「任务记录」页的三个子页签（本地推送记录 / 115 云端任务 / 回收站）—— 档位也持久化 */
+const SUB_KEY = 'p115_tasksub';
+const SUBS = ['log', 'cloud', 'rb'];
 const PAGE_SIZE = 30;   /* 一页只渲染 30 条（红领巾：一页 20~50 更好） */
 
 /* ================= 基础 ================= */
@@ -776,6 +817,10 @@ function esc(s) {
 }
 function toast(el, type, text) { el.className = 'msg show ' + type; el.innerHTML = text; }
 function short(u, n = 92) { u = String(u || ''); return u.length > n ? u.slice(0, n - 2) + '…' : u; }
+/* 推送结果里那句「已记账」提示 —— 只有真记了才贴（前端随后会同步刷新列表） */
+function LOG_HINT(logged) {
+  return logged ? '<div class="muted" style="margin-top:5px">已记入「任务记录 › 本地推送记录」</div>' : '';
+}
 function fmtTs(v) {
   if (v === null || v === undefined || v === '') return '';
   const s = String(v);
@@ -834,10 +879,22 @@ function showTab(name) {
   if (name === 'files' && FS) updateFsBar();
   else { document.body.classList.remove('barOn'); $('#fsBar') && $('#fsBar').classList.remove('show'); }
   if (name === 'accounts') loadUsage();
-  if (name === 'tasks' && !TASKS.length) loadTasks();
+  /* 「任务记录」里有三个子页签，进入时回到上次看的那一个（记在 localStorage） */
+  if (name === 'tasks') showSub(localStorage.getItem(SUB_KEY) || 'log');
   if (name === 'files' && !FS) fsLoad(defaultCid(), { refresh: false });
 }
 $$('#nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+/* 任务记录的子页签：切走再回来还是那一个；进「本地推送记录」时顺带刷一次（账本要新鲜） */
+function showSub(name) {
+  if (SUBS.indexOf(name) < 0) name = 'log';
+  SUBS.forEach(n => $('#sub-' + n).classList.toggle('hide', n !== name));
+  $$('#segTasks button').forEach(b => b.classList.toggle('on', b.dataset.sub === name));
+  localStorage.setItem(SUB_KEY, name);
+  if (name === 'log') { $('#logMsg').className = 'msg'; loadPushLog(); }
+  if (name === 'cloud' && !TASKS.length) loadTasks();
+}
+$$('#segTasks button').forEach(b => b.onclick = () => showSub(b.dataset.sub));
 
 /* ================= 账号 ================= */
 async function loadAccounts() {
@@ -1201,6 +1258,12 @@ function renderParsed(stats) {
     renderParsed();
   });
 }
+/* ================= 推送 ================= */
+/* 目标目录的**名字**也带上：115 的推送接口只认目录 id、不回名字，
+   而本地推送记录要能一眼看出「存到哪了」（server.py 只把 dir_name 记进账本）。 */
+function pickDirName() {
+  return PICK.cid ? (PICK.path || []).map(p => p.name).join(' / ') : '';
+}
 $('#btnPush').onclick = async () => {
   const msg = $('#pushMsg');
   if (!CURRENT) { toast(msg, 'err', '先在「账号管理」里添加一个 115 账号'); return; }
@@ -1209,15 +1272,22 @@ $('#btnPush').onclick = async () => {
   const body = PARSED.length
     ? { account_id: CURRENT, urls: PARSED.map(p => p.url), wp_path_id: PICK.cid || '' }
     : { account_id: CURRENT, text, wp_path_id: PICK.cid || '' };
+  body.dir_name = pickDirName();
   const btn = $('#btnPush');
   btn.disabled = true;
   toast(msg, 'info', '<span class="spinner"></span>推送中…');
   try {
     const r = await api('/push', { method: 'POST', body: JSON.stringify(body) });
+    /* ⚠️ 「已被记账」这句话只在**真的走到 115 那一步**时才说 ——
+       校验类失败（没解析到链接 / 超过 100 条）在发请求前就被挡下，不记账。 */
+    const logged = r.ok === false || !!r.count;
     toast(msg, r.ok ? 'ok' : 'err', (r.ok ? '✅ 已推送 ' + r.count + ' 条到 115 离线下载' : '⚠️ 115 返回异常：' + esc(r.message || '未知')) +
-      (r.ok && r.message ? '（' + esc(r.message) + '）' : ''));
+      (r.ok && r.message ? '（' + esc(r.message) + '）' : '') + LOG_HINT(logged));
     if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; TASKS = []; FS = null; }
-  } catch (e) { toast(msg, 'err', '推送失败：' + esc(e.message)); }
+  } catch (e) {
+    const reaches115 = String(e.message || '').indexOf('推送失败') === 0;   /* 502 才代表问过 115 */
+    toast(msg, 'err', '推送失败：' + esc(e.message) + LOG_HINT(reaches115));
+  }
   btn.disabled = false;
 };
 
@@ -1263,6 +1333,84 @@ function renderTasks() {
     </div>`).join('');
   $$('#taskList button[data-org]').forEach(b => b.onclick = () => openFromTask(TASKS[+b.dataset.org]));
 }
+
+/* ================= 本地推送记录（本工具自己的账本） =================
+   红领巾 2026-10-06：「在离线里边增加一个本体推送的记录方便查看」。
+   与「115 云端任务」的区别：那边是 115 报给我们的**最终状态**，这边是**我们发出去的
+   那一笔** —— 含挑的哪个目录、有没有被本地去重吃掉、115 有没有挡回来。
+   账本落盘在 NAS 的 DATA_DIR（容器重建不丢），上限 1000 条、最新在前。
+   ⚠️ `SUB_KEY` / `SUBS` 声明在文件靠前的「档位」那一段（与 SORT_KEY 放一起）。 */
+$('#btnLog').onclick = loadPushLog;
+async function loadPushLog() {
+  const box = $('#logList');
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const r = await api('/pushlog?limit=200');
+    LOGS = r.items || [];
+    $('#logCap').textContent = '最多保留最近 ' + (r.max || 1000) + ' 条 · 现有 ' + (r.count || LOGS.length) + ' 条';
+    renderPushLog();
+  } catch (e) { box.innerHTML = '<div class="empty">失败：' + esc(e.message) + '</div>'; }
+}
+/* 存到哪了：有目录名就用目录名；只有 id 说明用的是账号默认目录 */
+function logDirText(r) {
+  if (r.dir) return r.dir;
+  return r.dir_id ? '账号默认目录' : '115 默认下载目录';
+}
+function renderPushLog() {
+  const box = $('#logList');
+  if (!LOGS.length) {
+    box.innerHTML = '<div class="empty">暂无推送记录<br>推送链接后，处理结果会记在这里</div>';
+    return;
+  }
+  box.innerHTML = LOGS.map((r, i) => {
+    const links = r.links || [];
+    const src = links.length && links[0].source && links[0].source !== '链接'
+      ? '<span class="pill src">' + esc(links[0].source) + '</span>' : '';
+    const label = r.count > 1 ? ('展开 ' + r.count + ' 条链接') : '看链接';
+    return `
+    <div class="task">
+      <div class="n">
+        ${r.ok ? '<span class="pill done">成功</span>' : '<span class="pill bad">失败</span>'}${src}${esc(short(links.length ? links[0].url : '(没有链接)', 84))}
+      </div>
+      <div class="m">
+        <span>${esc(fmtTs(r.ts))}</span>
+        ${r.account ? '<span>' + esc(r.account) + '</span>' : ''}
+        <span>→ ${esc(short(logDirText(r), 40))}</span>
+        ${r.skipped ? '<span>去重 ' + r.skipped + ' 条</span>' : ''}
+        ${!r.ok && r.message ? '<span style="color:#c2373b">' + esc(short(r.message, 60)) + '</span>' : ''}
+      </div>
+      <div class="row wrap" style="margin-top:8px">
+        <button class="line sm" data-log="${i}" data-label="${esc(label)}">${esc(label)}</button>
+      </div>
+      <ol class="list hide" id="logLinks${i}">
+        ${links.map(k => '<li><span class="u">' + esc(k.url) + '</span>' +
+          (k.source && k.source !== '链接' ? '<span class="tag">' + esc(k.source) + '</span>' : '') +
+          '</li>').join('')}
+        ${r.links_more ? '<li><span class="u muted">…另有 ' + r.links_more + ' 条未存档（单条记录最多留 30 条）</span></li>' : ''}
+      </ol>
+    </div>`;
+  }).join('');
+  $$('#logList button[data-log]').forEach(b => b.onclick = () => {
+    const ol = $('#logLinks' + b.dataset.log);
+    ol.classList.toggle('hide');
+    b.textContent = ol.classList.contains('hide') ? b.dataset.label : '收起链接';
+  });
+}
+$('#btnLogClear').onclick = async () => {
+  const msg = $('#logMsg');
+  if (!LOGS.length) { toast(msg, 'info', '现在没有本地记录'); return; }
+  if (!confirm('清空本地推送记录（共 ' + LOGS.length + ' 条）？\n\n' +
+               '这只删本工具的账本，115 上的离线任务不受任何影响。')) return;
+  const btn = $('#btnLogClear');
+  btn.disabled = true;
+  try {
+    const r = await api('/pushlog', { method: 'DELETE' });
+    LOGS = [];
+    await loadPushLog();
+    toast(msg, 'ok', '已清空 ' + (r.removed || 0) + ' 条本地记录');
+  } catch (e) { toast(msg, 'err', '清空失败：' + esc(e.message)); }
+  btn.disabled = false;
+};
 
 /* ================= 回收站 ================= */
 $('#btnRecycle').onclick = loadRecycle;

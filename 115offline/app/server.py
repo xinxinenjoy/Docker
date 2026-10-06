@@ -53,6 +53,10 @@ from namer import (
     title_of,
 )
 
+# 推送记录（「本体推送」账本）是纯标准库逻辑，单独放在 pushlog.py。
+from pushlog import MAX_RECORDS as PUSHLOG_MAX
+from pushlog import PushLog
+
 # ----------------------------------------------------------------- 配置
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -241,6 +245,15 @@ def _cache_info(account_id: str | None = None) -> dict:
 
 def _ts_text(ts: float) -> str:
     return time.strftime("%H:%M:%S", time.localtime(ts)) if ts else ""
+
+
+# ----------------------------------------------------------------- 推送记录（本体推送）
+# 红领巾 2026-10-06：「在离线里边增加一个本体推送的记录方便查看」。
+# 115 的离线任务列表只反映**它那边**的最终状态 —— 看不出「推的时候挑的哪个目录」
+# 「有没有被 115 挡回来 / 被本地去重吃掉」。所以本地自己也记一份账：
+#   落盘 `DATA_DIR/pushlog.json`（原子写、容器重建不丢），上限 1000 条、最新在前。
+#   ⛔ 纯本地账本，不参与任何 115 请求；记账失败只打日志，绝不影响推送本身。
+_PUSHLOG = PushLog(DATA_DIR / "pushlog.json", PUSHLOG_MAX)
 
 
 def _served(kind: str, account_id: str, cid: str, offset: int, limit: int,
@@ -440,6 +453,9 @@ class PushIn(BaseModel):
     text: str = ""
     urls: list[str] | None = None
     wp_path_id: str = ""
+    # 前端选中的目录名（只用于本地推送记录里回显「存到哪」）——
+    # 115 的推送接口只认目录 id，名字它不回，所以让前端顺手带一个。
+    dir_name: str = ""
 
 
 class ParseIn(BaseModel):
@@ -1444,10 +1460,15 @@ def push(body: PushIn) -> dict:
     acc = _find_account(body.account_id)
 
     urls: list[str] = []
+    src_of: dict[str, str] = {}      # 小写 url → 来源（链接 / 百家姓 / 核心价值观 / 佛曰）
     if body.text:
-        urls += [item["url"] for item in parse_links(body.text)]
+        for item in parse_links(body.text):
+            urls.append(item["url"])
+            src_of.setdefault(str(item["url"]).lower(), item.get("source") or "链接")
     if body.urls:
-        urls += [u.strip() for u in body.urls if u and u.strip()]
+        for u in body.urls:
+            if u and u.strip():
+                urls.append(u.strip())
 
     # 去重（保序）
     deduped: list[str] = []
@@ -1470,9 +1491,26 @@ def push(body: PushIn) -> dict:
     if wp:
         payload["wp_path_id"] = wp
 
+    # 本地账本的公共部分（成功 / 失败都要记一笔，否则「推了但没下来」查不出原因）
+    # ⚠️ `skipped` 多数时候是 0：`parse_links` 自己在解析阶段就按 info_hash 去过重了，
+    #    这里那一层只兜住「前端直接把 urls 数组传上来」的情况。
+    def _log(ok: bool, message: str) -> None:
+        _PUSHLOG.add(
+            account_id=str(body.account_id),
+            account=str(acc.get("name") or ""),
+            dir_id=wp,
+            dir=(body.dir_name or "").strip(),
+            count=len(deduped),
+            skipped=len(urls) - len(deduped),
+            links=[{"url": u, "source": src_of.get(u.lower(), "链接")} for u in deduped],
+            ok=ok,
+            message=message,
+        )
+
     try:
         resp = client.clouddownload_task_add_urls(payload)
     except Exception as exc:
+        _log(False, f"推送失败：{exc}")
         raise HTTPException(502, f"推送失败：{exc}") from exc
 
     ok = True
@@ -1486,6 +1524,8 @@ def push(body: PushIn) -> dict:
     if ok:
         _cache_drop(body.account_id)
 
+    _log(ok, message)
+
     return {
         "ok": ok,
         "count": len(deduped),
@@ -1496,12 +1536,31 @@ def push(body: PushIn) -> dict:
     }
 
 
+# ----------------------------------------------------------------- 推送记录
+@app.get("/api/pushlog", dependencies=[Depends(auth)])
+def pushlog_list(limit: int = Query(default=200, ge=1, le=PUSHLOG_MAX)) -> dict:
+    """本地推送记录（最新在前）。与 115 无关，纯本工具自己的账本。"""
+    return {
+        "ok": True,
+        "items": _PUSHLOG.items(limit),
+        "count": _PUSHLOG.count(),
+        "max": PUSHLOG_MAX,
+    }
+
+
+@app.delete("/api/pushlog", dependencies=[Depends(auth)])
+def pushlog_clear() -> dict:
+    return {"ok": True, "removed": _PUSHLOG.clear()}
+
+
 # ----------------------------------------------------------------- 静态
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # 启动时把落盘的目录缓存恢复回内存（过期的丢弃）。放在路由都注册完之后、
 # 对外服务之前 —— 失败只打日志，绝不影响启动。
 _cache_load_disk()
+# 本地推送记录同样从盘里恢复（账本，丢了也不影响推送功能）
+_PUSHLOG.load()
 
 
 if __name__ == "__main__":
