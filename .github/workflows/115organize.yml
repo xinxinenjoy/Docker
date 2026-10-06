@@ -69,5 +69,5 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           HUB_REPO: 115organize
           README_PATH: 115organize/DOCKERHUB.md
-          SHORT_DESCRIPTION: 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控
+          SHORT_DESCRIPTION: 115 网盘慢速整理：番号归位、影视命名、清广告，全程节流防风控
         run: python3 .github/scripts/sync-hub-description.py
