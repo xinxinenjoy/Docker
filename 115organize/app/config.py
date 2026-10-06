@@ -1,20 +1,65 @@
-"""配置 —— 全部走环境变量，容器里改 env 即可，不用动代码。
+"""配置 —— 参数有**三层**，改参数不用碰代码、也不用重建容器。
+
+    ① 显式环境变量            —— 临时覆盖 / CI 用
+    ② `DATA_DIR/config.json`  —— **网页上改的就是它**（`settings.py` 负责读写）
+    ③ 代码里的默认值          —— 出厂
+
+⇒ `.env` 因此可以只剩引导项（`DATA_DIR` / `PORT` / `ORGANIZE_AUTH` / `ACCOUNTS_FILE`），
+   业务参数一个都不用写在那儿。
 
 ⚠️ 每个默认值都写了「为什么是这个数」，改之前先看注释。
-⛔ 本模块**不做任何网络/文件副作用**，只读环境变量（配置文件读取放在 `v115`/`cli` 里）。
+⛔ 本模块**不做任何网络副作用**；唯一的文件读取是「首次用到参数时读一次 config.json」。
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from dataclasses import fields as df_fields
 from pathlib import Path
+
+from . import settings
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
 
 
-def _env(name: str, default: str = "") -> str:
+# `config.json` 灌进来的覆盖值，键是**环境变量名**（⛔ 不是字段名，见 settings.load_json）。
+_OVERRIDES: dict[str, str] = {}
+_OVERRIDES_LOADED = False
+
+
+def _env_raw(name: str, default: str = "") -> str:
+    """只看环境变量 —— 给「引导项」用，绕过 config.json。"""
     return (os.environ.get(name) or default).strip()
+
+
+def bootstrap_data_dir() -> Path:
+    """`DATA_DIR` —— 引导项，**只认环境变量**。
+
+    ⚠️ 不能让 `data_dir` 也去读 `config.json`：`config.json` 就住在 `DATA_DIR` 里，
+       自我引用会绕不出来。所以它是唯一一个不进 `settings.FIELDS` 的路径参数。
+    """
+    return Path(_env_raw("DATA_DIR") or (PROJECT_DIR / "data"))
+
+
+def reload_overrides() -> dict[str, str]:
+    """重新读一遍 `config.json`。网页保存完、或测试里改了配置时要调。"""
+    global _OVERRIDES, _OVERRIDES_LOADED
+    _OVERRIDES = settings.load_json(bootstrap_data_dir())
+    _OVERRIDES_LOADED = True
+    return _OVERRIDES
+
+
+def _env(name: str, default: str = "") -> str:
+    raw = (os.environ.get(name) or "").strip()
+    if raw:
+        return raw                       # ① 显式环境变量优先
+    if not _OVERRIDES_LOADED:
+        reload_overrides()               # ② 懒加载：第一次用到参数时才碰磁盘
+    got = _OVERRIDES.get(name)
+    if got is not None and str(got).strip():
+        return str(got).strip()
+    return default                       # ③ 出厂默认
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -67,13 +112,26 @@ KEEP_IMAGES = True
 @dataclass
 class Config:
     # ---------------------------------------------------------------- 数据 / 输入
-    data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR") or (PROJECT_DIR / "data")))
+    # ⚠️ 引导项：只认环境变量（见 `bootstrap_data_dir` 的注释）。
+    data_dir: Path = field(default_factory=lambda: Path(_env_raw("DATA_DIR") or (PROJECT_DIR / "data")))
     # 目录树导出的落点。工具**不扫全盘**，靠这份树知道「盘上该有什么」。
-    tree_dir: Path = field(default_factory=lambda: Path(_env("TREE_DIR") or (PROJECT_DIR / "data" / "tree")))
+    # ⚠️ 默认必须是 **`DATA_DIR/tree`**，不是「项目目录下的 data/tree」——
+    #    容器里 `/app/data/tree` 跟 `/data` 根本不是一个地方（`/data` 才是挂载卷），
+    #    症状是「树明明丢进去了，页面却说没有」。以前靠 compose 显式设 TREE_DIR 兜住，
+    #    2026-10-06 把业务参数从 .env 撤出时这个隐雷才露出来。
+    #    留空 ⇒ `__post_init__` 里解析成 `data_dir / "tree"`。
+    tree_dir: Path = field(default_factory=lambda: Path(_env("TREE_DIR")) if _env("TREE_DIR") else None)
     tree_file: str = field(default_factory=lambda: _env("TREE_FILE"))   # 留空 ⇒ 取 tree_dir 里最新的
 
     # ---------------------------------------------------------------- 115 账号
+    # `P115_COOKIE` 仍是最高优先级 —— 但**推荐留空**，让 cookie 走下面的共用路径。
     cookie: str = field(default_factory=lambda: _env("P115_COOKIE") or _env("COOKIE"))
+    # 🔗 与 115offline 共用的账号文件。默认就是 `DATA_DIR/accounts.json`
+    #    ⇔ 两个容器挂同一个数据卷时，在 115offline 里扫码登录一次，这边直接能用。
+    accounts_file: Path = field(default_factory=lambda: Path(
+        _env_raw("ACCOUNTS_FILE") or (bootstrap_data_dir() / "accounts.json")))
+    # 115offline 里可能有多个账号；留空 = 用第一个能用的那个。
+    account_id: str = field(default_factory=lambda: _env("ACCOUNT_ID"))
 
     # ---------------------------------------------------------------- 整理范围
     # ⚠️ 相对 115 根目录的路径。目录树导出里的一级目录就是它。
@@ -130,13 +188,22 @@ class Config:
     fail_limit: int = field(default_factory=lambda: _int("FAIL_LIMIT", 8))
     fail_cooldown: float = field(default_factory=lambda: _float("FAIL_COOLDOWN", 900.0))
 
-    # ---------------------------------------------------------------- 自动化
-    # `0 4 * * *` = 每天 04:00（低峰）。⚠️ 改频率前先想风控 —— 这是**全盘/增量**级别任务。
-    schedule_cron: str = field(default_factory=lambda: _env("SCHEDULE_CRON") or "0 4 * * *")
-    # 每次巡检只处理「最近接收」里最近 N 天出现过的目录（0 = 不按时间过滤）
-    recent_days: int = field(default_factory=lambda: _int("RECENT_DAYS", 3))
-    # 「最近接收」轮询本身也要节流，别每秒一次
-    recent_poll_interval: float = field(default_factory=lambda: _float("RECENT_POLL_INTERVAL", 0.0))
+    # ---------------------------------------------------------------- 入站口（自动整理）
+    # 自动整理只监控这一个目录（相对整理根）。你只把要整理的东西丢进来，
+    # 工具处理完就移走 —— 所以不需要快照 diff，也不会碰盘上其它地方。
+    # 默认「待整理」；想用别的名字（如「新下载」）改这里 + 网页设置即可。
+    inbox_dir: str = field(default_factory=lambda: _env("INBOX_DIR") or "待整理")
+    # 入站口轮询间隔（秒）。115 没有 webhook，只能轮询 ——
+    # 每次轮询 = 列一次入站目录（1 个请求）。间隔别设太短：建议 ≥30 秒。
+    inbox_poll_interval: float = field(default_factory=lambda: _float("INBOX_POLL_INTERVAL", 60.0))
+    # 单次入站整理最大请求数（试跑/防风控用）。0 = 不限制。
+    inbox_max_requests: int = field(default_factory=lambda: _int("INBOX_MAX_REQUESTS", 0))
+
+    # ---------------------------------------------------------------- 扫描节流（功能 2）
+    # 「选定文件夹」的**接口扫描**专用节流 —— 只扫用户勾的目录，量小、影响小，
+    # 可以比整理快一些。⚠️ 只影响扫描（列目录），**不影响执行**（执行仍用 THROTTLE_*）。
+    scan_throttle_min: float = field(default_factory=lambda: _float("SCAN_THROTTLE_MIN", 0.5))
+    scan_throttle_max: float = field(default_factory=lambda: _float("SCAN_THROTTLE_MAX", 1.5))
 
     # ---------------------------------------------------------------- 安全阀
     # ⛔ 出厂默认 1 = 只出方案不动手。第一次全量要动 2000+ 个目录，不可逆 ——
@@ -147,7 +214,9 @@ class Config:
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir)
-        self.tree_dir = Path(self.tree_dir)
+        # 留空 ⇒ 跟着数据目录走（见字段定义处的说明）
+        self.tree_dir = Path(self.tree_dir) if self.tree_dir else self.data_dir / "tree"
+        self.accounts_file = Path(self.accounts_file)
         # ⚠️ 不能写 `if not str(self.log_dir)` —— `Path("")` 的字符串是 `"."`，
         #    恒为真，于是日志会落到当前工作目录（`doctor` 里那个「✅ 可写：.」）。
         raw_log = _env("LOG_DIR")
@@ -157,6 +226,17 @@ class Config:
     def rel(self, *parts: str) -> str:
         """拼出相对 root_path 的路径（用 115 的 `/` 分隔）。"""
         return "/".join(p.strip("/") for p in (self.root_path, *parts) if p and p.strip("/"))
+
+    def replace(self, **changes) -> "Config":
+        """拿一份改了若干参数的副本 —— 给「不改配置试算一下」用（如网页上改完参数先预览计划）。
+
+        ⚠️ 只挑**认识的**键：外部可能挂过临时属性（`load_cookie` 会挂 `cookie_source`），
+           直接 `Config(**vars(self))` 会因为多出关键字参数而 TypeError。
+        """
+        known = {f.name for f in df_fields(self)}
+        data = {k: v for k, v in vars(self).items() if k in known}
+        data.update({k: v for k, v in changes.items() if k in known})
+        return Config(**data)
 
     def all(self) -> dict:
         """给报告/日志用的一份可打印快照（cookie 只留尾巴）。"""
@@ -170,4 +250,10 @@ class Config:
 
 
 def load() -> Config:
+    """每次调用都重读一遍 `config.json`。
+
+    为什么不做缓存：本工具不是高频服务，但**参数会被网页随时改**；
+    缓存反而要维护「什么时候失效」，得不偿失（实测读一次 JSON 是微秒级）。
+    """
+    reload_overrides()
     return Config()

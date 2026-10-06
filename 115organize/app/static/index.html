@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6c5ce7">
+<title>115 网盘整理</title>
+<style>
+  :root{
+    --bg:#f4f5fb; --card:#fff; --line:#e8e9f2; --text:#1b1d2b; --sub:#787c96;
+    --brand:#6c5ce7; --brand2:#8b7bff; --brand-d:#5a4bd4;
+    --ok:#12a150; --err:#e5484d; --warn:#b45309; --info:#2563eb;
+    --radius:14px;
+    --grad:linear-gradient(135deg,#7c6bff 0%,#5b4bd6 100%);
+    --shadow:0 1px 2px rgba(27,29,43,.05),0 10px 26px -20px rgba(27,29,43,.5);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:0 16px}
+  .mono{font-family:var(--mono)}
+  .sub{color:var(--sub)}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- 顶栏 ---------- */
+  header{background:var(--grad);color:#fff}
+  .hwrap{max-width:1240px;margin:0 auto;padding:13px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .logo{width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.32);
+        display:grid;place-items:center;font-size:15px;font-weight:800}
+  .brand{display:flex;align-items:center;gap:11px;flex:1;min-width:180px}
+  .brand h1{font-size:16.5px;margin:0;font-weight:700}
+  .brand p{margin:1px 0 0;font-size:12px;opacity:.82}
+  .hstat{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .chip{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:9px;
+        padding:5px 10px;font-size:12.5px;white-space:nowrap;display:flex;gap:6px;align-items:center}
+  .chip b{font-weight:700}
+  .dot{width:7px;height:7px;border-radius:50%;background:#9be7b4;flex:0 0 auto}
+  .dot.bad{background:#ffc9c9}
+  .dot.warn{background:#ffe08a}
+
+  /* ---------- 页签 ---------- */
+  nav{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  nav .wrap{display:flex;gap:2px}
+  nav button{
+    appearance:none;background:none;border:0;padding:12px 18px;font:inherit;font-size:14.5px;font-weight:600;
+    color:var(--sub);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px;
+  }
+  nav button.on{color:var(--brand-d);border-bottom-color:var(--brand)}
+  nav button .cnt{font-weight:500;color:var(--sub);font-size:12.5px}
+
+  main{padding:18px 0 96px}
+  .page{display:none}
+  .page.on{display:block}
+
+  /* ---------- 通用卡片 ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:14px}
+  .card>h2{margin:0;padding:13px 16px;font-size:14.5px;font-weight:700;border-bottom:1px solid var(--line);
+           display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .card>h2 .sp{flex:1}
+  .body{padding:6px 16px 14px}
+
+  /* ---------- 设置行 ---------- */
+  .row{display:grid;grid-template-columns:250px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .row:last-child{border-bottom:0}
+  .row>label{font-weight:600;display:flex;align-items:center;gap:7px}
+  .row.dirty>label{color:var(--brand-d)}
+  .row .ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .src{font-size:11.5px;padding:2px 7px;border-radius:6px;background:#f0f1f7;color:var(--sub);white-space:nowrap}
+  .src.json{background:#e8f5ee;color:#0f7a45}
+  .src.env{background:#fdf2e3;color:#9a5b06}
+  input[type=text],input[type=number],input[type=password],select{
+    font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--text);outline:none;min-width:0
+  }
+  input:focus,select:focus{border-color:var(--brand2);box-shadow:0 0 0 3px rgba(139,123,255,.16)}
+  input[type=text]{width:min(420px,100%)}
+  input[type=number]{width:110px}
+  .unit{color:var(--sub);font-size:12.5px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .seg button{appearance:none;background:none;border:0;border-right:1px solid var(--line);padding:7px 12px;font:inherit;
+              font-size:13px;color:var(--sub);cursor:pointer;white-space:nowrap}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--brand);color:#fff}
+  .sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+  .sw input{display:none}
+  .sw i{width:38px;height:21px;border-radius:11px;background:#d7d9e6;position:relative;transition:.15s;flex:0 0 auto}
+  .sw i:after{content:"";position:absolute;top:2.5px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s}
+  .sw input:checked + i{background:var(--brand)}
+  .sw input:checked + i:after{left:19px}
+  .sw input:checked + i.danger{background:var(--err)}
+  .sw span{font-size:13.5px}
+  .q{width:17px;height:17px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--sub);
+     font-size:11px;line-height:15px;text-align:center;cursor:pointer;flex:0 0 auto;padding:0}
+  .tip{display:none;grid-column:2 / -1;font-size:12.5px;color:var(--sub);padding:2px 0 4px;line-height:1.6}
+  .tip.on{display:block}
+  .tip.warn{color:var(--warn)}
+
+  /* ---------- 按钮 ---------- */
+  .btn{appearance:none;font:inherit;font-size:13.5px;font-weight:600;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
+       background:#fff;color:var(--text);cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:#cfd2e4}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.primary:hover{background:var(--brand-d)}
+  .btn.danger{background:var(--err);border-color:var(--err);color:#fff}
+  .btn.ghost{background:#f6f7fb;border-color:transparent;color:var(--sub)}
+  .btn.sm{padding:5px 10px;font-size:12.5px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* ---------- 表格 ---------- */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  /* ⚠️ sticky 的 top 是相对【最近的滚动祖先】算的 —— 两张表都套在 overflow:auto 的 div 里，
+     所以那个 div 才是参照物，页面的 sticky 导航条根本轮不到。原来写 41px（照导航条高度拍的）
+     ⇒ 表头被下推 41px，白底(td 之上)把第一行数据整个盖住（记录页只有一行时 = 全表看不见）。
+     写 0 = 吸在表格容器顶部，这才是想要的；页面滚动交给容器自己的滚动条。 */
+  th{font-weight:700;color:var(--sub);font-size:12px;background:#fafbfe;position:sticky;top:0;z-index:5}
+  tr:hover td{background:#fafbff}
+  td.k{white-space:nowrap}
+  .tag{display:inline-block;font-size:11.5px;padding:2px 7px;border-radius:6px;background:#eef0f8;color:#4b4f6b;white-space:nowrap}
+  .tag.t-mkdir{background:#e8f0fe;color:#1a56c4}
+  .tag.t-move{background:#e9f7ef;color:#0f7a45}
+  .tag.t-rename{background:#fdf3e6;color:#9a5b06}
+  .tag.t-trash{background:#fdeaea;color:#b4272b}
+  .tag.manual{background:#fdeaea;color:#b4272b}
+  .pager{display:flex;gap:8px;align-items:center;padding:10px 0;flex-wrap:wrap}
+  .pager .sub{font-size:12.5px}
+
+  /* ---------- 底部操作栏 ---------- */
+  .bar{position:fixed;left:0;right:0;bottom:0;z-index:40;background:#fff;border-top:1px solid var(--line);
+       box-shadow:0 -6px 20px -14px rgba(27,29,43,.5)}
+  .bar .wrap{display:flex;gap:12px;align-items:center;padding:10px 16px;flex-wrap:wrap}
+  .bar .sel{font-size:13.5px}
+  .bar .sel b{font-size:15px}
+  .bar .sp{flex:1}
+  /* ⚠️ 底栏是 fixed ⇒ 会永久压住页面最后 59px（分页条正好在那），滚到底也看不见。
+     整理页补出等高的底部留白，别的页没这条栏、不用留。 */
+  #p-do{padding-bottom:74px}
+
+  /* ---------- 进度 / 日志 ---------- */
+  .prog{height:7px;background:#eceef7;border-radius:5px;overflow:hidden;margin:4px 0 8px}
+  .prog i{display:block;height:100%;background:var(--grad);width:0;transition:width .3s}
+  .log{background:#1b1d2b;color:#d7dbef;border-radius:10px;padding:10px 12px;height:260px;overflow:auto;
+       font-family:var(--mono);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-all}
+  .log .e{color:#ff9d9d}
+  .log .w{color:#ffd88a}
+  .log .i{color:#a9c9ff}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:13px}
+  .kv dt{color:var(--sub)}
+  .kv dd{margin:0;font-variant-numeric:tabular-nums}
+
+  /* ---------- 提示条 ---------- */
+  .note{border-radius:10px;padding:10px 13px;font-size:13px;margin:10px 0;line-height:1.6}
+  .note.err{background:#fdeaea;color:#8f1f22;border:1px solid #f7c9c9}
+  .note.ok{background:#e9f7ef;color:#0d6a3d;border:1px solid #bfe6cf}
+  .note.warn{background:#fdf5e6;color:#7d4d06;border:1px solid #f2ddb4}
+  #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;align-items:center}
+  #toast div{background:#1b1d2b;color:#fff;padding:9px 16px;border-radius:9px;font-size:13px;box-shadow:var(--shadow);animation:up .2s}
+  @keyframes up{from{opacity:0;transform:translateY(6px)}}
+  .gate{max-width:360px;margin:16vh auto;text-align:center}
+  @media (max-width:900px){
+    .row{grid-template-columns:1fr;gap:6px}
+    .row .ctl{justify-content:flex-start}
+    .tip{grid-column:1/-1}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hwrap">
+    <div class="brand">
+      <div class="logo">15</div>
+      <div>
+        <h1>115 网盘整理</h1>
+        <p id="hSub">系列归位 · 规范命名 · 分级清广告 · 全程节流</p>
+      </div>
+    </div>
+    <div class="hstat" id="hStat"></div>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap">
+    <button data-tab="do" class="on">整理 <span class="cnt" id="nDo"></span></button>
+    <button data-tab="set">设置 <span class="cnt" id="nSet"></span></button>
+    <button data-tab="log">记录 <span class="cnt" id="nLog"></span></button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <!-- ======================= 整理 ======================= -->
+  <section class="page on" id="p-do">
+    <div class="card" style="padding:0">
+      <div class="body" style="padding:12px 16px">
+        <div class="seg" id="scopeSeg" style="width:100%;display:flex">
+          <button data-scope="plan" class="on" style="flex:1">全盘整理</button>
+          <button data-scope="inbox" style="flex:1">入站口</button>
+          <button data-scope="dirs" style="flex:1">选定文件夹</button>
+        </div>
+        <div class="sub" id="scopeHint" style="margin-top:8px;line-height:1.6"></div>
+      </div>
+    </div>
+
+    <div class="card" id="cardTree" style="display:none">
+      <h2><span>选定文件夹</span><span class="sp"></span>
+        <button class="btn sm" id="btnTree">看树文件</button>
+        <button class="btn sm" id="btnScan">接口扫描</button>
+        <button class="btn primary sm" id="btnPlanDirs">生成计划</button>
+      </h2>
+      <div class="body">
+        <div class="pager" style="padding-top:0">
+          <span class="sub">来源</span>
+          <div class="seg" id="dirSrcSeg">
+            <button data-src="tree" class="on">目录树</button>
+            <button data-src="scan">接口扫描</button>
+          </div>
+          <span class="sub" style="margin-left:8px">已选 <b id="selDirN">0</b> 个</span>
+          <span class="sp" style="flex:1"></span>
+          <button class="btn sm" id="btnDirAll">全选</button>
+          <button class="btn sm" id="btnDirNone">清空</button>
+        </div>
+        <div id="dirTree" style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 0;background:#fcfcff"></div>
+        <div class="sub" id="dirScanNote" style="margin-top:8px;line-height:1.6"></div>
+        <div id="dirPlanSum" class="sub" style="margin-top:8px">还没生成计划。</div>
+      </div>
+    </div>
+
+    <div class="card" id="cardInbox" style="display:none">
+      <h2><span>入站口</span><span class="sp"></span></h2>
+      <div class="body">
+        <dl class="kv" id="inboxKv"></dl>
+        <div class="sub" id="inboxNote" style="margin-top:8px;line-height:1.6"></div>
+      </div>
+    </div>
+
+    <div class="card" id="cardPlan" style="display:none">
+      <h2>
+        <span>计划</span>
+        <span class="sp"></span>
+        <button class="btn sm" id="btnPlan">生成计划</button>
+      </h2>
+      <div class="body">
+        <div id="planSum" class="sub">还没生成计划 —— 点右上角。</div>
+        <div id="planWarn"></div>
+      </div>
+    </div>
+
+    <div class="card" id="cardOps" style="display:none">
+      <h2>
+        <span>条目</span>
+        <span class="cnt sub" id="opsCnt"></span>
+        <span class="sp"></span>
+        <input type="text" id="fq" placeholder="搜名字 / 目标" style="width:190px">
+      </h2>
+      <div class="body">
+        <div class="pager" style="padding-top:0">
+          <span class="sub">类型</span>
+          <div class="seg" id="fKind"></div>
+          <span class="sub" style="margin-left:8px">来源</span>
+          <div class="seg" id="fGroup"></div>
+          <span class="sub" style="margin-left:8px">可自动</span>
+          <div class="seg" id="fAuto"></div>
+        </div>
+        <div class="pager" style="padding-top:0">
+          <button class="btn sm" id="btnSelPage">勾选本页</button>
+          <button class="btn sm" id="btnSelAll">勾选全部筛选结果</button>
+          <button class="btn sm" id="btnUnsel">清空勾选</button>
+          <span class="sub" style="margin-left:6px">再</span>
+          <button class="btn sm" id="btnSelN">勾前 50 条</button>
+        </div>
+        <div style="overflow:auto;max-height:56vh;border:1px solid var(--line);border-radius:10px">
+          <table id="tblOps">
+            <thead><tr>
+              <th style="width:34px"></th><th style="width:74px">类型</th>
+              <th>源</th><th style="width:32px"></th><th>目标 / 新名</th><th style="width:210px">依据</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button class="btn sm" id="pgFirst">« 首页</button>
+          <button class="btn sm" id="pgPrev">‹ 上一页</button>
+          <span class="sub" id="pgInfo"></span>
+          <button class="btn sm" id="pgNext">下一页 ›</button>
+          <button class="btn sm" id="pgLast">末页 »</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="cardRun">
+      <h2><span>执行</span><span class="sp"></span><span class="sub" id="runStage"></span></h2>
+      <div class="body">
+        <div class="prog"><i id="runBar"></i></div>
+        <dl class="kv" id="runKv"></dl>
+        <div id="runErr"></div>
+        <div style="margin-top:10px">
+          <div class="sub" style="margin-bottom:5px">日志</div>
+          <div class="log" id="runLog">（还没跑过）</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 设置 ======================= -->
+  <section class="page" id="p-set">
+    <div id="setBody"></div>
+  </section>
+
+  <!-- ======================= 记录 ======================= -->
+  <section class="page" id="p-log">
+    <div class="card">
+      <h2><span>历次执行</span><span class="sp"></span><button class="btn sm" id="btnReloadRuns">刷新</button></h2>
+      <div class="body">
+        <div style="overflow:auto">
+          <table><thead><tr>
+            <th>开始</th><th>模式</th><th class="num">计划</th><th class="num">完成</th>
+            <th class="num">失败</th><th class="num">请求</th><th>用时</th><th></th>
+          </tr></thead><tbody id="runsBody"></tbody></table>
+        </div>
+        <div id="runDetail"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- 底部操作栏（只在「整理」页出现） -->
+<div class="bar" id="bar" style="display:none">
+  <div class="wrap">
+    <div class="sel" id="selBox">已勾 <b id="selN">0</b> 条<span class="sub" id="selEst"></span></div>
+    <span class="sp"></span>
+    <label class="sw" title="打开 = 一个请求都不发，只把要做的事写进日志">
+      <input type="checkbox" id="cbDry"><i></i><span id="cbDryLb">只演练</span>
+    </label>
+    <button class="btn" id="btnEst" style="display:none">算一下耗时</button>
+    <button class="btn primary" id="btnRun" style="display:none">执行勾选</button>
+    <button class="btn primary" id="btnRunScope">整理当前目录</button>
+    <button class="btn danger" id="btnStop" style="display:none">停止</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => (n == null ? "-" : Number(n).toLocaleString("zh-CN"));
+
+let TOKEN = localStorage.getItem("v115org_token") || "";
+let STATE = null, SET = null, PLAN = null;
+
+// ---- 计划列表的分页 / 过滤 / 勾选状态 ----
+const FOPS = { offset: 0, limit: 100, kind: "", group: "", auto: "", q: "", total: 0 };
+const SEL = new Set();
+
+// ---- 范围模式：plan=全盘 | inbox=入站口 | dirs=选定文件夹 ----
+let SCOPE = "plan";
+// 选定文件夹：已勾选的目录路径 + 展开状态 + 节点缓存
+const DIRS = { picked: new Set(), expanded: new Set(), cache: {} };   // cache: path → {is_dir, has_children}
+
+const KIND_CN = { mkdir:"建目录", move_dir:"移目录", move_file:"移文件", rename:"改名", trash:"清理" };
+const GROUP_CN = { mkdir:"建目录", series:"番号系列", movie:"电影", tv:"剧集", junk:"垃圾" };
+
+// ---------------------------------------------------------------- 请求
+async function api(path, opt) {
+  opt = opt || {};
+  const h = { "Content-Type": "application/json" };
+  if (TOKEN) h["Authorization"] = "Bearer " + TOKEN;
+  const r = await fetch(path, { method: opt.method || "GET", headers: h,
+                                body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (r.status === 401) { gate(); throw new Error("需要访问口令"); }
+  const txt = await r.text();
+  let data = null; try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = { raw: txt }; }
+  if (!r.ok) throw new Error((data && (data.detail || data.error)) || ("HTTP " + r.status));
+  return data;
+}
+function toast(msg, ms) {
+  const d = document.createElement("div"); d.textContent = msg; $("#toast").appendChild(d);
+  setTimeout(() => d.remove(), ms || 3200);
+}
+function gate() {
+  if ($("#gateBox")) return;
+  const d = document.createElement("div");
+  d.id = "gateBox";
+  d.className = "gate card";
+  d.innerHTML = '<h2>需要访问口令</h2><div class="body" style="padding:14px 16px">' +
+    '<input type="password" id="gateTok" placeholder="ACCESS_TOKEN" style="width:100%;margin-bottom:10px">' +
+    '<button class="btn primary" id="gateGo" style="width:100%">进入</button></div>';
+  document.body.appendChild(d);
+  $("#gateGo").onclick = () => {
+    TOKEN = $("#gateTok").value.trim();
+    localStorage.setItem("v115org_token", TOKEN);
+    d.remove(); boot();
+  };
+}
+
+// ---------------------------------------------------------------- 页签
+function setTab(name) {
+  $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  $$(".page").forEach(p => p.classList.toggle("on", p.id === "p-" + name));
+  $("#bar").style.display = (name === "do") ? "" : "none";
+  location.hash = name;
+  if (name === "log") loadRuns();
+}
+$$("nav button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+
+// ---------------------------------------------------------------- 范围模式
+function setScope(scope) {
+  SCOPE = scope;
+  $$("#scopeSeg button").forEach(b => b.classList.toggle("on", b.dataset.scope === scope));
+  const hint = {
+    plan: "用导入的目录树生成全盘整理计划，再勾选条目执行。",
+    inbox: "自动整理只监控「待整理」目录 —— 把要整理的东西丢进去，点「整理当前目录」处理，处理完移走。",
+    dirs: "只整理你勾选的文件夹 —— 来源选「目录树」（离线）或「接口扫描」（在线慢速），勾完点「整理当前目录」。",
+  }[scope];
+  $("#scopeHint").textContent = hint;
+  // 卡片显隐
+  $("#cardPlan").style.display  = scope === "plan" ? "" : "none";
+  $("#cardOps").style.display   = scope === "plan" && PLAN && PLAN.built ? "" : "none";
+  $("#cardInbox").style.display = scope === "inbox" ? "" : "none";
+  $("#cardTree").style.display  = scope === "dirs" ? "" : "none";
+  // 底栏按钮按模式
+  const bar = $("#bar");
+  $("#selBox").style.display = (scope === "plan") ? "" : "none";
+  $("#btnEst").style.display = (scope === "plan") ? "" : "none";
+  $("#btnRun").style.display = (scope === "plan" && PLAN && PLAN.built && SEL.size) ? "" : "none";
+  $("#btnRunScope").style.display = (scope !== "plan") ? "" : "none";
+  if (scope === "inbox") refreshInbox();
+  if (scope === "dirs") {
+    // 目录树来源：离线加载根层（零请求、不需要 cookie）；接口扫描来源：等用户点
+    if (DIRSRC === "tree" && !DIRS.cache[""]) {
+      loadScanLevel("", "").catch(e => toast(e.message, 6000));
+    }
+    renderDirTree(); renderDirPlanSum();
+  }
+}
+$$("#scopeSeg button").forEach(b => b.onclick = () => setScope(b.dataset.scope));
+
+// ---------------------------------------------------------------- 首屏
+async function boot() {
+  try { STATE = await api("/api/state"); } catch (e) { toast(e.message); return; }
+  renderHead();
+  // ⚠️ 演练开关的初值跟随设置里的 DRY_RUN —— 两边不一致的话，
+  //    页面显示「真跑」而实际在演练（或反过来），是最容易让人误判状态的那种错。
+  $("#cbDry").checked = !!STATE.dry_run;
+  renderSel();
+  await loadSettings();
+  await fillAccounts();
+  if (STATE.plan && STATE.plan.built) { PLAN = STATE.plan; renderPlan(); await loadOps(true); }
+  renderRun(STATE.run);
+  if (STATE.run && STATE.run.running) pollRun();
+  setTab(location.hash ? location.hash.slice(1) : "do");
+}
+
+function renderHead() {
+  const ck = STATE.cookie || {};
+  const tr = STATE.tree || {};
+  const dry = STATE.dry_run;
+  $("#hStat").innerHTML =
+    '<span class="chip"><span class="dot ' + (ck.ok ? "" : "bad") + '"></span>账号 ' +
+      (ck.ok ? esc(ck.source || "已配置") : "未配置") + '</span>' +
+    '<span class="chip">树 ' + (tr.ok ? esc(tr.mtime || "") : "缺失") + '</span>' +
+    '<span class="chip"><span class="dot ' + (dry ? "warn" : "bad") + '"></span>' +
+      (dry ? "演练中（不发请求）" : "<b>真跑模式</b>") + '</span>' +
+    (STATE.auth ? '<span class="chip">已加口令</span>' : '');
+  $("#hSub").textContent = "整理根：" + STATE.root_path + " · 端口 " + STATE.port;
+  if (!ck.ok) {
+    $("#planWarn").innerHTML = '<div class="note err"><b>还没有 115 cookie。</b><br>' +
+      esc((ck.error || "").split("\n").slice(0, 3).join(" ")) + '</div>';
+  }
+}
+
+// ---------------------------------------------------------------- 设置
+async function loadSettings() {
+  SET = await api("/api/settings");
+  const host = $("#setBody");
+  host.innerHTML = SET.groups.map(g => {
+    const fs = SET.fields.filter(f => f.group === g);
+    return '<div class="card"><h2><span>' + esc(g) + '</span><span class="sp"></span>' +
+      '<span class="sub" style="font-size:12px">' + fs.length + ' 项</span></h2>' +
+      '<div class="body">' + fs.map(rowHTML).join("") + '</div></div>';
+  }).join("") +
+  '<div class="pager" style="padding-bottom:8px">' +
+    '<button class="btn primary" id="btnSave">保存改动</button>' +
+    '<button class="btn" id="btnReset">全部恢复默认</button>' +
+    '<span class="sub" id="setStat"></span>' +
+    '<span class="sub" style="margin-left:auto">配置文件：<span class="mono">' + esc(SET.path) + '</span></span>' +
+  '</div>';
+  $$("#setBody .q").forEach(b => b.onclick = () => {
+    const t = $("#tip-" + b.dataset.k); if (t) t.classList.toggle("on");
+  });
+  $$("#setBody .seg").forEach(seg => seg.onclick = ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    $$("button", seg).forEach(x => x.classList.toggle("on", x === b));
+    seg.dataset.val = b.dataset.v;
+    markDirty();
+  });
+  $$("#setBody input").forEach(i => { i.oninput = markDirty; i.onchange = markDirty; });
+  $("#btnSave").onclick = saveSettings;
+  $("#btnReset").onclick = async () => {
+    if (!confirm("把所有参数恢复成出厂默认？")) return;
+    await api("/api/settings/reset", { method: "POST", body: { all: true } });
+    toast("已恢复默认");
+    await loadSettings(); await refreshState();
+  };
+  markDirty();
+  const nJson = SET.fields.filter(f => f.source === "json").length;
+  $("#nSet").textContent = nJson ? nJson + " 项已改" : "";
+}
+
+function rowHTML(f) {
+  const id = "f-" + f.key;
+  let ctl = "";
+  if (f.type === "bool") {
+    // ⚠️ 开关旁边**必须有字**：光看一个方块分不出「开」代表什么。
+    //    颜色只用来标「这个字段带告警」（`f.warn`），别拿颜色代替语义。
+    ctl = '<label class="sw"><input type="checkbox" id="' + id + '" data-k="' + f.key + '" data-t="bool"' +
+      (f.value ? " checked" : "") + '><i' + (f.warn ? ' class="danger"' : "") + '></i>' +
+      '<span>' + (f.value ? "已开启" : "已关闭") + '</span></label>';
+  } else if (f.type === "enum") {
+    ctl = '<div class="seg" id="' + id + '" data-k="' + f.key + '" data-t="enum" data-val="' + esc(f.value) + '">' +
+      f.options.map(o => '<button data-v="' + esc(o.value) + '"' + (o.value === f.value ? ' class="on"' : "") +
+        '>' + esc(o.label) + '</button>').join("") + '</div>';
+  } else if (f.type === "account") {
+    ctl = '<select id="' + id + '" data-k="' + f.key + '" data-t="str"></select>';
+  } else if (f.type === "int" || f.type === "float") {
+    ctl = '<input type="number" id="' + id + '" data-k="' + f.key + '" data-t="' + f.type + '" value="' +
+      esc(f.value) + '"' + (f.min != null ? ' min="' + f.min + '"' : "") +
+      (f.max != null ? ' max="' + f.max + '"' : "") +
+      (f.step ? ' step="' + f.step + '"' : "") + '>' +
+      (f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : "");
+  } else {
+    ctl = '<input type="text" id="' + id + '" data-k="' + f.key + '" data-t="str" value="' + esc(f.value) +
+      '" placeholder="' + esc(f.placeholder || "") + '">';
+  }
+  const srcCn = { json: "已改", env: "环境变量", default: "默认" }[f.source] || f.source;
+  const locked = f.source === "env"
+    ? ' title="这个参数被环境变量钉住了（.env 里设了），网页上改不动"' : "";
+  return '<div class="row" data-row="' + f.key + '">' +
+      '<label for="' + id + '">' + esc(f.label) +
+        (f.help ? '<button class="q" data-k="' + f.key + '" title="说明">?</button>' : "") +
+      '</label>' +
+      '<div class="ctl">' + ctl + '</div>' +
+      '<span class="src ' + f.source + '"' + locked + '>' + srcCn + '</span>' +
+      (f.help ? '<div class="tip' + (f.warn ? " warn" : "") + '" id="tip-' + f.key + '">' +
+        esc(f.help) + (f.warn ? " ⚠️ " + esc(f.warn) : "") + '</div>' : "") +
+    '</div>';
+}
+
+function collect() {
+  const out = {}, changed = [];
+  SET.fields.forEach(f => {
+    const el = $("#f-" + f.key); if (!el) return;
+    let v;
+    if (f.type === "bool") { v = el.checked; el.nextElementSibling.nextElementSibling.textContent = v ? "已开启" : "已关闭"; }
+    else if (f.type === "enum") { v = el.dataset.val; }
+    else if (f.type === "int") { v = el.value === "" ? null : parseInt(el.value, 10); }
+    else if (f.type === "float") { v = el.value === "" ? null : parseFloat(el.value); }
+    else { v = el.value; }
+    if (v !== f.value) changed.push(f.key);
+    out[f.key] = v;
+  });
+  return { values: out, changed };
+}
+function markDirty() {
+  const { changed } = collect();
+  $$("#setBody .row").forEach(r => r.classList.toggle("dirty", changed.indexOf(r.dataset.row) >= 0));
+  $("#setStat").textContent = changed.length ? changed.length + " 项待保存" : "没有改动";
+  $("#btnSave").disabled = !changed.length;
+}
+async function saveSettings() {
+  const { values } = collect();
+  const r = await api("/api/settings", { method: "PUT", body: { values } });
+  if (r.rejected && r.rejected.length) {
+    toast("有 " + r.rejected.length + " 项没通过：" + r.rejected.map(x => x.key + " — " + x.error).join("；"), 6000);
+  } else { toast("已保存 " + (r.saved || []).length + " 项"); }
+  SET = r; await loadSettings(); await refreshState();
+}
+async function refreshState() {
+  STATE = await api("/api/state"); renderHead();
+  fillAccounts();
+}
+async function fillAccounts() {
+  const sel = $("#f-account_id"); if (!sel) return;
+  const acc = await api("/api/accounts");
+  sel.innerHTML = '<option value="">（自动：第一个能用的）</option>' + acc.items.map(a =>
+    '<option value="' + esc(a.id) + '"' + (a.id === acc.active_id ? " selected" : "") +
+    (a.usable ? "" : " disabled") + '>' + esc(a.name) + " " + esc(a.cookie_tail) + '</option>').join("");
+  sel.onchange = markDirty;
+  if (!acc.exists) {
+    sel.innerHTML = '<option value="">（没找到账号文件）</option>';
+    sel.title = "期望位置：" + acc.file;
+  }
+}
+
+// ---------------------------------------------------------------- 计划
+$("#btnPlan").onclick = async () => {
+  const b = $("#btnPlan"); b.disabled = true; b.textContent = "生成中…";
+  try {
+    PLAN = await api("/api/plan", { method: "POST", body: { depth: 2, force: true } });
+    SEL.clear(); FOPS.offset = 0; renderPlan(); await loadOps(true);
+    $("#bar").style.display = "";
+  } catch (e) { toast(e.message, 6000); }
+  b.disabled = false; b.textContent = "生成计划";
+};
+$("#btnTree").onclick = async () => {
+  const t = STATE.tree || {};
+  if (!t.ok) return toast("树文件有问题：" + (t.error || "未知"));
+  alert("树文件：" + t.file + "\n大小：" + t.size_mb + " MB\n改动：" + t.mtime + "\n整理根：" + t.root_path +
+        "\n\n把新导出的 .txt 放进 " + t.dir + " 就会自动取最新的那份。");
+};
+
+function renderPlan() {
+  const c = PLAN.counts || {}, es = PLAN.estimate || {}, t = PLAN.tree_stats || {};
+  $("#cardOps").style.display = "";
+  const kinds = Object.entries(c.by_kind || {}).map(([k, v]) =>
+    '<span class="tag t-' + (k === "mkdir" ? "mkdir" : k === "trash" ? "trash" : k === "rename" ? "rename" : "move") + '">' +
+    esc(KIND_CN[k] || k) + " " + fmt(v) + '</span>').join(" ");
+  $("#planSum").innerHTML =
+    '<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-bottom:8px">' +
+      '<div><span class="sub">动作</span> <b style="font-size:19px">' + fmt(c.actions) + '</b></div>' +
+      '<div><span class="sub">可自动</span> <b>' + fmt(c.auto) + '</b></div>' +
+      '<div><span class="sub">需人工</span> <b' + (c.manual ? ' style="color:var(--err)"' : "") + '>' + fmt(c.manual) + '</b></div>' +
+      '<div><span class="sub">冲突</span> <b' + (c.conflicts ? ' style="color:var(--err)"' : "") + '>' + fmt(c.conflicts) + '</b></div>' +
+      '<div><span class="sub">灰区</span> <b>' + fmt(c.suspects) + '</b></div>' +
+      '<div><span class="sub">预计</span> <b>' + esc(es.human || "-") + '</b>' +
+        ' <span class="sub">/ ' + fmt(es.requests) + ' 请求</span></div>' +
+    '</div>' +
+    '<div style="margin-bottom:6px">' + kinds + '</div>' +
+    '<div class="sub" style="font-size:12.5px">树：' + esc(PLAN.tree_file) + '（' + esc(PLAN.tree_file_time) + '）· ' +
+      fmt(t.dirs) + ' 目录 / ' + fmt(t.files) + ' 文件 · 根下 ' + fmt(t.root_entries) + ' 项 · 生成于 ' + esc(PLAN.created) + '</div>';
+  $("#nDo").textContent = fmt(c.actions) + " 条";
+  const warn = [];
+  if (c.conflicts) warn.push(c.conflicts + " 条冲突（两个源指向同一目标）—— 已自动标成「需人工」，不会被执行。");
+  if (c.suspects) warn.push(c.suspects + " 条灰区（可能误判）—— 只在报告里列出，不会动。");
+  $("#planWarn").innerHTML = warn.length ? '<div class="note warn">' + warn.join("<br>") + '</div>' : "";
+}
+
+// ---------------------------------------------------------------- 条目列表
+function segBar(host, opts, key) {
+  $(host).innerHTML = '<button data-v=""' + (FOPS[key] === "" ? ' class="on"' : "") + '>全部</button>' +
+    opts.map(o => '<button data-v="' + esc(o.v) + '"' + (FOPS[key] === o.v ? ' class="on"' : "") + '>' +
+      esc(o.label) + '</button>').join("");
+  $(host).onclick = ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    FOPS[key] = b.dataset.v; FOPS.offset = 0;
+    $$("button", host).forEach(x => x.classList.toggle("on", x === b));
+    loadOps();
+  };
+}
+function buildFilters() {
+  const c = (PLAN.counts || {}).by_kind || {}, g = (PLAN.counts || {}).by_group || {};
+  segBar("#fKind", Object.keys(c).map(k => ({ v: k, label: (KIND_CN[k] || k) + " " + c[k] })), "kind");
+  segBar("#fGroup", Object.keys(g).map(k => ({ v: k, label: (GROUP_CN[k] || k) + " " + g[k] })), "group");
+  segBar("#fAuto", [{ v: "1", label: "可自动" }, { v: "0", label: "需人工" }], "auto");
+}
+let fqTimer = null;
+$("#fq").oninput = () => { clearTimeout(fqTimer); fqTimer = setTimeout(() => { FOPS.q = $("#fq").value.trim(); FOPS.offset = 0; loadOps(); }, 280); };
+
+function qs(extra) {
+  const p = new URLSearchParams({ offset: FOPS.offset, limit: FOPS.limit,
+    kind: FOPS.kind, group: FOPS.group, auto: FOPS.auto, q: FOPS.q });
+  Object.entries(extra || {}).forEach(([k, v]) => p.set(k, v));
+  return p.toString();
+}
+async function loadOps(reset) {
+  if (!PLAN || !PLAN.built) return;
+  // ⚠️ 这行原来的极性是反的：首屏走的是 `loadOps(true)`（换了计划 ⇒ 各类型计数要重算），
+  //    而 `reset !== true` 的条件正好把这条路排除掉 ⇒ 三个筛选条一直是**空壳**（0 个子元素）。
+  //    正确语义：换了计划必须重建，否则只补建一次。
+  if (reset === true || $("#fKind").children.length === 0) buildFilters();
+  const d = await api("/api/plan/ops?" + qs());
+  FOPS.total = d.total;
+  if (FOPS.offset >= d.total && d.total > 0) {
+    FOPS.offset = Math.max(0, Math.floor((d.total - 1) / FOPS.limit) * FOPS.limit);
+    return loadOps(true);
+  }
+  const tb = $("#tblOps tbody");
+  tb.innerHTML = d.items.map(o => {
+    const tgt = o.target ? esc(o.target) + (o.new_name ? ' <span class="sub">→ ' + esc(o.new_name) + '</span>' : "")
+                         : (o.new_name ? esc(o.new_name) : '<span class="sub">原地</span>');
+    const tk = o.kind === "mkdir" ? "mkdir" : o.kind === "trash" ? "trash" : o.kind === "rename" ? "rename" : "move";
+    return '<tr>' +
+      '<td><input type="checkbox" data-i="' + o.i + '"' + (SEL.has(o.i) ? " checked" : "") + '></td>' +
+      '<td class="k"><span class="tag t-' + tk + '">' + esc(KIND_CN[o.kind] || o.kind) + '</span>' +
+        (o.auto ? "" : ' <span class="tag manual">人工</span>') + '</td>' +
+      '<td class="mono ellip" style="max-width:330px" title="' + esc(o.path) + '">' + (esc(o.path) || '<span class="sub">—</span>') + '</td>' +
+      '<td class="sub">→</td>' +
+      '<td class="ellip" style="max-width:330px" title="' + esc(o.target + " " + o.new_name) + '">' + tgt + '</td>' +
+      '<td class="sub" style="font-size:12px">' + esc(o.reason || "") +
+        (o.note ? '<br><span style="color:var(--warn)">' + esc(o.note) + '</span>' : "") + '</td>' +
+    '</tr>';
+  }).join("") || '<tr><td colspan="6" class="sub" style="padding:18px;text-align:center">没有匹配的条目</td></tr>';
+  $$("#tblOps input[data-i]").forEach(cb => cb.onchange = () => {
+    const i = parseInt(cb.dataset.i, 10);
+    cb.checked ? SEL.add(i) : SEL.delete(i);
+    renderSel();
+  });
+  const from = d.total ? FOPS.offset + 1 : 0, to = Math.min(FOPS.offset + FOPS.limit, d.total);
+  $("#pgInfo").textContent = from + "–" + to + " / " + fmt(d.total) + " 条" +
+    (d.total !== d.all ? "（全部 " + fmt(d.all) + "）" : "");
+  $("#opsCnt").textContent = fmt(d.total) + " 条";
+  $("#nDo").textContent = fmt((PLAN.counts || {}).actions) + " 条";
+}
+$("#pgFirst").onclick = () => { FOPS.offset = 0; loadOps(); };
+$("#pgPrev").onclick = () => { FOPS.offset = Math.max(0, FOPS.offset - FOPS.limit); loadOps(); };
+$("#pgNext").onclick = () => { if (FOPS.offset + FOPS.limit < FOPS.total) { FOPS.offset += FOPS.limit; loadOps(); } };
+$("#pgLast").onclick = () => { FOPS.offset = Math.max(0, Math.floor((FOPS.total - 1) / FOPS.limit) * FOPS.limit); loadOps(); };
+
+$("#btnSelPage").onclick = () => { $$("#tblOps input[data-i]").forEach(cb => { SEL.add(parseInt(cb.dataset.i, 10)); cb.checked = true; }); renderSel(); };
+$("#btnSelAll").onclick = async () => {
+  const d = await api("/api/plan/ops?" + qs({ only_indices: 1 }));
+  d.indices.forEach(i => SEL.add(i));
+  renderSel();          // ⚠️ 少了这行 ⇒ SEL 里勾了几千条，底栏却还写着「已勾 0 条」
+  await loadOps();
+  toast("已勾选当前筛选下的 " + d.indices.length + " 条");
+};
+$("#btnSelN").onclick = async () => {
+  const d = await api("/api/plan/ops?" + qs({ limit: 50 }));
+  d.items.filter(o => o.auto).forEach(o => SEL.add(o.i));
+  renderSel();          // ⚠️ 同上：勾上了但计数不动，看着像没勾
+  await loadOps();
+  toast("已勾选前 50 条里可自动的那些");
+};
+$("#btnUnsel").onclick = () => { SEL.clear(); loadOps(); renderSel(); };
+
+let LASTSELN = -1;
+function renderSel() {
+  $("#selN").textContent = SEL.size;
+  const dry = $("#cbDry").checked;
+  $("#btnRun").textContent = dry ? "演练" : "执行";
+  $("#btnRun").className = "btn " + (dry ? "" : "primary");
+  $("#btnRunScope").textContent = dry ? "演练当前目录" : "整理当前目录";
+  $("#cbDryLb").textContent = dry ? "只演练（不发请求）" : "真跑（会改网盘）";
+  // 全盘模式：勾选才显示「执行勾选」；入站口/选定文件夹恒显示「整理当前目录」
+  $("#btnRun").style.display = (SCOPE === "plan" && PLAN && PLAN.built && SEL.size) ? "" : "none";
+  // 勾选集合变了 ⇒ 上一次算出来的耗时作废。不清的话底栏会一直挂着一个对不上号的数字，
+  // ⚠️ 这正好会骗人：拿旧估值去估新一轮的代价。（只演练开关不影响估值，所以按勾选数判、别用 dry 判）
+  if (SEL.size !== LASTSELN) { LASTSELN = SEL.size; $("#selEst").textContent = ""; }
+}
+$("#cbDry").onchange = renderSel;
+
+$("#btnEst").onclick = async () => {
+  if (!SEL.size) return toast("先勾几条");
+  const e = await api("/api/plan/estimate", { method: "POST", body: { indices: Array.from(SEL) } });
+  $("#selEst").innerHTML = ' · 预计 <b>' + esc(e.human) + '</b> · ' + fmt(e.requests) + ' 请求' +
+    (e.manual ? ' · <span style="color:var(--warn)">' + e.manual + ' 条需人工（不会执行）</span>' : "");
+};
+
+// ---------------------------------------------------------------- 入站口
+async function refreshInbox() {
+  try {
+    const d = await api("/api/inbox");
+    $("#inboxKv").innerHTML =
+      "<dt>入站目录</dt><dd>" + esc(d.dir) + "</dd>" +
+      "<dt>整理根</dt><dd>" + esc(d.root) + "</dd>" +
+      "<dt>轮询间隔</dt><dd>" + fmt(d.poll_interval) + " 秒</dd>" +
+      (d.max_requests ? "<dt>单次请求上限</dt><dd>" + fmt(d.max_requests) + "</dd>" : "") +
+      "<dt>模式</dt><dd>" + (d.dry_run ? "演练（不发请求）" : "真跑") + "</dd>";
+    $("#inboxNote").innerHTML =
+      '把要整理的东西丢进 <b>' + esc(d.dir) + '</b>，点右下角「整理当前目录」' +
+      (d.running ? " —— <b style='color:var(--err)'>正在跑，等它结束</b>" : "") + "。" +
+      "演练开关照常生效：开着 = 只列出会怎么处理，不动网盘。";
+  } catch (e) { $("#inboxKv").innerHTML = ""; $("#inboxNote").textContent = e.message; }
+}
+
+// ---------------------------------------------------------------- 选定文件夹：目录树
+let DIRSRC = "tree";
+$("#dirSrcSeg").onclick = ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  DIRSRC = b.dataset.src;
+  $$("#dirSrcSeg button").forEach(x => x.classList.toggle("on", x === b));
+  DIRS.picked.clear(); DIRS.expanded.clear(); DIRS.cache = {};
+  $("#selDirN").textContent = "0";
+  renderDirTree();
+  renderDirPlanSum();
+};
+$("#btnScan").onclick = async () => {
+  // 切到接口扫描来源并从根开始加载
+  if (DIRSRC !== "scan") { $$("#dirSrcSeg button").forEach(x => x.classList.toggle("on", x.dataset.src === "scan")); DIRSRC = "scan"; }
+  DIRS.picked.clear(); DIRS.expanded.clear(); DIRS.cache = {};
+  $("#selDirN").textContent = "0";
+  try {
+    await loadScanLevel("", "");   // 从根开始
+  } catch (e) { toast(e.message, 6000); renderDirTree(); }
+};
+async function loadScanLevel(cid, path) {
+  // 目录树来源 = 离线读树文件（零请求）；接口扫描来源 = 在线列目录（走扫描节流）
+  const url = DIRSRC === "tree"
+    ? "/api/tree/level?path=" + encodeURIComponent(path || "")
+    : "/api/scan?cid=" + encodeURIComponent(cid || "") + "&path=" + encodeURIComponent(path || "");
+  const d = await api(url);
+  const key = path || "";
+  DIRS.cache[key] = d.items || [];
+  DIRS.expanded.add(key);
+  renderDirTree();
+}
+function renderDirTree() {
+  const box = $("#dirTree");
+  const rows = [];
+  const walk = (path, depth) => {
+    (DIRS.cache[path] || []).forEach(n => {
+      const key = n.path;
+      const arrow = (n.is_dir && n.has_children)
+        ? '<button class="dirArrow" data-path="' + esc(key) + '" data-open="' +
+          (DIRS.expanded.has(key) ? "1" : "0") + '">' + (DIRS.expanded.has(key) ? "▾" : "▸") + '</button>'
+        : '<span style="display:inline-block;width:16px"></span>';
+      const cb = n.is_dir
+        ? '<input type="checkbox" data-dir="' + esc(key) + '"' + (DIRS.picked.has(key) ? " checked" : "") + '>'
+        : '<span style="display:inline-block;width:14px"></span>';
+      rows.push('<div class="dirRow" style="padding-left:' + (depth * 18 + 8) + 'px">' + arrow + cb +
+        '<span class="' + (n.is_dir ? "dirName" : "dirFile") + '">' + esc(n.name) + '</span>' +
+        (n.is_dir ? "" : '<span class="sub" style="font-size:11.5px"> · ' + fmt(n.size || 0) + ' B</span>') +
+        '</div>');
+      if (n.is_dir && DIRS.expanded.has(key)) walk(key, depth + 1);
+    });
+  };
+  walk("", 0);
+  box.innerHTML = rows.join("") || '<div class="sub" style="padding:14px;text-align:center">' +
+    (DIRSRC === "scan" ? "点「接口扫描」从整理根开始逐层展开" : "点「接口扫描」加载目录树（勾选后生成计划走离线树，不联网）") + '</div>';
+  $$(".dirArrow").forEach(b => b.onclick = async () => {
+    const p = b.dataset.path, open = b.dataset.open === "1";
+    if (open) { DIRS.expanded.delete(p); renderDirTree(); }
+    else if (DIRS.cache[p]) { DIRS.expanded.add(p); renderDirTree(); }
+    else {
+      // 懒加载这一层：列 `p` 的子项（后端按 path 解析 cid）
+      try {
+        await loadScanLevel("", p);
+      } catch (e) { toast(e.message, 6000); renderDirTree(); }
+    }
+  });
+  $$("#dirTree input[data-dir]").forEach(cb => cb.onchange = () => {
+    const p = cb.dataset.dir;
+    cb.checked ? DIRS.picked.add(p) : DIRS.picked.delete(p);
+    $("#selDirN").textContent = DIRS.picked.size;
+    renderDirPlanSum();
+  });
+}
+$("#btnDirAll").onclick = () => {
+  Object.keys(DIRS.cache).forEach(k => DIRS.cache[k].forEach(n => { if (n.is_dir) DIRS.picked.add(n.path); }));
+  renderDirTree(); $("#selDirN").textContent = DIRS.picked.size; renderDirPlanSum();
+};
+$("#btnDirNone").onclick = () => { DIRS.picked.clear(); renderDirTree(); $("#selDirN").textContent = "0"; renderDirPlanSum(); };
+function renderDirPlanSum() {
+  const n = DIRS.picked.size;
+  $("#dirPlanSum").textContent = n
+    ? "已选 " + n + " 个文件夹 —— 点「生成计划」预览会怎么处理，或直接点右下角「整理当前目录」。"
+    : "还没生成计划。";
+}
+
+// ---------------------------------------------------------------- 执行
+$("#btnRun").onclick = async () => {
+  if (!SEL.size) return toast("先勾几条");
+  const dry = $("#cbDry").checked;
+  const idx = Array.from(SEL);
+  if (!dry) {
+    const ok = confirm("真跑：" + idx.length + " 条动作会**立刻作用到 115 网盘上**。\n\n" +
+      "· 移动/改名可以在 115 上手动改回来\n" +
+      "· 清理按设置里的「清理动作」执行（隔离 = 可整目录撤销）\n" +
+      "· 建议先勾几十条试一次\n\n确定执行？");
+    if (!ok) return;
+  }
+  try {
+    await api("/api/run", { method: "POST", body: { indices: idx, dry_run: dry } });
+    // 新一轮 = 后端换新缓冲、seq 从 0 起 ⇒ 游标和日志区都得先归零，否则新日志进不来（见 renderRun）
+    LOGSEQ = 0;
+    $("#runLog").innerHTML = "";
+    SEL.clear(); renderSel(); await loadOps();
+    toast(dry ? "开始演练" : "开始执行");
+    // 执行卡在页面最下面，不滚过去等于日志白写 —— 退 52px 让开顶部那条 sticky 导航。
+    const y = $("#cardRun").getBoundingClientRect().top + scrollY - 52;
+    scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    pollRun();
+  } catch (e) { toast(e.message, 6000); }
+};
+$("#btnStop").onclick = async () => {
+  const r = await api("/api/run/stop", { method: "POST" });
+  toast(r.ok ? "正在停…" : r.msg);
+};
+
+// ---- 整理当前目录（入站口 / 选定文件夹）----
+$("#btnRunScope").onclick = async () => {
+  const dry = $("#cbDry").checked;
+  let body = { dry_run: dry };
+  if (SCOPE === "dirs") {
+    if (!DIRS.picked.size) return toast("先在左侧勾选要整理的文件夹");
+    body = { dirs: Array.from(DIRS.picked), dry_run: dry };
+  }
+  if (!dry) {
+    const what = SCOPE === "inbox" ? "入站口「" + (STATE ? STATE.root_path : "") + "/待整理」" : DIRS.picked.size + " 个文件夹";
+    const ok = confirm("真跑：整理 " + what + " 会**立刻作用到 115 网盘上**。\n\n" +
+      "· 处理完的内容会从入站口/选中目录**移走**（归位到系列/影视区）\n" +
+      "· 清理按设置里的「清理动作」执行（隔离 = 可整目录撤销）\n" +
+      "· 演练开关开着 = 只出方案不动手\n\n确定执行？");
+    if (!ok) return;
+  }
+  try {
+    const path = SCOPE === "inbox" ? "/api/inbox/run" : "/api/run/for-dirs";
+    const r = await api(path, { method: "POST", body });
+    if (r && r.error) throw new Error(r.error);
+    LOGSEQ = 0; $("#runLog").innerHTML = "";
+    toast(dry ? "开始演练" : "开始整理");
+    const y = $("#cardRun").getBoundingClientRect().top + scrollY - 52;
+    scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    pollRun();
+  } catch (e) { toast(e.message, 6000); }
+};
+
+// ---- 生成选定文件夹计划 ----
+$("#btnPlanDirs").onclick = async () => {
+  if (!DIRS.picked.size) return toast("先勾选要整理的文件夹");
+  const b = $("#btnPlanDirs"); b.disabled = true; b.textContent = "生成中…";
+  try {
+    const meta = await api("/api/plan/for-dirs", { method: "POST", body: { dirs: Array.from(DIRS.picked) } });
+    PLAN = meta;
+    renderDirPlanSum();
+    // 也渲染到「计划」卡，让用户看到条目
+    $("#cardPlan").style.display = "";
+    renderPlan(); await loadOps(true);
+  } catch (e) { toast(e.message, 6000); }
+  b.disabled = false; b.textContent = "生成计划";
+};
+
+let LOGSEQ = 0, pollTimer = null;
+function pollRun() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(step, 1000);
+}
+async function step() {
+  let s;
+  try { s = await api("/api/run?after=" + LOGSEQ); } catch (e) { return; }
+  renderRun(s, true);
+  if (s.running) pollRun();
+}
+function renderRun(s, appendLog) {
+  if (!s) return;
+  // 🔴 后端**每起一轮就换一个新日志缓冲**（seq 从 0 重来），而前端游标还停在上轮高位时
+  //    `since(高位)` 恒为空 ⇒ 新一轮的日志一条都进不来，页面永远停在上轮的尾巴上。
+  //    游标「回绕」（新 seq < 旧游标）就是换轮的信号 ⇒ 归零重取，并把旧日志清掉。
+  //    （自己起跑时 btnRun 已经清过一次；这里兜的是「别的浏览器/手机起跑，这边在看」）
+  if (s.log_seq < LOGSEQ) { LOGSEQ = 0; appendLog = false; }
+  LOGSEQ = s.log_seq || 0;
+  const box = $("#runLog");
+  if (!appendLog || !box.dataset.init) { box.innerHTML = ""; box.dataset.init = "1"; }
+  (s.log || []).forEach(l => {
+    const d = document.createElement("div");
+    d.className = l.level === "error" ? "e" : l.level === "warning" ? "w" : l.level === "info" ? "i" : "";
+    d.textContent = l.t + " " + l.msg;
+    box.appendChild(d);
+  });
+  if ((s.log || []).length || !box.childNodes.length) box.scrollTop = box.scrollHeight;
+
+  // ⚠️ `done` 是【整轮累计】，`planned` 是【当前 pass 的条数】—— 两个口径不能同框当分子分母：
+  //    最后一个 pass 常常是 0 条 ⇒ 跑完那一刻进度条会从 100% 掉回 0%、kv 显示「完成 50 / 0」。
+  //    分母统一用「本轮勾选数」，阶段由上面 #runStage 单独报。
+  const denom = s.selected || s.total_in_plan || 0;
+  const pct = denom ? Math.min(100, Math.round(s.done / denom * 100)) : 0;
+  $("#runBar").style.width = pct + "%";
+  $("#runStage").textContent = s.running
+    ? ("进行中 · " + (s.stage_label || "准备") + " " + pct + "%")
+    : (s.finished ? ("结束于 " + s.finished + (s.cancelled ? "（已停止）" : "")) : "");
+  $("#runKv").innerHTML =
+    "<dt>模式</dt><dd>" + (s.dry_run ? "演练（不发请求）" : "<b style='color:var(--err)'>真跑</b>") + "</dd>" +
+    "<dt>本轮</dt><dd>勾选 " + fmt(s.selected) + " 条 / 整份 " + fmt(s.total_in_plan) + " 条</dd>" +
+    "<dt>进度</dt><dd>完成 " + fmt(s.done) + " / " + fmt(denom) + "，失败 " + fmt(s.failed) + "</dd>" +
+    "<dt>请求数</dt><dd>" + fmt(s.requests) + "</dd>" +
+    "<dt>开始</dt><dd>" + esc(s.started || "-") + "</dd>";
+  $("#runErr").innerHTML = s.error ? '<div class="note err">' + esc(s.error) + '</div>' : "";
+  $("#btnStop").style.display = s.running ? "" : "none";
+  $("#btnRun").disabled = !!s.running;
+  const r = s.result;
+  if (r) {
+    $("#runErr").innerHTML += '<div class="note ok">完成 ' + fmt(r.done) + " 条，" +
+      "失败 " + fmt(r.failed) + " 条，发了 " + fmt(r.requests) + " 个请求，用时 " + esc(r.elapsed_human) +
+      (r.skipped_manual ? "；跳过 " + r.skipped_manual + " 条需人工的" : "") +
+      (r.unroutable ? "；<b>" + r.unroutable + " 条动作类型不认识，未执行</b>" : "") + "</div>";
+  }
+}
+
+// ---------------------------------------------------------------- 记录
+$("#btnReloadRuns").onclick = loadRuns;
+async function loadRuns() {
+  const d = await api("/api/runs");
+  $("#nLog").textContent = d.items.length ? d.items.length + " 次" : "";
+  $("#runsBody").innerHTML = d.items.map(x =>
+    '<tr><td class="mono">' + esc(x.started || x.stem) + '</td>' +
+    '<td>' + (x.dry_run ? '<span class="tag">演练</span>' : '<span class="tag manual">真跑</span>') + '</td>' +
+    '<td class="num">' + fmt(x.planned) + '</td><td class="num">' + fmt(x.done) + '</td>' +
+    '<td class="num"' + (x.failed ? ' style="color:var(--err)"' : "") + '>' + fmt(x.failed) + '</td>' +
+    '<td class="num">' + fmt(x.requests) + '</td><td>' + esc(x.elapsed || "") + '</td>' +
+    '<td><button class="btn sm" data-stem="' + esc(x.stem) + '">看</button></td></tr>').join("")
+    || '<tr><td colspan="8" class="sub" style="padding:16px;text-align:center">还没有执行记录</td></tr>';
+  $$("#runsBody button[data-stem]").forEach(b => b.onclick = async () => {
+    const d2 = await api("/api/runs/" + encodeURIComponent(b.dataset.stem));
+    $("#runDetail").innerHTML = '<div class="note" style="background:#fafbfe">' +
+      '<b>' + esc(b.dataset.stem) + '</b><br><br><pre class="mono" style="margin:0;white-space:pre-wrap;font-size:12px">' +
+      esc(d2.markdown || JSON.stringify(d2.json, null, 1)).slice(0, 20000) + '</pre></div>';
+    $("#runDetail").scrollIntoView({ behavior: "smooth" });
+  });
+}
+
+// ---------------------------------------------------------------- 启动
+$("#cbDry").checked = true;
+renderSel();
+if (TOKEN) boot(); else api("/api/health").then(h => h.auth ? gate() : boot()).catch(() => boot());
+</script>
+</body>
+</html>

@@ -20,13 +20,15 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from typing import Iterable
 
 from . import junk as junk_mod
 from . import namer, number
 from .config import Config
 from .treefile import Tree
 
-__all__ = ["Op", "Plan", "build_plan", "PLAN_VERSION", "RESERVED_DIRS"]
+__all__ = ["Op", "Plan", "build_plan", "build_plan_for_dirs", "estimate",
+           "PLAN_VERSION", "RESERVED_DIRS"]
 
 PLAN_VERSION = 1
 
@@ -117,6 +119,46 @@ class Plan:
             "suspects": len(self.suspects),
             "skipped": len(self.skipped),
         }
+
+    # ------------------------------------------------------------------ 取子集
+    def subset(self, indices: Iterable[int]) -> "Plan":
+        """按**索引**取子集（索引以 `self.ops` 的当前顺序为准），保留全部元信息。
+
+        ⭐ 为什么敢让人「只勾一部分就跑」—— **不做依赖补全**也不会出错：
+           `move_dir` / `move_file` 的目标目录在执行器里走 `_resolve_dir()`
+           ⇒ 那一刻会 `ensure_dir()` 现建（内部有缓存，重复调用零请求）。
+           所以单独勾一条「移动」、不带它的「建目录」，照样能落到位。
+
+        ⛔ 别改成「顺手把相关的 mkdir 也塞进来」：那会让「我明明只勾了 3 条，
+           日志里却动了 50 条」这种事发生 —— 勾选的意义就是**所见即所得**。
+
+        ⚠️ 越界/负数一律**丢掉**（不是报错）—— 请求可能在两次轮询之间过期，
+           为此把整批拒绝掉太粗暴；丢掉的条数由调用方从 `len()` 差里看得出来。
+        """
+        total = len(self.ops)
+        picked: list[Op] = []
+        seen: set[int] = set()
+        for i in indices or ():
+            try:
+                idx = int(i)
+            except (TypeError, ValueError):
+                continue
+            if idx in seen or idx < 0 or idx >= total:
+                continue
+            seen.add(idx)
+            picked.append(self.ops[idx])
+        out = Plan(
+            ops=picked,
+            conflicts=list(self.conflicts),
+            suspects=list(self.suspects),
+            skipped=list(self.skipped),
+            series_stats=list(self.series_stats),
+            tree_stats=dict(self.tree_stats),
+            config=dict(self.config),
+            created=self.created,
+            root=self.root,
+        )
+        return out
 
     def to_dict(self) -> dict:
         return {
@@ -416,3 +458,272 @@ def _movie_name(fname: str, cfg: Config) -> str:
         if c["mode"] != "keep":
             return c["name"]
     return ""
+
+
+# --------------------------------------------------------------------------- 耗时估算
+def estimate(plan: Plan, cfg: Config) -> dict:
+    """按**执行层实际会发的请求数**估算耗时 —— 比按动作数估准得多。
+
+    请求数 ≈ 列根目录分页 + 目标目录创建 + 改名批次 + 移动批次 + 清理批次。
+
+    ⚠️ 放在这里而不是 `cli.py`，是因为**网页上勾一部分之后也要重新估一次**
+       （勾 50 条和勾 5000 条是完全两回事）⇒ 它必须是能被复用的库函数，
+       不能只长在命令行里。
+    """
+    from .throttle import Throttle
+
+    thr = Throttle(cfg=cfg)
+    n_mkdir = sum(1 for op in plan.ops if op.kind == "mkdir")
+    n_rename = sum(1 for op in plan.ops if op.kind == "rename") + \
+        sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file") and op.new_name)
+    n_move = sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file"))
+    n_trash = sum(1 for op in plan.ops if op.kind == "trash")
+    # ⚠️「列根目录」的页数按**根下条目数**算 —— `fs_files` **不递归**，只列一层。
+    #    拿整棵树的 dirs+files 会高估一个数量级（实测：根下 7,698 项 ⇒ 39 页；
+    #    整棵树 71,944 项算出来是 360 页，白吓人）。
+    root_entries = plan.tree_stats.get("root_entries")
+    if not root_entries:
+        root_entries = sum(1 for op in plan.ops if not op.src_dir) or 1
+    root_pages = max(1, (root_entries + 199) // 200)
+    # 下面各项都取**上界**（宁可估久，别让人以为很快）：清理那两项尤其粗 ——
+    # 实际是「每个源目录只列一次」+「每 500 条才发一次移动请求」。
+    est = (root_pages                                   # 列根目录
+           + n_mkdir                                    # 建目标目录
+           + (n_rename + 99) // 100                     # 改名分批
+           + max(1, len({op.target for op in plan.ops if op.kind in ("move_dir", "move_file")}))
+           + (n_move + 499) // 500                      # 移动分批
+           + n_trash                                    # 清理要逐个目录列一次 + 移动
+           + max(1, len({op.src_dir for op in plan.ops if op.kind == "trash"})))
+    out = thr.estimate(est)
+    out["breakdown"] = {
+        "列根目录": root_pages, "建目录": n_mkdir,
+        "改名批次": (n_rename + 99) // 100,
+        "移动批次": max(1, len({op.target for op in plan.ops if op.kind in ("move_dir", "move_file")})),
+        "清理相关": n_trash,
+    }
+    return out
+
+
+# --------------------------------------------------------------------------- 选定文件夹
+def build_plan_for_dirs(tree: Tree, cfg: Config, dirs: list[str], *, max_depth: int = 3) -> Plan:
+    """只处理**选中的几个文件夹**（功能 2）。
+
+    `dirs` —— 相对整理根的路径列表（如 `["DLDSS-532", "影视/动作"]`）。
+    处理范围 = 这些目录**及其子树**（递归到 `max_depth` 层，不含再往下的子孙）。
+
+    ⚠️ 与 `build_plan` 的区别：
+      · **只碰选中范围** —— 别的目录一概不生成动作（哪怕是系列聚合也不会跨出去建目录）。
+      · 番号归位仍生效：选中目录本身是番号 → 归位到系列；
+        选中目录里的番号子目录 → 也归位（这些目录被选中的范围内）。
+      · 系列聚合的「全盘数量」拿不到 ⇒ 规则跟入站口一致：
+        系列目录**已存在**（在整理根下）就搬进去；否则看**本批**数量够不够阈值。
+      · 目标目录（系列目录）如果**在选中范围之外**，也照建 —— 这是「把东西搬去该去的地方」。
+
+    ⛔ 不动的：选中范围之外的任何文件 / 目录。
+    """
+    root = cfg.root_path
+    tree = tree.rebase(root)
+
+    # 选中目录展开成「要扫的目录集合」（含自身 + 子树到 max_depth 层）
+    chosen = _expand_dirs(tree, dirs, max_depth=max_depth)
+    if not chosen:
+        return Plan(created=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    root=root, config={k: v for k, v in cfg.all().items() if k != "cookie"},
+                    tree_stats={"source": "(选定文件夹)", "dirs": 0, "files": 0,
+                                "root_entries": 0})
+
+    dup = _dup_counts(tree)
+
+    plan = Plan(
+        created=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        root=root,
+        tree_stats={"source": "(选定文件夹)", "dirs": len(chosen),
+                    "files": sum(len(tree.files_of(p)) for p in chosen),
+                    "root_entries": len(chosen)},
+        config={k: v for k, v in cfg.all().items() if k != "cookie"},
+    )
+
+    # 整理根下已有的一级目录（判断「系列目录已存在」）
+    root_dir_names = {tree.entries[p].name for p in tree.top_level if tree.entries[p].is_dir}
+    root_dir_names |= {tree.entries[root].name}
+
+    move_ops: list[Op] = []
+    other_ops: list[Op] = []
+    claimed: dict[str, str] = {}
+
+    # ① 番号目录归位（选中的目录 / 子树里的目录，只要名字是番号）
+    dir_id: dict[str, str] = {}
+    for p in chosen:
+        pid = number.get_id(tree.entries[p].name)
+        if pid:
+            dir_id[p] = pid
+
+    series_count: Counter = Counter()
+    for pid in dir_id.values():
+        series_count[number.series_of(pid)] += 1
+
+    for p in chosen:
+        pid = dir_id.get(p)
+        if not pid:
+            continue
+        name = tree.entries[p].name
+        avid = number.format_id(pid)
+        series = number.series_of(pid)
+        n = series_count[series]
+        series_exists = series in root_dir_names
+        grouped = bool(cfg.series_enable and (series_exists or n >= cfg.series_min))
+        parent = p.rsplit("/", 1)[0] if "/" in p else ""
+
+        if grouped:
+            target, want = series, (avid if cfg.series_rename else name)
+            reason = f"系列 {series} 共 {n} 部"
+        elif cfg.series_rename and avid != name:
+            target, want = parent, avid
+            reason = f"系列 {series} 仅 {n} 部（<阈值 {cfg.series_min}），只规范命名"
+        else:
+            plan.skipped.append({"path": p, "reason": f"系列 {series} 仅 {n} 部，低于阈值"})
+            continue
+
+        note = ""
+        key = f"{target}/{want}"
+        if key in claimed and claimed[key] != p:
+            alt = f"{target}/{name}"
+            if alt not in claimed:
+                claimed[alt] = p
+                want = name
+                note = "目标重名，保留原名移动"
+            else:
+                plan.conflicts.append({"target": key, "sources": [claimed[key], p],
+                                       "reason": "两个源归一化后指向同一目标"})
+        else:
+            claimed[key] = p
+
+        if target == parent and want == name:
+            continue
+        move_ops.append(Op(kind="move_dir", path=p, target=target if target != parent else "",
+                           new_name=want if want != name else "",
+                           group="series", reason=reason, note=note))
+
+    # ② 选中范围内的垃圾：
+    #    a) **选中的目录本身**若命中强特征垃圾（如「文宣」「看片资源」这类广告外壳目录），
+    #       整目录进清理 —— 用户选了它就是想要这个。⛔ 只有当它**不是番号目录**才适用
+    #       （番号目录已归位处理，不能既归位又清理）。
+    #    b) 目录内部的文件垃圾（递归扫到 max_depth）。
+    for p in chosen:
+        name = tree.entries[p].name
+        if p not in dir_id and cfg.junk_allow_dir:      # 非番号目录 且 允许动目录
+            vd = junk_mod.judge(name, dup_count=1, dup_min=cfg.junk_dup_min,
+                                parent_name=tree.entries[p].parent or root)
+            if vd.level == junk_mod.LEVEL_STRONG:
+                other_ops.append(Op(kind="trash", path=p, reason=vd.reason,
+                                    group="junk", auto=vd.auto,
+                                    note="选中目录本身是广告/垃圾"))
+                continue                                # 整目录清掉，不再扫内部
+        for f in tree.files_of(p):
+            v = junk_mod.judge(f, dup_count=dup[f], dup_min=cfg.junk_dup_min,
+                               parent_name=name)
+            if v.level == junk_mod.LEVEL_STRONG:
+                other_ops.append(Op(kind="trash", path=f"{p}/{f}", reason=v.reason,
+                                    group="junk", auto=v.auto,
+                                    note=_dup_note(v.reason, dup[f])))
+            elif v.level == junk_mod.LEVEL_SUSPECT:
+                plan.suspects.append({"path": f"{p}/{f}", "reason": v.reason, "dup": dup[f]})
+
+    # ③ 选中范围根上的散文件（只在 chosen 的最浅层 = 用户选的目录本身，不扫深层散文件）
+    #    ⚠️ 深层目录的散文件归位已在上面逐目录扫；这里只处理「选中目录的直接子文件」。
+    for p in chosen:
+        if p not in tree.files:
+            continue
+        for f in tree.files_of(p):
+            ext = junk_mod.split_ext(f)[1]
+            pid = number.get_id(f)
+            if pid:
+                avid = number.format_id(pid)
+                series = number.series_of(pid)
+                n = series_count[series]
+                series_exists = series in root_dir_names
+                grouped = bool(cfg.series_enable and (series_exists or n >= cfg.series_min))
+                target = f"{series}/{avid}" if grouped else root
+                new = f"{avid}.{ext}" if ext else ""
+                other_ops.append(Op(kind="move_file", path=f"{p}/{f}", target=target,
+                                    new_name=new if new != f else "",
+                                    group="series", reason=f"散落的番号片 → {series} 系列"))
+                continue
+
+            kind = number.kind_of(f)
+            if kind == number.Kind.TV and ext in junk_mod.VIDEO_EXT:
+                title, season = _tv_title_season(f)
+                season_name = f"第{season}季" if season else "第1季"
+                season_dir = f"{title}/{season_name}"
+                # ⚠️ 剧集收拢：目标目录可能不在选中范围 —— 照建（东西该去的地方）
+                tv_bucket = (title, season)
+                if len(tree.files_of(p)) >= cfg.episode_group_min and title:
+                    new = namer.episode_name(f, series_title=title) or f
+                    other_ops.append(Op(kind="move_file", path=f"{p}/{f}", target=season_dir,
+                                        new_name=new if new != f else "", group="tv",
+                                        reason=f"{title} 第 {season or 1} 季（选中范围内收拢）"))
+                else:
+                    plan.skipped.append({"path": f"{p}/{f}",
+                                         "reason": f"剧集 {title or f} 集数不足"})
+                continue
+
+            if kind == number.Kind.MOVIE and ext in junk_mod.VIDEO_EXT and _movie_renamable(f):
+                new = _movie_name(f, cfg)
+                if new and new != f:
+                    other_ops.append(Op(kind="rename", path=f"{p}/{f}", new_name=new,
+                                        group="movie", reason="规范成 片名（年份）.ext"))
+                continue
+
+            v = junk_mod.judge(f, dup_count=dup[f], dup_min=cfg.junk_dup_min, parent_name=root)
+            if v.level == junk_mod.LEVEL_STRONG:
+                other_ops.append(Op(kind="trash", path=f"{p}/{f}", reason=v.reason,
+                                    group="junk", auto=v.auto,
+                                    note=_dup_note(v.reason, dup[f])))
+            elif v.level == junk_mod.LEVEL_SUSPECT:
+                plan.suspects.append({"path": f"{p}/{f}", "reason": v.reason, "dup": dup[f]})
+
+    # ④ 冲突 → 转人工
+    conflict_paths = {s for c in plan.conflicts for s in c["sources"]}
+    for op in move_ops + other_ops:
+        if op.path in conflict_paths:
+            op.auto = False
+            op.note = " · ".join(x for x in (op.note, "目标冲突，需人工裁决") if x)
+
+    # ⑤ 补建目标目录
+    targets: list[str] = []
+    for op in move_ops + other_ops:
+        if op.kind in ("move_dir", "move_file") and op.target and op.target != root:
+            targets.append(op.target)
+    for t in sorted(set(targets), key=lambda x: (x.count("/"), x)):
+        other_ops.append(Op(kind="mkdir", target=t, group="mkdir", reason="确保目标目录存在"))
+
+    plan.ops = sorted(move_ops + other_ops, key=lambda o: (_ORDER.get(o.kind, 9), o.path, o.target))
+    return plan
+
+
+def _expand_dirs(tree: Tree, dirs: list[str], *, max_depth: int = 3) -> list[str]:
+    """把选中的目录路径展开成「要处理的目录集合」（自身 + 子树，到 max_depth 层）。
+
+    ⛔ 不存在的路径静默丢掉（网页勾选后 115 上目录可能已变）。
+    """
+    out: list[str] = []
+    for d in dirs or []:
+        d = d.strip("/")
+        if not d or d not in tree.entries or not tree.entries[d].is_dir:
+            continue
+        out.append(d)
+        # BFS 展开子树
+        frontier = [d]
+        for _ in range(max(0, max_depth - 1)):
+            nxt: list[str] = []
+            for p in frontier:
+                for c in tree.children_dirs(p):
+                    if tree.entries[c].name in RESERVED_DIRS:
+                        continue
+                    out.append(c)
+                    nxt.append(c)
+            frontier = nxt
+            if not frontier:
+                break
+    # 去重保序
+    return list(dict.fromkeys(out))

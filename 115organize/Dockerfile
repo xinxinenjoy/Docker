@@ -8,6 +8,7 @@ ENV PIP_INDEX_URL=$PIP_INDEX \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     DATA_DIR=/data \
+    PORT=8766 \
     TZ=Asia/Shanghai
 
 WORKDIR /app
@@ -16,19 +17,23 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ⚠️ 本镜像只发布 linux/amd64（沿用本仓库 2026-10-05 的拍板：只做 x86-64）。
-#    本项目的依赖比 115offline 轻得多 —— `p115client` 是纯 Python，
-#    所以就算哪天要恢复 ARM，也不需要接编译器。真要恢复时只需在 workflow 的
-#    platforms 里加回目标平台即可。
+#    本项目依赖全是**纯 Python**（p115client / fastapi / uvicorn 无 [standard] / pydantic 有轮子）
+#    ⇒ 就算哪天要恢复 ARM，也不需要接编译器，只在 workflow 的 platforms 里加回来即可。
 
 COPY app/ ./app/
 
-# 树文件、cookie、快照、报告、日志全在 /data 下。
-#   /data/tree/       ← 目录树导出件（放这里，`plan` 会挑最新的那份）
-#   /data/cookie.txt  ← 115 cookie（或挂 115offline 的 /data 复用 accounts.json）
-#   /data/reports/    ← plan.md / plan-json / 每轮回执
+# /data 是**唯一**要持久化的地方：
+#   tree/            目录树导出件（丢进去，页面会自己挑最新那份）
+#   config.json      ★ 参数（**网页上改的就是它**，`.env` 里不用写业务参数）
+#   accounts.json    ★ 115 账号（与 115offline 共用这一份 ⇒ cookie 只维护一处）
+#   reports/         plan.md 与每轮回执
+#   logs/  web-state.json
 VOLUME ["/data"]
 
-# ⚠️ 用 ENTRYPOINT 而不是 CMD —— 这样 `docker run <镜像> once` 能直接跑一轮增量，
-#    不用先把整条 `python -m app ...` 抄一遍。默认动作是常驻（watch）。
+# ⚠️ 用 ENTRYPOINT 而不是 CMD —— 这样 `docker run <镜像> plan` / `once` 能直接跑，
+#    不用先把整条 `python -m app ...` 抄一遍。
 ENTRYPOINT ["python", "-m", "app"]
-CMD ["watch"]
+# 默认起**网页界面**（原来是 watch）。想每天定时跑就再开一个容器：
+#     docker run -d --name 115organize-cron --env-file .env \
+#        -v /volume1/docker/115organize/data:/data <镜像> watch
+CMD ["serve"]

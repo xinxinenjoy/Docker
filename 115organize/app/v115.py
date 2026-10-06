@@ -24,7 +24,8 @@ from typing import Any, Iterable
 from .config import Config
 from .throttle import Throttle
 
-__all__ = ["V115", "Node", "V115Error", "CookieMissing", "load_cookie", "MAX_PAGES"]
+__all__ = ["V115", "Node", "V115Error", "CookieMissing", "load_cookie",
+           "read_accounts", "account_of", "MAX_PAGES"]
 
 # 单层目录最多翻多少页（200 条/页 ⇒ 10 万项）。
 # 本盘最厚的一层是 11,206 项（56 页），留足余量；设它只是防「接口不认 offset」把工具转死。
@@ -55,41 +56,96 @@ class Node:
 
 
 # --------------------------------------------------------------------------- cookie
-def load_cookie(cfg: Config) -> str:
-    """按优先级找 cookie：环境变量 → `data/cookie.txt` → `data/accounts.json`（115offline 那份）。
+# ── 与 115offline 共用的账号文件（那份是它扫码登录后写的）─────────────────────
+# 结构（只取我们认识的字段，其余原样不管）：
+#     [{"id": "…", "name": "主号", "cookie": "UID=…;CID=…;SEID=…", …}, …]
+# 也容忍 `{"items": [...]}` / `{"accounts": [...]}` 这两种包一层的写法。
+def read_accounts(path: Path) -> list[dict]:
+    """读账号列表。**只读**，文件不在/坏了都返回空表（⛔ 不抛 —— 调用方要能区分"没有"和"读失败"）。"""
+    if not path.exists():
+        return []
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if isinstance(items, dict):
+        items = items.get("items") or items.get("accounts") or []
+    return [it for it in (items or []) if isinstance(it, dict)]
 
-    ⚠️ 兼容 `accounts.json` 是有意为之：两个容器可以挂同一个数据卷，
-       cookie 只用维护一份（在 `115offline` 里扫码登录后，这里直接就能用）。
+
+def account_of(cfg: Config) -> tuple[str, str]:
+    """从共用账号文件里挑一个 → `(cookie, 账号名)`。
+
+    ⚠️ 挑选口径：`ACCOUNT_ID` 指定了就**只**用它（指了却找不到 ⇒ 抛错，⛔ 不静默换人）；
+       没指定 ⇒ 按文件顺序取**第一个 cookie 长得像样**的。
+    """
+    accs = read_accounts(Path(cfg.accounts_file))
+    want = (cfg.account_id or "").strip()
+    if want:
+        for it in accs:
+            if str(it.get("id") or "") == want or str(it.get("name") or "") == want:
+                ck = str(it.get("cookie") or "").strip()
+                if ck:
+                    return ck, str(it.get("name") or it.get("id") or want)
+        raise CookieMissing(
+            f"账号文件里有 {len(accs)} 个账号，但没有 id/名字等于 {want!r} 的那个：\n"
+            f"  {Path(cfg.accounts_file)}\n"
+            f"  ⇒ 去网页「115 账号」里重选，或把 ACCOUNT_ID 清空（清空 = 用第一个能用的）"
+        )
+    for it in accs:
+        ck = str(it.get("cookie") or "").strip()
+        if _looks_like_cookie(ck):
+            return ck, str(it.get("name") or it.get("id") or "(未命名)")
+    return "", ""
+
+
+def _looks_like_cookie(text: str) -> bool:
+    """粗判一段文本是不是 115 的 cookie。⛔ 只看有没有 `UID=`，不校签名 —— 过期与否由接口说了算。"""
+    return bool(text) and "UID=" in text.upper()
+
+
+def load_cookie(cfg: Config) -> str:
+    """按优先级找 cookie，并把「这一份是从哪来的」记进 `cfg.cookie_source`（网页上要显示）。
+
+        ① `P115_COOKIE` 环境变量  —— 显式指定，最高优先级（但**推荐留空**）
+        ② 共用账号文件 `accounts.json` —— 🔗 **在 115offline 扫码登录一次，这边就能用**
+        ③ `DATA_DIR/cookie.txt`   —— 老路子，**已降级为兜底**（当年手抓 cookie 用的）
+
+    🔴 为什么 ② 要排在 ③ 前面（2026-10-06 改的）：`cookie.txt` 是人手贴进去的**死凭据**，
+       过期了不会自己更新；而 `accounts.json` 是 115offline **扫码登录写入的活凭据**。
+       老顺序下，只要盘上残留一份 `cookie.txt`，就会把刷新过的账号盖掉 ——
+       症状是「在 115offline 里明明登录好了，整理工具却说 cookie 失效」，极难查。
     """
     if cfg.cookie:
-        return cfg.cookie.strip()
-    data = Path(cfg.data_dir)
+        return _remember(cfg, cfg.cookie.strip(), "环境变量 P115_COOKIE")
 
-    f = data / "cookie.txt"
+    ck, who = account_of(cfg)
+    if ck:
+        return _remember(cfg, ck, f"共用账号 {who}（{Path(cfg.accounts_file)}）")
+
+    f = Path(cfg.data_dir) / "cookie.txt"
     if f.exists():
         text = f.read_text(encoding="utf-8", errors="replace").strip()
-        if text:
-            return text
-
-    acc = data / "accounts.json"
-    if acc.exists():
-        try:
-            items = json.loads(acc.read_text(encoding="utf-8"))
-        except Exception as exc:
-            raise CookieMissing(f"{acc} 解析失败：{exc}") from exc
-        if isinstance(items, dict):
-            items = items.get("items") or items.get("accounts") or []
-        for item in items or []:
-            ck = (item or {}).get("cookie")
-            if ck and "UID=" in ck.upper():
-                return ck.strip()
+        if _looks_like_cookie(text):
+            return _remember(cfg, text, f"cookie.txt（{f}）")
 
     raise CookieMissing(
-        "没找到 115 cookie。三种给法任选：\n"
-        f"  ① 环境变量 P115_COOKIE=...\n"
-        f"  ② 写进 {data / 'cookie.txt'}\n"
-        f"  ③ 复用 115offline 的 {data / 'accounts.json'}（挂同一个数据卷即可）"
+        "没找到 115 cookie。推荐第 ① 种 —— 只维护一份，还能自动续期：\n"
+        f"  ① 在 115offline 里扫码登录一次（它的账号文件：{Path(cfg.accounts_file)}）\n"
+        f"     ⚠️ 两个容器要挂同一个数据卷，或用 ACCOUNTS_FILE 把这份文件指过来\n"
+        f"  ② 环境变量 P115_COOKIE=…（临时用；过期不会自己更新）\n"
+        f"  ③ 手抓一份写进 {f}（兜底路子）"
     )
+
+
+def _remember(cfg: Config, cookie: str, source: str) -> str:
+    """把 cookie 来源挂到 cfg 上 —— 报错和网页都要说清「这份是从哪来的」。"""
+    try:
+        object.__setattr__(cfg, "cookie_source", source)
+    except Exception:
+        pass
+    return cookie
+
 
 
 def _ok(resp: Any) -> bool:

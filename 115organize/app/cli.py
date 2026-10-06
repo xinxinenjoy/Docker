@@ -1,20 +1,25 @@
 """命令行入口。
 
 ```
+python -m app serve     # ★ 网页界面（改参数 / 看计划 / 勾一部分先跑）
 python -m app plan      # 用目录树算出方案（不联网），出报告 + plan.json
 python -m app run       # 执行（默认读 plan.json；DRY_RUN=1 时一个请求都不发）
-python -m app once      # 在线增量跑一轮（新增目录 / 最近接收）
-python -m app watch     # 常驻，按 SCHEDULE_CRON 到点跑 once
+python -m app once      # 入站口整理跑一轮（处理「待整理」目录里的东西）
+python -m app watch     # 常驻，轮询「待整理」目录，有货就处理
 python -m app stats     # 只看目录树的规模统计
 python -m app doctor    # 环境自检：cookie / 树文件 / 目录写权限 / 依赖
 python -m app clear-state  # 清断点（重跑整轮时用）
 ```
+
+⚠️ 网页是**后加**的，命令行的每一条都还在、语义也没变 ——
+   定时任务和排障仍然走 CLI（`watch` 不依赖网页在不在跑）。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +27,7 @@ from . import report as report_mod
 from . import treefile
 from .config import Config, load
 from .executor import Executor
-from .plan import Plan, build_plan
+from .plan import Plan, build_plan, estimate
 from .throttle import Throttle
 
 __all__ = ["main", "setup_log"]
@@ -63,48 +68,11 @@ def _load_tree(cfg: Config):
     return treefile.parse_file(path), path
 
 
-def _estimate_for(plan: Plan, cfg: Config) -> dict:
-    """按执行层实际会发的请求数估算耗时（比按动作数估准得多）。
-
-    请求数 ≈ 列根目录分页 + 目标目录创建 + 改名批次 + 移动批次 + 清理批次
-    """
-    thr = Throttle(cfg=cfg)
-    n_mkdir = sum(1 for op in plan.ops if op.kind == "mkdir")
-    n_rename = sum(1 for op in plan.ops if op.kind == "rename") + \
-        sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file") and op.new_name)
-    n_move = sum(1 for op in plan.ops if op.kind in ("move_dir", "move_file"))
-    n_trash = sum(1 for op in plan.ops if op.kind == "trash")
-    # ⚠️「列根目录」的页数按**根下条目数**算 —— `fs_files` **不递归**，只列一层。
-    #    拿整棵树的 dirs+files 会高估一个数量级（实测：根下 7,698 项 ⇒ 39 页；
-    #    整棵树 71,944 项算出来是 360 页，白吓人）。
-    root_entries = plan.tree_stats.get("root_entries")
-    if not root_entries:
-        root_entries = sum(1 for op in plan.ops if not op.src_dir) or 1
-    root_pages = max(1, (root_entries + 199) // 200)
-    # 下面各项都取**上界**（宁可估久，别让人以为很快）：清理那两项尤其粗 ——
-    # 实际是「每个源目录只列一次」+「每 500 条才发一次移动请求」。
-    est = (root_pages                                   # 列根目录
-           + n_mkdir                                    # 建目标目录
-           + (n_rename + 99) // 100                     # 改名分批
-           + max(1, len({op.target for op in plan.ops if op.kind in ("move_dir", "move_file")}))
-           + (n_move + 499) // 500                      # 移动分批
-           + n_trash                                    # 清理要逐个目录列一次 + 移动
-           + max(1, len({op.src_dir for op in plan.ops if op.kind == "trash"})))
-    out = thr.estimate(est)
-    out["breakdown"] = {
-        "列根目录": root_pages, "建目录": n_mkdir,
-        "改名批次": (n_rename + 99) // 100,
-        "移动批次": max(1, len({op.target for op in plan.ops if op.kind in ("move_dir", "move_file")})),
-        "清理相关": n_trash,
-    }
-    return out
-
-
 def cmd_plan(cfg: Config, log, args) -> int:
     tree, path = _load_tree(cfg)
     log("info", f"目录树：{path}（{tree.stats()['dirs']:,} 目录 / {tree.stats()['files']:,} 文件）")
     plan = build_plan(tree, cfg, max_depth=args.depth)
-    est = _estimate_for(plan, cfg)
+    est = estimate(plan, cfg)
     c = plan.counts()
     log("info", f"计划：{c['actions']:,} 条动作（自动 {c['auto']:,} / 人工 {c['manual']:,}）"
                 f"；冲突 {c['conflicts']}，灰区 {c['suspects']:,}；预计耗时 {est['human']}")
@@ -149,9 +117,8 @@ def cmd_run(cfg: Config, log, args) -> int:
 
 def cmd_once(cfg: Config, log, args) -> int:
     from .daemon import run_once
-    targets = [t.strip() for t in args.targets.split(",") if t.strip()] if args.targets else None
-    res = run_once(cfg, log, targets=targets, execute=(False if args.dry else None))
-    log("info", f"增量一轮结束：{json.dumps({k: res.get(k) for k in ('targets', 'done', 'requests')}, ensure_ascii=False)}")
+    res = run_once(cfg, log, execute=(False if args.dry else None))
+    log("info", f"入站口一轮结束：{json.dumps({k: res.get(k) for k in ('targets', 'done', 'requests')}, ensure_ascii=False)}")
     return 0
 
 
@@ -175,7 +142,7 @@ def cmd_stats(cfg: Config, log, args) -> int:
 
 
 def cmd_doctor(cfg: Config, log, args) -> int:
-    from . import junk, number
+    from . import junk, number, settings as settings_mod
     problems = 0
     log("info", f"数据目录：{cfg.data_dir}")
     for d in (cfg.data_dir, cfg.log_dir, cfg.data_dir / "reports"):
@@ -188,6 +155,23 @@ def cmd_doctor(cfg: Config, log, args) -> int:
             problems += 1
             log("error", f"  ❌ 不可写：{d} —— {exc}")
 
+    # ---- 参数：网页改的那份 ----
+    cfg_path = settings_mod.config_path(cfg.data_dir)
+    if cfg_path.exists():
+        try:
+            import json as _json
+            n = len(_json.loads(cfg_path.read_text(encoding="utf-8")))
+            log("info", f"  ✅ 参数文件：{cfg_path}（改了 {n} 项）")
+        except Exception as exc:
+            problems += 1
+            log("error", f"  ❌ 参数文件坏了：{cfg_path} —— {exc}（删掉它就回到出厂默认）")
+    else:
+        log("info", f"  ✅ 参数文件：{cfg_path}（还没建，全用出厂默认）")
+    locked = sorted({f["env"] for f in settings_mod.FIELDS if os.environ.get(f["env"], "").strip()})
+    if locked:
+        log("warning", f"  ⚠️ 这些参数被**环境变量**钉住了，网页上改不动：{', '.join(locked)}"
+                       f"（想全交给网页，就在 .env 里把它们留空）")
+
     try:
         tree, path = _load_tree(cfg)
         log("info", f"  ✅ 目录树：{path}（{tree.stats()['dirs']:,} 目录）")
@@ -197,41 +181,53 @@ def cmd_doctor(cfg: Config, log, args) -> int:
         problems += 1
         log("error", f"  ❌ 目录树不可用：{exc}")
 
-    if cfg.cookie:
-        log("info", f"  ✅ cookie：来自环境变量（…{cfg.cookie[-8:]}）")
-    else:
-        from .v115 import CookieMissing, load_cookie
-        try:
-            ck = load_cookie(cfg)
-            log("info", f"  ✅ cookie：来自文件（…{ck[-8:]}）")
-        except CookieMissing as exc:
-            problems += 1
-            log("error", f"  ❌ {exc}")
+    # ---- 账号：优先说清 cookie 是从哪来的 ----
+    from .v115 import CookieMissing, load_cookie, read_accounts
+    accs = read_accounts(Path(cfg.accounts_file))
+    log("info", f"  ℹ️ 账号文件：{cfg.accounts_file}"
+                f"（{'有 ' + str(len(accs)) + ' 个账号' if accs else '没有/读不出来'}）")
+    try:
+        ck = load_cookie(cfg)
+        log("info", f"  ✅ cookie：{getattr(cfg, 'cookie_source', '来源未知')}（…{ck[-8:]}）")
+    except CookieMissing as exc:
+        problems += 1
+        log("error", f"  ❌ {str(exc).splitlines()[0]}")
+        log("error", f"     ⇒ 推荐在 115offline 里扫码登录一次（两个容器挂同一个 /data）")
 
     try:
         import p115client  # noqa: F401
-        log("info", f"  ✅ p115client 已安装")
+        log("info", "  ✅ p115client 已安装")
     except ImportError:
         problems += 1
         log("error", "  ❌ 缺 p115client（pip install p115client）")
 
-    from .daemon import validate_cron
-    cron_problems = validate_cron(cfg.schedule_cron)
-    if cron_problems:
-        problems += 1
-        log("error", f"  ❌ SCHEDULE_CRON=`{cfg.schedule_cron}`：{'；'.join(cron_problems)}")
-        log("error", "     ⇒ `watch` 会拒绝启动（这个计划永远触发不了）")
-    else:
-        log("info", f"  ✅ SCHEDULE_CRON=`{cfg.schedule_cron}` 可解析")
+    try:
+        import fastapi  # noqa: F401
+        log("info", f"  ✅ 网页依赖已装（端口 {os.environ.get('PORT') or 8766}）")
+        if not (os.environ.get("ACCESS_TOKEN") or "").strip():
+            log("warning", "  ⚠️ 没设 ACCESS_TOKEN —— 网页不加口令。内网自用可以，映射到公网必须设")
+    except ImportError:
+        log("warning", "  ⚠️ 没装 fastapi/uvicorn —— `serve`（网页界面）起不来；"
+                       "命令行功能不受影响（pip install fastapi uvicorn）")
 
-    log("info", f"  ✅ 垃圾判定自检：{junk.judge('manko.fun.mp4').level} / "
-                f"{junk.judge('screens.jpg').level} / {junk.judge('DLDSS-532.mp4').level}")
-    log("info", f"  ✅ 番号识别自检：{number.get_id('ipzz-916ch')} / "
-                f"{number.get_id('第一會所新片@SIS001@300MIUM-1446')}")
     if cfg.dry_run:
         log("warning", "  ⚠️ 当前 DRY_RUN=1 —— 不会真动 115 上的东西")
+    log("info", f"  ℹ️ 入站口：`{cfg.inbox_dir}`（每 {cfg.inbox_poll_interval:.0f} 秒轮询一次；"
+                f"单次请求上限 {cfg.inbox_max_requests or '不限'}）")
     log("info", f"结论：{'全部通过' if not problems else f'{problems} 个问题待修'}")
     return 1 if problems else 0
+
+
+def cmd_serve(cfg: Config, log, args) -> int:
+    """起网页界面。
+
+    网页管「手工整理 + 调参 + 入站口状态」；容器默认动作是 `serve`（见 Dockerfile）。
+    `watch` 是另一条常驻的路 —— 想要自动整理，再开一个容器跑它、共用 `/data`。
+    """
+    from .web import serve
+    log("info", "启动网页界面（Ctrl-C 或停容器即退出）")
+    serve(host=args.host, port=args.port)
+    return 0
 
 
 def cmd_clear_state(cfg: Config, log, args) -> int:
@@ -248,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="115organize", description="115 网盘慢速整理工具")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    sv = sub.add_parser("serve", help="★ 起网页界面（改参数 / 看计划 / 勾一部分先跑）")
+    sv.add_argument("--host", default="0.0.0.0")
+    sv.add_argument("--port", type=int, default=None, help="默认读 PORT（8766）")
+    sv.set_defaults(func=cmd_serve)
+
     sp = sub.add_parser("plan", help="用目录树算出方案（不联网）")
     sp.add_argument("--out", help="输出目录（默认 DATA_DIR/reports）")
     sp.add_argument("--depth", type=int, default=2, help="每个目录往下扫几层（默认 2）")
@@ -260,12 +261,11 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--max-requests", type=int, default=None, help="最多发多少个请求就收工（试跑用）")
     sr.set_defaults(func=cmd_run)
 
-    so = sub.add_parser("once", help="在线增量跑一轮（新增目录 / 最近接收）")
-    so.add_argument("--targets", help="只处理这些目录名（逗号分隔）")
+    so = sub.add_parser("once", help="入站口整理跑一轮（处理「待整理」目录）")
     so.add_argument("--dry", action="store_true", help="只演练")
     so.set_defaults(func=cmd_once)
 
-    sw = sub.add_parser("watch", help="常驻，按 SCHEDULE_CRON 到点跑")
+    sw = sub.add_parser("watch", help="常驻，轮询「待整理」目录，有货就处理")
     sw.add_argument("--rounds", type=int, default=None, help="只跑这么多轮就退出（测试用）")
     sw.set_defaults(func=cmd_watch)
 

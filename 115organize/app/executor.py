@@ -57,7 +57,15 @@ PASS_OF = {
 
 
 class Executor:
-    def __init__(self, v: V115, cfg: Config, log: Any = None):
+    def __init__(self, v: V115, cfg: Config, log: Any = None, *,
+                 state_name: str = "run-state.json"):
+        """`state_name` —— 断点文件名。
+
+        ⚠️ 网页触发的执行**必须换一个文件名**（`web.py` 传 `web-state.json`）：
+           网页跑的是「勾选的子集」，它的 pass 计数跟整份计划的计数**不是一回事**。
+           两处共用同一个断点文件 ⇒ 之后从命令行跑整份计划时，会拿子集的计数当起点、
+           **静默跳过一大批动作**（看起来像"跑完了但什么都没做"）。
+        """
         self.v = v
         self.cfg = cfg
         self.log = log or (lambda *a, **k: None)
@@ -68,7 +76,7 @@ class Executor:
         self.done = 0
         self.skipped_dirs = 0                            # 清理时被跳过的「目录」条数
         self.dirs_in_pool = 0                            # 清理里实际是目录、且被处理的条数
-        self.state_path = Path(cfg.data_dir) / "run-state.json"
+        self.state_path = Path(cfg.data_dir) / state_name
         self.state: dict = {"passes": {p: 0 for p in PASSES}, "updated": ""}
 
     # ------------------------------------------------------------------ 基础设施
