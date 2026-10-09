@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>115 STRM</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --line:#e6e8ee; --txt:#1c1f27; --dim:#78808f;
+  --pri:#5b5bd6; --pri-d:#4a4ac0; --ok:#12a150; --warn:#d97706; --bad:#dc2626;
+  --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg); color:var(--txt); -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+a{color:var(--pri);text-decoration:none}
+
+/* ---------- 布局：桌面侧栏 / 移动底部 tab ---------- */
+.wrap{display:flex;flex-direction:column;min-height:100%}
+header{
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  color:#fff;padding:18px 20px;
+}
+header h1{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}
+header .sub{font-size:12px;opacity:.85;margin-top:3px}
+header .chip{
+  display:inline-flex;align-items:center;gap:6px;margin-top:10px;
+  background:rgba(255,255,255,.18);border-radius:999px;padding:4px 11px;font-size:12px;
+}
+header .chip .dot{width:6px;height:6px;border-radius:50%;background:#4ade80}
+header .chip.off .dot{background:#fca5a5}
+
+main{flex:1;padding:16px;max-width:1080px;margin:0 auto;width:100%}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden;
+}
+.card-h{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 16px;border-bottom:1px solid var(--line);
+}
+.card-h h2{margin:0;font-size:14px;font-weight:640}
+.card-h .hint{font-size:12px;color:var(--dim)}
+.card-b{padding:16px}
+
+/* ---------- 按钮 ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:9px 15px;border-radius:9px;font-size:13px;font-weight:560;
+  background:var(--card);border:1px solid var(--line);color:var(--txt);
+  transition:.14s;white-space:nowrap;
+}
+.btn:hover{border-color:#c9cdd8;background:#fafbfc}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.btn.pri:hover{background:var(--pri-d);border-color:var(--pri-d)}
+.btn.good{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.bad{background:#fff;border-color:#f0b4b4;color:var(--bad)}
+.btn.bad:hover{background:#fef2f2;border-color:var(--bad)}
+.btn.sm{padding:6px 11px;font-size:12.5px}
+.btn.ico{padding:7px 9px}
+
+/* ---------- 统计格 ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.stat{background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.stat .k{font-size:11.5px;color:var(--dim);margin-bottom:3px}
+.stat .v{font-size:20px;font-weight:660;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.stat.pri .v{color:var(--pri)}
+.stat.warn .v{color:var(--warn)}
+.stat.bad .v{color:var(--bad)}
+.stat.ok .v{color:var(--ok)}
+
+/* ---------- 表单 ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:13px}
+/* 设置页的分组标题 —— 主表单与进阶区共用同一套，视觉上一家人 */
+.grp{margin-bottom:19px}
+.grp:last-child{margin-bottom:0}
+.grp-h{font-size:12.5px;font-weight:650;color:#5b5bd6;margin-bottom:9px;
+  display:flex;align-items:center;gap:8px}
+.grp-h:after{content:"";flex:1;height:1px;background:var(--line)}
+details.adv{margin-top:6px;border-top:1px dashed var(--line);padding-top:14px}
+details.adv>summary{cursor:pointer;font-size:12.5px;font-weight:560;color:var(--dim);
+  list-style:none;display:flex;align-items:center;gap:6px}
+details.adv>summary::-webkit-details-marker{display:none}
+details.adv>summary:before{content:"▸";font-size:11px;transition:.15s}
+details.adv[open]>summary:before{transform:rotate(90deg)}
+.field label{display:block;font-size:12.5px;font-weight:560;margin-bottom:5px}
+.field .desc{font-size:11.5px;color:var(--dim);margin-top:4px;line-height:1.45}
+.field input[type=text],.field input[type=number],.field select{
+  width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;
+}
+.field input:focus,.field select:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px rgba(91,91,214,.1)}
+.field.env input,.field.env select{background:#fffbf0;border-color:#f0dcb4}
+.tag{
+  font-size:10.5px;padding:1px 7px;border-radius:5px;margin-left:6px;font-weight:560;
+  background:#eef0f4;color:var(--dim);
+}
+.tag.env{background:#fef3c7;color:#92400e}
+.tag.saved{background:#dbeafe;color:#1e40af}
+/* ---------- 开关 ----------
+   🔴 2026-10-08 **第二次重做**。第一次只把轨道染了色、右边加个小字，
+      红领巾反馈「几处开关仍然不明显」—— 于是这次换成三条硬措施：
+        ① 轨道做大（48×28），关闭态是**深灰**底 + 白点（对比度足够，不靠猜）
+        ② 状态做成一枚**实心药丸**：开 = 深紫底白字 / 关 = 灰底深字
+           ⇒ 不是「颜色深浅」，是**文字直接写出来**，色弱/偏色屏也读得出
+        ③ 整个字段（`bool` 类）改成**整行**：左文右开关，并整行换底色
+           ⇒ 扫一眼就知道哪几项是关着的
+*/
+.switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none;flex:0 0 auto}
+.switch input{position:absolute;width:1px;height:1px;opacity:0;margin:0}
+.switch .track{
+  width:48px;height:28px;border-radius:99px;background:#9ca3af;position:relative;
+  transition:background .16s;flex:0 0 auto;box-shadow:inset 0 1px 3px rgba(0,0,0,.22);
+}
+.switch .track:after{
+  content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
+  background:#fff;transition:transform .16s;box-shadow:0 1px 3px rgba(0,0,0,.3);
+}
+.switch input:checked + .track{background:var(--pri)}
+.switch input:checked + .track:after{transform:translateX(20px)}
+.switch input:focus-visible + .track{box-shadow:0 0 0 3px rgba(91,91,214,.35)}
+.switch .state{
+  font-size:12.5px;font-weight:700;min-width:2.3em;text-align:center;
+  padding:3px 8px;border-radius:6px;background:#e5e7eb;color:#374151;transition:.16s;
+}
+.switch input:checked ~ .state{background:#4338ca;color:#fff}
+
+/* 布尔字段：整行左文右开关 */
+.field.sw{grid-column:1/-1;display:flex;align-items:center;gap:16px;
+  padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.field.sw.on{border-color:#c7d2fe;background:#f7f7ff}
+.field.sw .sw-txt{flex:1;min-width:0}
+.field.sw .sw-txt .t{font-size:13px;font-weight:620;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.field.sw .sw-txt .d{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.5}
+
+/* 危险/重要开关（如「只演练」）：整块做成醒目的状态条 */
+.switchbox{display:flex;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;
+  border:1px solid var(--line);background:#f3f4f6;transition:.18s}
+.switchbox .label{font-size:12.5px;font-weight:650}
+.switchbox.on{border-color:#c7d2fe;background:#eef0ff}
+.switchbox.off{border-color:#fecaca;background:#fef2f2}
+.switchbox.off .label{color:#991b1b}
+.switchbox .tag2{font-size:10.5px;padding:2px 8px;border-radius:5px;font-weight:650}
+.switchbox.on .tag2{background:#dbeafe;color:#1e40af}
+.switchbox.off .tag2{background:#fee2e2;color:#991b1b}
+
+/* ---------- 动作区 ---------- */
+.actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.seg{display:inline-flex;background:#f1f2f6;border-radius:9px;padding:3px;gap:2px}
+.seg button{padding:7px 13px;border-radius:7px;font-size:12.5px;font-weight:560;color:var(--dim);transition:.14s}
+.seg button.on{background:#fff;color:var(--txt);box-shadow:var(--shadow)}
+
+/* ---------- 日志 ---------- */
+.log{
+  background:#1a1d24;color:#c9d1d9;border-radius:10px;padding:12px;
+  font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  max-height:340px;overflow-y:auto;
+}
+.log div{white-space:pre-wrap;word-break:break-all}
+.log .t{color:#6b7280;margin-right:7px}
+.log .info{color:#c9d1d9}
+.log .warning{color:#fbbf24}
+.log .error{color:#f87171}
+
+/* ---------- 进度条 ---------- */
+.bar{height:4px;background:#eceef2;border-radius:99px;overflow:hidden;margin-top:12px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);width:30%;border-radius:99px;animation:mv 1.4s ease-in-out infinite}
+@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
+
+/* ---------- 列表 ---------- */
+.list{max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:9px}
+.row{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f2f3f6;font-size:12.5px}
+.row:last-child{border-bottom:none}
+.row .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace}
+.row .u{color:var(--dim);font-size:11.5px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10.5px;padding:1px 7px;border-radius:5px;font-weight:560;flex:0 0 auto}
+.badge.add{background:#dcfce7;color:#166534}
+.badge.upd{background:#dbeafe;color:#1e40af}
+.badge.del{background:#fee2e2;color:#991b1b}
+
+/* ---------- 差异预览：两行式 ----------
+   ⚠️ 原来是一行里「路径 + URL」并排，长路径会把 URL 挤成一小条灰字、两边都读不了。
+      改成**两行**：第一行路径（加粗、可换行），第二行 URL（小字、可换行、缩进对齐）。
+      这样「这条到底指向哪」一眼能看清，也是预览卡存在的意义。 */
+.diff{max-height:420px;overflow-y:auto;border:1px solid var(--line);border-radius:9px}
+.diff .it{padding:9px 12px;border-bottom:1px solid #f2f3f6}
+.diff .it:last-child{border-bottom:none}
+.diff .it .l1{display:flex;gap:8px;align-items:baseline}
+.diff .it .p{flex:1;min-width:0;font-family:ui-monospace,monospace;font-size:12.5px;
+  word-break:break-all;line-height:1.45}
+.diff .it .u{margin-top:3px;padding-left:26px;color:var(--dim);font-size:11px;
+  font-family:ui-monospace,monospace;word-break:break-all;line-height:1.45}
+.diff .it .u b{color:#16a34a;font-weight:560}
+.diff .it.was .u b{color:#dc2626}
+
+/* ---------- 提示条 ---------- */
+.note{
+  display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border-radius:9px;
+  font-size:12.5px;line-height:1.5;margin-bottom:12px;
+}
+.note i{font-style:normal;flex:0 0 auto;font-size:14px;line-height:1.3}
+.note.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+.note.info{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af}
+.note.bad{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+.note.ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+
+/* ---------- 移动端 ---------- */
+nav{
+  display:flex;background:var(--card);border-top:1px solid var(--line);
+  position:sticky;bottom:0;z-index:10;
+}
+nav button{
+  flex:1;padding:10px 4px;font-size:11.5px;color:var(--dim);
+  display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:560;
+}
+nav button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+nav button.on{color:var(--pri)}
+.page{display:none}
+.page.on{display:block}
+@media(min-width:900px){
+  nav{position:static;border-top:none;border-bottom:1px solid var(--line);padding:0 16px;background:transparent}
+  nav button{flex:0 0 auto;flex-direction:row;gap:7px;padding:12px 16px;border-bottom:2px solid transparent}
+  nav button.on{border-bottom-color:var(--pri)}
+}
+.muted{color:var(--dim)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+/* ---------- 步骤清单：「这一轮会做什么」 ----------
+   ⚠️ 条目**内容**来自后端 `pipeline.SYNC_STEPS`（单一事实源），
+      这里只管样子 —— 改文案请改后端，别在前端另抄一份（两处必然分叉）。 */
+.steps{margin:0;padding:0;list-style:none;counter-reset:st}
+.steps li{display:flex;gap:9px;padding:7px 0;align-items:flex-start;
+  border-bottom:1px dashed var(--line)}
+.steps li:last-child{border-bottom:none;padding-bottom:0}
+.steps li::before{counter-increment:st;content:counter(st);flex:0 0 20px;height:20px;
+  border-radius:50%;background:#eef0ff;color:var(--pri);font-size:11px;font-weight:650;
+  display:flex;align-items:center;justify-content:center;margin-top:1px}
+.steps .t{display:block;font-size:13px;font-weight:600}
+.steps .h{display:block;font-size:11.5px;color:var(--dim);line-height:1.55;margin-top:2px}
+.right{margin-left:auto}
+.hidden{display:none!important}
+
+/* ---------- 目录选择器（同步范围）---------- */
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12.5px;margin-bottom:11px}
+.crumbs button{padding:3px 7px;border-radius:6px;color:var(--pri);font-weight:560}
+.crumbs button:hover{background:#eef0ff}
+.crumbs .sep{color:#c3c8d2}
+.crumbs .cur{color:var(--txt);font-weight:650;padding:3px 7px}
+
+.picked{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:32px;
+  padding:8px 10px;border:1px dashed #cfd4de;border-radius:9px;background:#fafbfc}
+.picked .empty{font-size:12px;color:var(--dim)}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#eef0ff;color:#3f3fb8;
+  border-radius:7px;padding:4px 6px 4px 9px;font-size:12px;font-weight:560;
+  font-family:ui-monospace,monospace;max-width:100%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{color:#7077c9;font-size:14px;line-height:1;padding:0 2px;border-radius:4px}
+.chip button:hover{color:#dc2626}
+.picked .all{font-size:12px;color:var(--dim);font-style:italic}
+
+.picker{border:1px solid var(--line);border-radius:9px;max-height:280px;overflow-y:auto}
+.pick{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f2f3f6}
+.pick:last-child{border-bottom:none}
+.pick:hover{background:#fafbfc}
+.pick input{width:16px;height:16px;flex:0 0 auto;accent-color:var(--pri);cursor:pointer}
+.pick .nm{flex:1;min-width:0;font-size:13px;cursor:pointer;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.pick .nm:hover{color:var(--pri);text-decoration:underline}
+.pick .meta{font-size:11.5px;color:var(--dim);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.pick .go{font-size:11.5px;color:var(--pri);flex:0 0 auto;padding:2px 7px;border-radius:6px}
+.pick .go:hover{background:#eef0ff}
+.pick.on{background:#f7f7ff}
+.toast{
+  position:fixed;left:50%;bottom:76px;transform:translateX(-50%);
+  background:#1f2330;color:#fff;padding:10px 18px;border-radius:99px;font-size:13px;
+  box-shadow:0 8px 24px rgba(0,0,0,.22);z-index:99;opacity:0;transition:.24s;pointer-events:none;
+}
+.toast.on{opacity:1;bottom:86px}
+
+/* ---------- 设置页：未保存提示条（改完忘了点保存是常态）---------- */
+.savebar{
+  position:sticky;bottom:14px;z-index:8;display:none;align-items:center;gap:10px;
+  margin-top:6px;padding:11px 14px;border-radius:12px;
+  background:#1f2937;color:#fff;box-shadow:0 10px 26px rgba(16,24,40,.28);
+}
+.savebar.on{display:flex}
+.savebar span{flex:1;font-size:12.5px;font-weight:560}
+.savebar .btn{background:#374151;border-color:#4b5563;color:#e5e7eb}
+.savebar .btn:hover{background:#4b5563;border-color:#6b7280}
+.savebar .btn.pri{background:#fff;border-color:#fff;color:#4338ca}
+.savebar .btn.pri:hover{background:#eef0ff;border-color:#eef0ff}
+
+/* ---------- 设置页：首次配置清单 ---------- */
+.setup{display:grid;gap:9px}
+.setup .step{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;
+  border:1px solid var(--line);background:#fff;font-size:12.8px}
+.setup .step.todo{border-color:#fcd34d;background:#fffbeb}
+.setup .step.done{color:var(--dim)}
+.setup .step .tick{flex:0 0 auto;width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;
+  background:#e5e7eb;color:#6b7280}
+.setup .step.done .tick{background:#dcfce7;color:#15803d}
+.setup .step.todo .tick{background:#fde68a;color:#92400e}
+.setup .step .body{flex:1;min-width:0}
+.setup .step .t{font-weight:620}
+.setup .step .h{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>115 STRM</h1>
+    <div class="sub">把 115 网盘结构镜像成本地 strm，给媒体服务器扫描</div>
+    <div class="chip" id="chip"><span class="dot"></span><span id="chipTxt">检查中…</span></div>
+  </header>
+
+  <nav id="nav">
+    <button data-p="home" class="on">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>概览</button>
+    <button data-p="run">
+      <svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>同步</button>
+    <button data-p="set">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.6-1H1.3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 7 4.6h.1A1.7 1.7 0 0 0 8.1 3V2.9a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>设置</button>
+    <button data-p="hist">
+      <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>记录</button>
+  </nav>
+
+  <main>
+    <!-- ======================= 概览 ======================= -->
+    <section class="page on" id="p-home">
+      <div id="homeNotes"></div>
+
+      <div class="card">
+        <div class="card-h"><h2>现状</h2><span class="hint" id="homeAt"></span></div>
+        <div class="card-b">
+          <div class="stats" id="homeStats"></div>
+        </div>
+      </div>
+
+      <div class="card" id="pendingCard" style="display:none">
+        <div class="card-h">
+          <h2>待确认删除</h2>
+          <span class="hint" id="pendingHint"></span>
+        </div>
+        <div class="card-b">
+          <div class="actions">
+            <button class="btn bad sm" onclick="applyPending()">确认删除</button>
+            <button class="btn sm" onclick="cancelPending()">取消</button>
+          </div>
+          <div class="list" id="pendingList" style="margin-top:11px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>上一轮</h2><span class="hint" id="lastAt"></span></div>
+        <div class="card-b"><div id="lastRun" class="muted">还没有跑过</div></div>
+      </div>
+    </section>
+
+    <!-- ======================= 同步 ======================= -->
+    <section class="page" id="p-run">
+      <!--
+        🔴 2026-10-08 改：**「数据来源」选择器整个删掉**。
+           红领巾：「事件流、实例都去掉…**只保留 AUTO 即可，只有 auto 的情况下就不要写 auto 了**」。
+           ⇒ 只剩一条路，摆个选择器只会让人以为还有别的走法。
+             换成一张**说清「这一轮会做什么」**的卡 —— 步骤由后端 `SYNC_STEPS` 提供，
+             前端只渲染、不另写文案。
+      -->
+      <div class="card">
+        <div class="card-h">
+          <h2>这一轮会做什么</h2>
+          <span class="hint">工具自己导目录树，你不用手动导</span>
+        </div>
+        <div class="card-b">
+          <ol class="steps" id="stepList"></ol>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>执行</h2>
+          <div class="switchbox on" id="dryBox">
+            <label class="switch"><input type="checkbox" id="dryRun"
+              onchange="syncDryUI(); setDry(this.checked)">
+              <span class="track"></span><span class="state" id="dryState">开</span></label>
+            <span class="label">只演练</span>
+            <span class="tag2" id="dryTag">不会写文件</span>
+          </div>
+        </div>
+        <div class="card-b">
+          <div id="runGuard"></div>
+          <div class="actions">
+            <button class="btn" onclick="preview()">预览差异</button>
+            <button class="btn pri" id="btnRun" onclick="run()">立即执行</button>
+            <button class="btn bad sm" id="btnStop" onclick="stop()" style="display:none">停止</button>
+          </div>
+          <div class="bar hidden" id="runBar"><i></i></div>
+          <div class="stats" id="runStats" style="margin-top:13px;display:none"></div>
+        </div>
+      </div>
+
+      <div class="card hidden" id="prevCard">
+        <div class="card-h"><h2>差异预览</h2><span class="hint" id="prevHint"></span></div>
+        <div class="card-b">
+          <div class="stats" id="prevStats" style="margin-bottom:13px"></div>
+          <div class="seg" id="prevSeg" style="margin-bottom:11px">
+            <button data-t="add" class="on">新增</button>
+            <button data-t="update">更新</button>
+            <button data-t="delete">删除</button>
+            <button data-t="renamed">已改名</button>
+          </div>
+          <div class="diff" id="prevList"></div>
+          <div class="muted" style="font-size:11.5px;margin-top:9px;word-break:break-all" id="prevMore"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>日志</h2><span class="hint" id="logHint"></span></div>
+        <div class="card-b"><div class="log" id="log"></div></div>
+      </div>
+    </section>
+
+    <!-- ======================= 设置 ======================= -->
+    <!--
+      🔴 2026-10-08 重排（红领巾：「布局清晰一点」「去掉一些不必要的设置」）：
+         顺序 = **照着第一次配置的顺序走** —— 账号 → 范围 → 输出 → 参数。
+         上一版是「范围 / 参数 / 账号」跳着排，而且所有参数（含十几项进阶的）
+         全塞在一张卡里，找不到重点。
+         现在：第一屏只留「必须你决定的」，其余全部折进「进阶参数」。
+    -->
+    <section class="page" id="p-set">
+
+      <!-- 首次配置清单（JS 渲染；都齐了就自动收起） -->
+      <div id="setupCard"></div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>115 账号</h2>
+          <div class="actions">
+            <button class="btn sm" onclick="loadAcct()">刷新</button>
+            <button class="btn sm" onclick="showQr()">扫码登录</button>
+            <button class="btn pri sm" onclick="showPaste()">粘贴 cookie 添加</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div id="acctForm"></div>
+          <div id="acctBody"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>同步范围</h2>
+          <div class="actions">
+            <button class="btn sm" onclick="loadScope()">重新读取</button>
+            <button class="btn pri sm" onclick="saveScope()">保存范围</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div id="scopeOut"></div>
+        </div>
+      </div>
+
+      <!-- ⭐ 单独一张卡：这是唯一「必须填」的参数，且它现在只存在 data/config.json -->
+      <div class="card">
+        <div class="card-h">
+          <h2>播放地址</h2>
+          <span class="hint" id="outHint"></span>
+        </div>
+        <div class="card-b">
+          <div id="outBody"></div>
+          <div class="actions" style="margin-top:13px">
+            <button class="btn sm" onclick="checkPrefix()">自检 strm 前缀</button>
+            <button class="btn sm" onclick="detectAlist()">探测 Alist 挂载</button>
+          </div>
+          <div id="checkOut" style="margin-top:11px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>参数</h2>
+          <span class="hint">默认值就是稳态，不动也能跑</span>
+        </div>
+        <div class="card-b">
+          <div id="setBody"></div>
+        </div>
+      </div>
+
+      <!-- 有未保存改动时才浮出来（省得改完忘了点保存） -->
+      <div class="savebar" id="saveBar">
+        <span id="saveMsg">有未保存的改动</span>
+        <button class="btn sm" onclick="loadSettings()">放弃</button>
+        <button class="btn pri" onclick="saveSettings()">保存</button>
+      </div>
+    </section>
+
+    <!-- ======================= 记录 ======================= -->
+    <section class="page" id="p-hist">
+      <div class="card">
+        <div class="card-h"><h2>运行记录</h2><span class="hint">最近 60 次</span></div>
+        <div class="card-b"><div class="list" id="histList"></div></div>
+      </div>
+      <div class="card hidden" id="histDetail">
+        <div class="card-h"><h2 id="histTitle">详情</h2>
+          <button class="btn sm" onclick="document.getElementById('histDetail').classList.add('hidden')">关闭</button>
+        </div>
+        <div class="card-b"><div class="log" id="histBody" style="max-height:520px"></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const TOKEN = localStorage.getItem('token') || '';
+let PREV = null, LOGSEQ = 0, TIMER = null;
+// 前缀配了没 —— 空着时同步页要先给一句人话，别等点了才报错
+let PREFIX_READY = true;
+
+/* ---------------- 基础 ---------------- */
+async function api(path, opt = {}) {
+  const h = { 'Content-Type': 'application/json' };
+  if (TOKEN) h['Authorization'] = 'Bearer ' + TOKEN;
+  const r = await fetch(path, { ...opt, headers: h });
+  if (r.status === 401) {
+    const t = prompt('访问口令');
+    if (t) { localStorage.setItem('token', t); location.reload(); }
+    throw new Error('需要口令');
+  }
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { const j = await r.json(); msg = j.detail || j.message || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  setTimeout(() => t.classList.remove('on'), 2200);
+}
+const n = v => (v == null ? '0' : Number(v).toLocaleString());
+
+/* ---------------- 导航 ---------------- */
+$$('#nav button').forEach(b => b.onclick = () => {
+  $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
+  $$('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.p));
+  if (b.dataset.p === 'hist') loadHist();
+  if (b.dataset.p === 'set') { loadScope(); loadSettings(); loadAcct(); }
+  window.scrollTo(0, 0);
+});
+
+/* ---------------- 概览 ---------------- */
+async function loadState() {
+  let s;
+  try { s = await api('/api/state'); }
+  catch (e) { $('#chipTxt').textContent = '连不上服务'; $('#chip').classList.add('off'); return; }
+
+  const okCookie = s.cookie && s.cookie.ok;
+  $('#chip').classList.toggle('off', !okCookie);
+  $('#chipTxt').textContent = okCookie ? `账号已就绪 · ${s.cookie.tail}` : '未配置 115 账号';
+  $('#homeAt').textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  // 「只演练」的真实值跟服务端走（设置页改过、或定时任务受它管）
+  DRY_ON = !!s.dry_run;
+  applyDry(DRY_ON);
+
+  // 提示条
+  const notes = [];
+  const sc = (s.scope && s.scope.includes) || [];
+  prefix_warn_from_state = s.prefix_warn || '';
+  if (!okCookie) notes.push(['bad', '⚠', '还没配置 115 账号 —— 去设置页填账号文件，或在账号文件里登录一次。']);
+  // 🔴 前缀为空是**阻断性**问题（跑不了），排在最前面、用最重的样式。
+  //    它出厂就是空的（网页专属字段，见 config.strm_prefix）⇒ 首次用一定会遇到。
+  if (s.prefix_ready === false) notes.push(['bad', '🔴',
+    '还没配 <b>strm 内容前缀</b> —— 现在跑不了（生成的 strm 里会是残缺地址）。'
+    + ' 去「设置 › 播放地址」填上你的 alist 地址，再点「自检 strm 前缀」验一下。']);
+  if (s.prefix_warn) notes.push(['warn', '🔗', s.prefix_warn + ' <span class="mono">去设置页点「自检 strm 前缀」</span>']);
+  if (!sc.length) notes.push(['info', '📂', '还没限定同步范围 —— 同步根下的<b>全部</b>目录都会处理。去「设置 › 同步范围」勾选要处理的目录。']);
+  // ⛔ **不再提示「没有本地目录树」** —— 工具每一轮都会自己导一份，
+  //    本地暂时没有 txt 是**正常**的（旧版那条提示是给「本地目录树」模式用的，已删）。
+  if (!s.output_exists) notes.push(['warn', '📁', `输出目录还不存在：<span class="mono">${s.output_dir}</span> —— 第一次同步会自动建。`]);
+  if (s.dry_run) notes.push(['info', '🧪', '当前是「只演练」模式：一个文件都不会写、不会删。确认无误后在「同步」页关掉。']);
+  $('#homeNotes').innerHTML = notes.map(([c, i, t]) =>
+    `<div class="note ${c}"><i>${i}</i><div>${t}</div></div>`).join('');
+  // 设置页的「首次配置」清单也吃这份状态（配对告警、账号就绪）
+  if (SETUP_D) renderSetup();
+
+  // 同步页的执行区：前缀没配时先把话说明白，别等点了才报错
+  PREFIX_READY = s.prefix_ready !== false;
+  const guard = $('#runGuard');
+  if (guard) {
+    guard.innerHTML = PREFIX_READY ? '' : `<div class="note bad" style="margin-bottom:12px"><i>🔴</i><div>
+      <b>还没配 strm 内容前缀</b> —— 空着跑不了。去「设置 › 播放地址」填 alist 地址
+      （<span class="mono">https://域名:端口/d/挂载路径</span>，必须用
+      <span class="mono">/d</span> 端点）。</div></div>`;
+  }
+
+  // 「方式」**恒为一条**（旧版这里按模式显示三态，模式删掉后就没得选了）。
+  // ⚠️ 不显示「本地目录树存在与否」—— 那是实现细节，用户不需要看。
+  $('#homeStats').innerHTML = [
+    ['同步根', s.scope && s.scope.remote_root ? s.scope.remote_root : '（树根）', ''],
+    ['只处理', sc ? (sc.length > 2 ? `${sc.length} 个目录` : sc.join(' · ')) : '全部', sc ? 'pri' : ''],
+    ['方式', '自己导目录树', 'ok'],
+    ['删除等待', s.delete_defer_minutes + ' 分', ''],
+  ].map(([k, v, cls]) => `<div class="stat ${cls}">
+    <div class="k">${k}</div>
+    <div class="v" style="font-size:15px" title="${esc(String(v))}">${esc(String(v))}</div></div>`).join('');
+
+  // 待确认删除
+  const p = s.pending || {};
+  if (p.count) {
+    $('#pendingCard').style.display = '';
+    $('#pendingHint').textContent = p.ready
+      ? `已等 ${p.age_minutes} 分钟 · 可确认`
+      : `已等 ${p.age_minutes} / ${p.wait_minutes} 分钟`;
+    $('#pendingList').innerHTML = (p.sample || []).map(x =>
+      `<div class="row"><span class="badge del">删</span><span class="p">${esc(x)}</span></div>`).join('')
+      + (p.count > (p.sample || []).length ? `<div class="row muted">…还有 ${p.count - p.sample.length} 条</div>` : '');
+  } else {
+    $('#pendingCard').style.display = 'none';
+  }
+
+  // 上一轮
+  const r = s.run || {};
+  if (r.result || r.finished) {
+    const res = r.result || {};
+    const det = r.detail || {};
+    $('#lastAt').textContent = r.finished || '';
+    // ⭐ 「目录树是从哪来的」要写出来 —— 否则他没法判断这一轮到底有没有真去打扰 115。
+    // ⭐ 更要紧的是区分「这一轮用的是**刚导的新树**，还是**退回用了本机旧树**」——
+    //    退回 = 导树失败后的降级，必须一眼看出来，别让人以为一切正常
+    //    （旧版这里显示的是「来源模式」，模式删掉后换成这个信息量更大的）。
+    const origin = String(det.tree_origin || '');
+    const fellBack = origin.indexOf('本地') >= 0;
+    $('#lastRun').innerHTML = `
+      <div class="stats">
+        <div class="stat pri"><div class="k">写入</div><div class="v">${n(r.written)}</div></div>
+        <div class="stat bad"><div class="k">删除</div><div class="v">${n(r.deleted)}</div></div>
+        <div class="stat warn"><div class="k">挂起</div><div class="v">${n(r.pending_delete)}</div></div>
+        <div class="stat"><div class="k">请求</div><div class="v">${n(r.requests)}</div></div>
+        <div class="stat ${fellBack ? 'warn' : ''}"><div class="k">目录树</div>
+          <div class="v" style="font-size:13px">${fellBack ? '本机旧树 ⚠' : '刚导的新树'}</div></div>
+        <div class="stat"><div class="k">耗时</div><div class="v" style="font-size:14px">${res.elapsed || '—'}</div></div>
+      </div>
+      <div class="desc muted" style="margin-top:10px;line-height:1.7">
+        ${origin ? `目录树：${esc(origin)}<br>` : ''}
+        目录：建了 <b>${n(res.dirs_made)}</b> 个 ·
+        <b>${n(res.dirs_skipped)}</b> 个「整棵子树都没有视频」没收 ·
+        收掉 <b>${n(res.dirs_pruned)}</b> 个空目录
+      </div>
+      ${res.extensionless ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
+        <b>这份目录树里有 ${n(res.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
+        这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
+        ${res.source === 'tree' && det.tree_origin && det.tree_origin.indexOf('自动导出') < 0
+          ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
+          : '<br>工具自己导时已按 115 的上限 25 层导。'}
+      </div></div>` : ''}
+      ${res.guard_tripped ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>${esc(res.guard_reason)}</div></div>` : ''}`;
+  }
+  window.__state = s;
+  renderSteps(s.steps);
+}
+
+/* 「这一轮会做什么」—— 条目**来自后端** `pipeline.SYNC_STEPS`（单一事实源）。
+   ⛔ 别把文案写死在这里：后端改一次、前端不改，两边就对不上了。 */
+function renderSteps(steps) {
+  const box = $('#stepList');
+  if (!box || !Array.isArray(steps)) return;
+  box.innerHTML = steps.map(s => `<li><div>
+    <span class="t">${bold(s.title)}</span>
+    <span class="h">${bold(s.help)}</span></div></li>`).join('');
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/* 先转义再认 `**加粗**` —— 后端的 SYNC_STEPS 文案里用了它，直接 esc 会把星号原样显示出来。
+   ⚠️ 顺序不能反：先 esc 再 replace，否则 `<b>` 会被自己转义掉。 */
+function bold(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
+
+/* ---------------- 同步 ---------------- */
+// ⚠️ 「只演练」是**决定会不会真动文件**的开关，必须一眼看出状态 ——
+//    红领巾 2026-10-08 反馈「看不出是开是关」。这里是三处同时表意：
+//    轨道颜色 + 「开/关」文字 + 整块的状态条（蓝=演练 / 红=真写）。
+//
+// 🔴 而且它是**持久设置**（写进 config.json），不是「只影响这一次」——
+//    2026-10-08 部署后发现的坑：`dry_run` 原先没登记进设置表，
+//    保存被静默 reject ⇒ 配置里永远是「只演练」⇒ **定时任务每轮白跑**。
+//    现在改了会立刻存下来，状态条同步刷新，定时任务也照它办。
+let DRY_FIXED = false;          // 防止「回填 UI」触发一次多余的保存
+function syncDryUI() {
+  const on = $('#dryRun').checked;
+  $('#dryState').textContent = on ? '开' : '关';
+  $('#dryTag').textContent = on ? '不会写文件' : '⚠ 会真的写/删文件';
+  $('#dryBox').classList.toggle('on', on);
+  $('#dryBox').classList.toggle('off', !on);
+}
+async function setDry(on) {
+  if (DRY_FIXED) return;
+  try {
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ values: { dry_run: on } }) });
+    toast(on ? '已切到「只演练」——不会写文件' : '已切到「真写」——会真的动文件（定时任务也生效）');
+    loadState();
+  } catch (e) { toast('保存失败：' + e.message); }
+}
+function applyDry(checked) {
+  DRY_FIXED = true;
+  $('#dryRun').checked = checked;
+  syncDryUI();
+  DRY_FIXED = false;
+}
+
+/* ⛔ 这里原来有 `MODE_DESC` / `setMode()` / 四个模式按钮的绑定 ——
+   2026-10-08 全部删掉：只有一条路，没有「模式」这个概念了。
+   它的 UI 位子换成了「这一轮会做什么」（见上面的 `renderSteps`）。
+   ⛔ 别在初始化时再调 `setMode(MODE)` —— 函数和 `MODE` 变量都一起没了。 */
+
+async function preview() {
+  toast('正在算差异…');
+  try {
+    const d = await api('/api/preview', { method: 'POST', body: JSON.stringify({ limit: 300 }) });
+    PREV = d;
+    $('#prevCard').classList.remove('hidden');
+    const c = d.counts;
+    $('#prevHint').textContent = d.tree_file.split(/[\\/]/).pop();
+    $('#prevStats').innerHTML = [
+      ['新增', c.add, 'pri'], ['更新', c.update, 'ok'],
+      ['删除', c.delete, 'bad'], ['已改名', c.renamed || 0, ''],
+      ['本地已有', d.local_strm, ''],
+      ['网盘条目', d.remote_files, ''],
+    ].map(([k, v, cls]) => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v">${n(v)}</div></div>`).join('');
+    renderPrev('add');
+  } catch (e) { toast('失败：' + e.message); }
+}
+function renderPrev(t) {
+  if (!PREV) return;
+  $$('#prevSeg button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+
+  // ⭐「已改名」是**独立一类**：它既不是新增也不是删除 ——
+  //    本地 strm 被你改过名，内容仍与网盘一致 ⇒ **原样保留、什么都不做**。
+  if (t === 'renamed') {
+    const items = PREV.renamed || [];
+    const more = (PREV.more && PREV.more.renamed) || 0;
+    if (!items.length) {
+      $('#prevList').innerHTML = `<div class="it" style="color:#78808f">没有</div>`;
+    } else {
+      $('#prevList').innerHTML = items.map(x => `<div class="it">
+        <div class="l1"><span class="badge upd">留</span><span class="p">${esc(x.local)}</span></div>
+        <div class="u">↔ 网盘上的 ${esc(x.remote)}　（内容一致 ⇒ 不动它）</div></div>`).join('');
+    }
+    $('#prevMore').innerHTML = (more ? `<div>…还有 ${n(more)} 条未列出</div>` : '') +
+      `<div style="margin-top:6px">这类是<b>你自己改过名字</b>的 strm —— 工具靠内容认出了它对应哪个网盘文件，
+       所以既不重生成、也不删除。</div>`;
+    return;
+  }
+
+  const items = (PREV.samples && PREV.samples[t]) || [];
+  const more = (PREV.more && PREV.more[t]) || 0;
+  const lab = { add: '增', update: '改', delete: '删' }[t];
+
+  // ⚠️ 两行式：路径一行（能看清）、URL 一行（小字缩进）。
+  //    原来一行并排会让长路径把 URL 挤没，两边都读不了。
+  //    URL 显示**解码后**的形态 —— 编码是给机器看的（`%E5%8A%9F`），
+  //    人要读的是「这条到底指向网盘上哪个文件」。
+  function readable(u) {
+    if (!u) return '';
+    let s = u;
+    try { s = decodeURIComponent(u); } catch (e) { /* 编码不合法就原样显示 */ }
+    const i = s.indexOf('/d/');
+    return i >= 0 ? '…' + s.slice(i) : s;
+  }
+
+  if (!items.length) {
+    $('#prevList').innerHTML = `<div class="it" style="color:#78808f">没有</div>`;
+  } else {
+    $('#prevList').innerHTML = items.map(x => {
+      if (t === 'delete') {
+        return `<div class="it"><div class="l1"><span class="badge del">${lab}</span><span class="p">${esc(x)}</span></div>
+          <div class="u">本地已有、网盘上没有 → 将删除这个 strm</div></div>`;
+      }
+      const urlLine = t === 'update'
+        ? `现在：<b>${esc(readable(x.url))}</b><br>原先：${esc(readable(x.was))}`
+        : esc(readable(x.url || ''));
+      return `<div class="it ${t === 'update' ? 'was' : ''}">
+        <div class="l1"><span class="badge ${t === 'add' ? 'add' : 'upd'}">${lab}</span><span class="p">${esc(x.rel)}</span></div>
+        <div class="u">${urlLine}</div></div>`;
+    }).join('');
+  }
+  const sampleLine = PREV.prefix_sample
+    ? `<div style="margin-top:10px">strm 内容样例（解码后）：<br><span class="mono">${esc(readable(PREV.prefix_sample))}</span></div>` : '';
+  $('#prevMore').innerHTML = (more ? `<div>…还有 ${n(more)} 条未列出（完整清单在回执里）</div>` : '') + sampleLine;
+}
+$$('#prevSeg button').forEach(b => b.onclick = () => renderPrev(b.dataset.t));
+
+async function run() {
+  // ⚠️ **不传 `dry_run`** —— 让它跟随配置（那个开关是持久设置，已经存进
+  //    config.json 了）。传一次性覆盖的话，网页开关和实际执行会**两套口径**，
+  //    「我明明关掉了怎么还是演练」这种问题迟早出现。
+  // ⛔ 不再传 `mode` —— 只有一条路（后端 `RunIn` 上也没这个字段了）
+  const body = { force_delete: false };
+  if (!DRY_ON) {
+    if (!confirm('「只演练」是关的 —— 会真的写文件、并可能删除本地 strm。继续？')) return;
+  }
+  try {
+    await api('/api/run', { method: 'POST', body: JSON.stringify(body) });
+    LOGSEQ = 0; $('#log').innerHTML = '';
+    poll();
+  } catch (e) { toast('失败：' + e.message); }
+}
+let DRY_ON = true;
+async function stop() {
+  try { await api('/api/run/stop', { method: 'POST' }); toast('已请求停止'); } catch (e) { toast(e.message); }
+}
+async function applyPending() {
+  if (!confirm('确认删除这些本地 strm？（不可撤销）')) return;
+  try { const r = await api('/api/pending/apply', { method: 'POST' }); toast(`已删 ${r.deleted} 个`); loadState(); }
+  catch (e) { toast(e.message); }
+}
+async function cancelPending() {
+  try { const r = await api('/api/pending/cancel', { method: 'POST' }); toast(`已取消 ${r.cancelled} 条`); loadState(); }
+  catch (e) { toast(e.message); }
+}
+
+function poll() {
+  clearInterval(TIMER);
+  TIMER = setInterval(async () => {
+    let s;
+    try { s = await api('/api/run?after=' + LOGSEQ); } catch (e) { return; }
+    $('#log').innerHTML += (s.log || []).map(l =>
+      `<div class="${l.level}"><span class="t">${l.t}</span>${esc(l.msg)}</div>`).join('');
+    LOGSEQ = s.log_seq;
+    const el = $('#log'); el.scrollTop = el.scrollHeight;
+    $('#logHint').textContent = s.running ? '运行中' : (s.finished || '');
+
+    $('#btnRun').disabled = s.running;
+    $('#btnStop').style.display = s.running ? '' : 'none';
+    $('#runBar').classList.toggle('hidden', !s.running);
+
+    if (s.running || s.written || s.deleted || s.error) {
+      $('#runStats').style.display = '';
+      $('#runStats').innerHTML = [
+        ['写入', s.written, 'pri'], ['删除', s.deleted, 'bad'],
+        ['挂起', s.pending_delete, 'warn'], ['请求', s.requests, ''],
+      ].map(([k, v, cls]) => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v">${n(v)}</div></div>`).join('');
+    }
+    if (s.error) $('#log').innerHTML += `<div class="error">${esc(s.error)}</div>`;
+    if (!s.running) {
+      clearInterval(TIMER); TIMER = null;
+      $('#runBar').classList.add('hidden'); $('#btnRun').disabled = false;
+      if (s.error) toast(s.error.slice(0, 60)); else if (s.finished) toast('本轮结束');
+      loadState();
+    }
+  }, 900);
+}
+
+/* ---------------- 同步范围（目录选择器） ---------------- */
+// ⚠️ `SCOPE.includes` 有两层含义要分清：
+//     · 从服务端读回来的「已保存的」
+//     · 用户**当前勾着还没保存的**
+//   `dirty=True` 表示用户改过、还没保存 ⇒ 此时**不能再被服务端值覆盖**。
+//   （这个坑踩过：勾了之后 `loadScope()` 重读服务端 ⇒ 勾选被静默清掉、
+//     界面看着「点了没反应」。）
+let SCOPE = { remote_root: '', includes: [], path: '', node: null, dirty: false };
+
+async function loadScope(path) {
+  try {
+    const q = (path === undefined) ? (SCOPE.path || '') : path;
+    const d = await api('/api/scope?path=' + encodeURIComponent(q));
+    SCOPE.path = d.node.path;
+    SCOPE.node = d;
+    SCOPE.tree_root = d.tree_root;
+    if (d.scope.remote_root) SCOPE.remote_root = d.scope.remote_root;
+    if (!SCOPE.dirty) SCOPE.includes = d.scope.includes.slice();   // ⛔ 改过就别覆盖
+    renderScope(d);
+  } catch (e) {
+    $('#scopeOut').innerHTML = `<div class="note bad"><i>⚠</i><div>${esc(e.message)}</div></div>`;
+  }
+}
+
+// 不重新请求，只按当前内存状态重画（勾选走这条路）
+function rerenderScope() {
+  if (SCOPE.node) renderScope(SCOPE.node);
+}
+
+// 一个目录的「归属路径」：相对同步根。用于判断某个可见项是否已在白名单里。
+function relToRoot(p) {
+  const r = (SCOPE.remote_root || '').replace(/^\/+|\/+$/g, '');
+  if (!r) return p;
+  return p === r ? '' : (p.startsWith(r + '/') ? p.slice(r.length + 1) : null);
+}
+
+function renderScope(d) {
+  // 面包屑
+  const crumbs = d.crumbs.map((c, i) => {
+    const last = i === d.crumbs.length - 1;
+    return (i ? '<span class="sep">›</span>' : '') +
+      (last ? `<span class="cur">${esc(c.name)}</span>`
+            : `<button onclick="loadScope('${esc(c.path)}')">${esc(c.name)}</button>`);
+  }).join('') || '<span class="cur">（树根）</span>';
+
+  const incs = SCOPE.includes;
+  const chips = incs.length
+    ? incs.map(x => `<span class="chip"><span>${esc(x)}</span>
+        <button title="移除" onclick="togglePick('${esc(x)}', false)">×</button></span>`).join('')
+    : `<span class="all">未限定 —— 同步根下的全部目录都会处理</span>`;
+
+  const items = d.items || [];
+  const rows = items.length ? items.map(it => {
+    const rel = relToRoot(it.path);
+    const inScope = incs.some(x => it.path === x || it.path.startsWith(x + '/') || x.startsWith(it.path + '/'));
+    const dirSel = rel !== null && rel !== '' && incs.includes(rel);
+    const meta = it.subdirs ? `${it.subdirs} 子目录 · ${it.files} 文件` : `${it.files} 文件`;
+    const canPick = rel !== null && rel !== '';
+    return `<div class="pick ${inScope ? 'on' : ''}">
+      ${canPick
+        ? `<input type="checkbox" ${dirSel ? 'checked' : ''}
+             onchange="togglePick('${esc(rel)}', this.checked)">`
+        : '<span style="width:16px;flex:0 0 auto"></span>'}
+      <span class="nm" onclick="loadScope('${esc(it.path)}')">${esc(it.name)}</span>
+      <span class="meta">${meta}</span>
+      ${it.has_children ? `<button class="go" onclick="loadScope('${esc(it.path)}')">进入 ›</button>` : ''}
+    </div>`;
+  }).join('') : `<div class="pick" style="color:#78808f">这一层没有子目录</div>`;
+
+  $('#scopeOut').innerHTML = `
+    <div class="grid" style="margin-bottom:13px">
+      <div class="field">
+        <label>同步根目录（相对目录树）</label>
+        <input type="text" id="scopeRoot" value="${esc(SCOPE.remote_root || '')}"
+               placeholder="115影音" onchange="SCOPE.remote_root=this.value.trim();SCOPE.dirty=true">
+        <div class="desc">它必须与 strm 前缀<b>配对</b> —— 前缀末段应等于它的末段。</div>
+      </div>
+      <div class="field">
+        <label>只处理这些子目录${incs.length ? `（${incs.length}）` : ''}</label>
+        <div class="picked" id="scopePicked">${chips}</div>
+        <div class="desc">勾一个 = 处理它整棵子树。留空 = 全部都要。</div>
+      </div>
+    </div>
+
+    <div class="crumbs">${crumbs}</div>
+    <div class="picker">${rows}</div>
+
+    <div class="actions" style="margin-top:12px">
+      <button class="btn sm" onclick="loadScope('${esc(SCOPE.remote_root)}')">回到顶层</button>
+      <button class="btn sm" onclick="togglePick('${esc(relToRoot(d.node.path) || '')}', true)">勾选当前目录</button>
+      <button class="btn sm" onclick="clearPick()">清空（全部处理）</button>
+      <span class="muted" style="font-size:11.5px">
+        本层整棵子树：${d.node.subtree.dirs} 目录 · ${d.node.subtree.files} 文件
+      </span>
+    </div>
+    ${SCOPE.dirty ? `<div class="note warn" style="margin-top:12px"><i>●</i><div>
+      有改动还没保存 —— 点右上角「保存范围」。</div></div>` : ''}
+    <div id="scopeEst" style="margin-top:13px"></div>`;
+}
+
+function clearPick() {
+  SCOPE.includes = [];
+  SCOPE.dirty = true;
+  rerenderScope();
+}
+
+// 勾/取消一个目录（路径相对**同步根**）
+function togglePick(rel, on) {
+  if (!rel) { toast('这是同步根本身，不用勾'); return; }
+  const r = String(rel).replace(/^\/+|\/+$/g, '');
+  let incs = SCOPE.includes.filter(x => x !== r);
+  if (on) incs.push(r);
+  // ⚠️ 去掉被父级覆盖的子项（勾了 `a` 就不用再勾 `a/b`）——
+  //    否则清单越来越长，而且试算数字会让人以为「勾了很多」。
+  SCOPE.includes = incs.filter(x => !incs.some(y => y !== x && x.startsWith(y + '/')));
+  SCOPE.dirty = true;
+  rerenderScope();                 // ⛔ 不重新请求 —— 请求会把本地选择覆盖掉
+}
+
+async function saveScope() {
+  const rootEl = $('#scopeRoot');
+  const body = {
+    remote_root: rootEl ? rootEl.value.trim() : SCOPE.remote_root,
+    include_dirs: SCOPE.includes,
+  };
+  try {
+    const d = await api('/api/scope', { method: 'POST', body: JSON.stringify(body) });
+    SCOPE.remote_root = d.scope.remote_root;
+    SCOPE.includes = d.scope.includes.slice();
+    SCOPE.dirty = false;                       // 存过了 ⇒ 之后允许被服务端值覆盖
+    await loadScope(SCOPE.path);
+    renderScopeEstimate(d);
+    toast(d.warn ? '已保存（有告警，见下）' : '已保存');
+    loadState();
+  } catch (e) {
+    toast('保存失败：' + e.message);
+  }
+}
+
+function renderScopeEstimate(d) {
+  const box = $('#scopeEst');
+  if (!box) return;
+  const w = d.warn ? `<div class="note warn"><i>⚠</i><div>${esc(d.warn)}</div></div>` : '';
+  const e = d.estimate || {};
+  if (e.error) {
+    box.innerHTML = w + `<div class="note bad"><i>⚠</i><div>${esc(e.error)}</div></div>`;
+    return;
+  }
+    // 🔴 `counts` 在 `estimate` **里面**（见 web.py 的 `/api/scope` 返回：
+    //    `{estimate:{remote_dirs, remote_files, local_strm, counts, sample}}`）。
+    //    以前这里读的是顶层 `d.counts` ⇒ 取到 undefined ⇒
+    //    「会写 strm」显示 **NaN**、「其中新增 / 会删」恒为 0 ——
+    //    2026-10-08 无头自测时逮到的（页面不报错，数字看着还挺像那么回事）。
+    const c = (e.counts) || {};
+    const move = d.looks_like_move
+      ? `<div class="note info"><i>🔀</i><div>这一批看着是<b>改名 / 移动</b>（消失的条数 ≈ 新增的条数）——
+          不是异常。旧的会走「挂起 → 二次确认」流程，不会当场删。</div></div>`
+      : '';
+    box.innerHTML = w + move + `<div class="note ok"><i>✓</i><div>
+      <div>按这个范围试算（<b>没有动任何文件</b>）：</div>
+    <div class="stats" style="margin-top:9px">
+      <div class="stat pri"><div class="k">会写 strm</div><div class="v">${n(c.add + c.update)}</div></div>
+      <div class="stat"><div class="k">其中新增</div><div class="v">${n(c.add)}</div></div>
+      <div class="stat bad"><div class="k">会删</div><div class="v">${n(c.delete)}</div></div>
+      <div class="stat"><div class="k">网盘条目</div><div class="v">${n(e.remote_files)}</div></div>
+      <div class="stat"><div class="k">本地已有</div><div class="v">${n(e.local_strm)}</div></div>
+    </div>
+    ${(e.sample && e.sample.length) ? `<div style="margin-top:9px;font-size:11.5px;word-break:break-all">
+      strm 内容样例：<span class="mono">${esc(decodeSafe(e.sample[0].url))}</span></div>` : ''}
+  </div></div>`;
+}
+
+/* ---------------- 设置 ---------------- */
+let FIELDS = [], SETUP_MISSING = [];
+// 「有自己专属界面」的字段：不出现在普通表单里（否则两处都能改、谁说了算不清楚）
+//   · remote_root / include_dirs —— 「同步范围」卡里的目录选择器
+//   · strm_prefix              —— 「播放地址」卡（唯一必填项，单独给一张卡 + 自检按钮）
+const OWN_UI = new Set(['remote_root', 'include_dirs', 'strm_prefix']);
+
+async function loadSettings() {
+  try {
+    const d = await api('/api/settings');
+    FIELDS = d.fields;
+    SETUP_MISSING = d.missing || [];
+    renderSettings(d);
+    renderSetup(d);
+    setDirty(false);
+  } catch (e) { $('#setBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
+}
+
+/* 首次配置清单 —— 照**第一次配置的顺序**列，缺哪步点哪步。
+   ⚠️ 账号那一项的数据来自 `/api/accounts`（`loadAcct` 会填到 `SETUP.staff`），
+      所以这里只用「配置层」能确定的两项 + 一个占位。
+   ⭐ 全部就绪时整张卡**自动收起** —— 配好了还杵在首页就是噪音。 */
+let SETUP_ACCT_OK = null, SETUP_D = null;
+function renderSetup(d) {
+  if (d) SETUP_D = d;
+  d = SETUP_D;
+  if (!d) return;
+  const by = {}; (d.fields || []).forEach(f => by[f.key] = f);
+  const prefix = by.strm_prefix || {};
+  const needPrefix = SETUP_MISSING.includes('strm_prefix');
+  const steps = [
+    { ok: SETUP_ACCT_OK === true, t: '115 账号',
+      hint: SETUP_ACCT_OK === null ? '检查中…'
+        : (SETUP_ACCT_OK ? '已就绪' : '还没配 —— 在本页「115 账号」里扫码登录或粘贴 cookie') },
+    { ok: !needPrefix, t: '播放地址（strm 内容前缀）· 必填',
+      hint: needPrefix ? '还没填 —— 空着**跑不了**（工具会在开跑前拦住你）'
+        : String(prefix.value || '') },
+    { ok: !prefix_warn_from_state, t: '同步根 ↔ 播放地址 配对',
+      hint: prefix_warn_from_state || '离线看是配对的（连通性以「自检」发的真请求为准）' },
+  ];
+  const todo = steps.filter(s => !s.ok).length;
+  if (todo === 0) { $('#setupCard').innerHTML = ''; return; }
+  $('#setupCard').innerHTML = `
+    <div class="card">
+      <div class="card-h"><h2>还差 ${todo} 步就能跑</h2>
+        <span class="hint">按顺序来；齐了这张卡会自动消失</span></div>
+      <div class="card-b"><div class="setup">
+        ${steps.map(s => `<div class="step ${s.ok ? 'done' : 'todo'}">
+          <div class="tick">${s.ok ? '✓' : '!'}</div>
+          <div class="body"><div class="t">${esc(s.t)}${s.ok ? '' : ' <span class="tag">要做</span>'}</div>
+          <div class="h">${bold(s.hint)}</div></div>
+        </div>`).join('')}
+      </div></div>
+    </div>`;
+}
+let prefix_warn_from_state = '';
+
+function renderSettings(d) {
+  const groups = {};
+  d.fields.filter(f => !f.advanced && !OWN_UI.has(f.key))
+    .forEach(f => (groups[f.group] = groups[f.group] || []).push(f));
+  const adv = d.fields.filter(f => f.advanced && !OWN_UI.has(f.key));
+
+  // ---- 主表单：只放「必须你决定的」 ----
+  let html = '';
+  for (const g of d.groups) {
+    if (!groups[g]) continue;
+    html += `<div class="grp"><div class="grp-h">${esc(g)}</div>
+      <div class="grid">${groups[g].map(fieldHtml).join('')}</div></div>`;
+  }
+  if (!html) html = '<div class="muted" style="font-size:12.5px">这一屏没有要你决定的项。</div>';
+
+  // ---- 进阶参数：**按组折叠**（上一版全平铺在一段里，找不到东西）----
+  if (adv.length) {
+    const byg = {};
+    adv.forEach(f => (byg[f.group] = byg[f.group] || []).push(f));
+    const inner = d.groups.filter(g => byg[g]).map(g =>
+      `<div class="grp"><div class="grp-h">${esc(g)}</div>
+        <div class="grid">${byg[g].map(fieldHtml).join('')}</div></div>`).join('');
+    html += `<details class="adv"><summary>进阶参数（${adv.length} 项）—— 默认值就是稳态，一般不用动</summary>
+      <div style="margin-top:13px">${inner}</div></details>`;
+  }
+  $('#setBody').innerHTML = html;
+
+  // ---- 「播放地址」卡：唯一必填项，单独一张卡 ----
+  $('#outBody').innerHTML = fieldHtml(d.fields.find(f => f.key === 'strm_prefix') || {});
+  $('#outHint').innerHTML = SETUP_MISSING.includes('strm_prefix')
+    ? '<span class="tag" style="background:#fde68a;color:#92400e">还没填 · 必填</span>'
+    : '<span class="tag saved">已配置</span>';
+
+  $$('#setBody [data-k], #outBody [data-k]').forEach(el => {
+    el.onchange = () => setDirty(true);
+    el.oninput = () => setDirty(true);
+  });
+  // 开关：点一下要**当场**把药丸上的字换掉（不然要等保存后才更新，看着像没反应）
+  $$('.switch input[data-k]').forEach(inp => {
+    inp.onchange = () => {
+      const pill = inp.parentElement.querySelector('.state');
+      if (pill) pill.textContent = inp.checked ? '开' : '关';
+      const row = inp.closest('.field.sw');
+      if (row) row.classList.toggle('on', inp.checked);
+      setDirty(true);
+    };
+  });
+}
+
+function fieldHtml(f) {
+  const id = 'f_' + f.key, isEnv = f.source === '环境变量';
+  const need = SETUP_MISSING.includes(f.key);
+  const tag =
+    isEnv ? '<span class="tag env">环境变量</span>'
+    : need ? '<span class="tag" style="background:#fde68a;color:#92400e">未填</span>'
+    : f.source === '已保存' ? '<span class="tag saved">已改</span>' : '';
+  // 🔴 网页专属字段却在 .env 里留着值 ⇒ **必须说出来**（不静默忽略）。
+  //    这正是「明明配了却不生效」那类最难查的形态。
+  const stale = f.stale_env
+    ? `<div class="note warn" style="margin:8px 0 0"><i>⚠</i><div>
+         环境变量里还留着 <span class="mono">${esc(f.env)}=${esc(f.stale_env)}</span>，
+         但<b>它已经不生效了</b> —— 以这里保存的值为准（本项只存在 <span class="mono">data/config.json</span>）。
+         建议从 <span class="mono">.env</span> / compose 里删掉那一行。
+       </div></div>`
+    : '';
+  const unit = f.unit ? ` <span class="muted">${f.unit}</span>` : '';
+  const ctl = controlHtml(f, id);
+  // 布尔项：整行「左文右开关」，让开关的位置**对齐成一列**，一眼扫完
+  if (f.type === 'bool') {
+    return `<div class="field sw ${f.value ? 'on' : ''}">
+      <div class="sw-txt">
+        <div class="t">${esc(f.label)}${tag}${unit}</div>
+        ${f.help ? `<div class="d">${esc(f.help)}</div>` : ''}
+        ${stale}
+      </div>${ctl}</div>`;
+  }
+  return `<div class="field ${isEnv ? 'env' : ''}">
+    <label for="${id}">${esc(f.label)}${tag}${unit}</label>${ctl}
+    ${stale}
+    ${f.help ? `<div class="desc">${esc(f.help)}</div>` : ''}
+  </div>`;
+}
+
+function controlHtml(f, id) {
+  const staleN = f.stale_env ? '' : ` data-k="${f.key}"`;
+  if (f.type === 'bool') {
+    // ⚠️ 必须带 `.state` 文字药丸 —— 光靠滑块颜色看不出开/关（红领巾反馈过两次）。
+    return `<label class="switch"><input type="checkbox" id="${id}" data-k="${f.key}"
+      ${f.value ? 'checked' : ''}><span class="track"></span>
+      <span class="state">${f.value ? '开' : '关'}</span></label>`;
+  }
+  if (f.type === 'enum') {
+    return `<select id="${id}" data-k="${f.key}">${(f.options || []).map(([v, l]) =>
+      `<option value="${v}" ${v === f.value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  }
+  if (f.type === 'int' || f.type === 'float') {
+    return `<input type="number" id="${id}" data-k="${f.key}" value="${f.value ?? ''}"
+      ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''}
+      ${f.step != null ? `step="${f.step}"` : (f.type === 'float' ? 'step="0.1"' : '')}>`;
+  }
+  if (f.type === 'account') {
+    return `<select id="${id}" data-k="${f.key}"></select>`;
+  }
+  return `<input type="text" id="${id}" data-k="${f.key}" value="${esc(f.value ?? '')}"
+    placeholder="${esc(f.placeholder || '')}">`;
+}
+
+function setDirty(on) {
+  const bar = $('#saveBar');
+  if (!bar) return;
+  bar.classList.toggle('on', !!on);
+}
+
+async function saveSettings() {
+  const values = {};
+  $$('#setBody [data-k], #outBody [data-k]').forEach(el => {
+    const k = el.dataset.k;
+    const f = FIELDS.find(x => x.key === k);
+    if (!f) return;
+    if (f.type === 'bool') values[k] = !!el.checked;
+    else if (el.value !== '') values[k] = el.value;
+  });
+  try {
+    const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify({ values }) });
+    FIELDS = d.fields; SETUP_MISSING = d.missing || [];
+    renderSettings(d); renderSetup(d); setDirty(false);
+    toast(d.rejected && d.rejected.length ? `已保存（${d.rejected.length} 项被拒）` : '已保存');
+    loadState();
+  } catch (e) { toast('保存失败：' + e.message); }
+}
+
+/* ---------------- 自检 ---------------- */
+function decodeSafe(u) { try { return decodeURIComponent(u || ''); } catch (e) { return u || ''; } }
+async function checkPrefix() {
+  const box = $('#checkOut');
+  box.innerHTML = '<div class="note info"><i>⏳</i><div>正在真发一次请求验证…</div></div>';
+  try {
+    const d = await api('/api/check-prefix');
+    const cls = d.ok ? 'ok' : (d.kind === 'auth' || d.kind === 'storage_not_found'
+                               || d.kind === 'empty' ? 'bad' : 'warn');
+    const icon = d.ok ? '✅' : '❌';
+    box.innerHTML = `<div class="note ${cls}"><i>${icon}</i><div>
+      <div style="font-weight:560">${esc(d.message)}</div>
+      ${d.tip ? `<div style="margin-top:5px">${esc(d.tip)}</div>` : ''}
+      <div style="margin-top:7px;font-size:11.5px;opacity:.75;word-break:break-all">
+        试的地址：<span class="mono">${esc(decodeSafe(d.url))}</span><br>
+        HTTP ${d.status}${d.location ? ' → <span class="mono">' + esc(decodeSafe(d.location)) + '</span>' : ''}
+      </div>
+    </div></div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="note bad"><i>❌</i><div>${esc(e.message)}</div></div>`;
+  }
+}
+async function detectAlist() {
+  const box = $('#checkOut');
+  box.innerHTML = '<div class="note info"><i>⏳</i><div>正在读 Alist…</div></div>';
+  try {
+    const d = await api('/api/detect-alist');
+    if (!d.mounts || !d.mounts.length) {
+      box.innerHTML = `<div class="note warn"><i>⚠</i><div>${esc(d.hint || '没读到挂载')}</div></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="note info"><i>ℹ</i><div>
+      <div style="margin-bottom:7px">${esc(d.hint)}</div>
+      <div class="list" style="max-height:190px;background:#fff">
+        ${d.mounts.slice(0, 40).map(m => `<div class="row">
+          <span class="p">${esc(m.path)}</span></div>`).join('')}
+      </div>
+    </div></div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="note bad"><i>❌</i><div>${esc(e.message)}</div></div>`;
+  }
+}
+
+/* ---------------- 账号 ---------------- */
+let ACTIVE_ID = '', QR_UID = '', QR_TIMER = null;
+
+async function loadAcct() {
+  try {
+    const d = await api('/api/accounts');
+    ACTIVE_ID = d.active_id;
+    // 给「首次配置」清单用：有账号、而且选中的那个能用
+    SETUP_ACCT_OK = !!d.items.length && d.items.some(a => a.id === d.active_id && a.usable !== false);
+    renderSetup();
+    const head = `<div class="muted" style="font-size:12px;margin-bottom:11px">
+      账号文件：<span class="mono">${esc(d.file)}</span>
+      ${d.exists ? '' : '<span style="color:#dc2626">（不存在）</span>'}
+      ${d.shared ? '<span class="tag saved">与 115offline 共用</span>' : ''}
+      <span class="muted">· 共 ${d.count} 个</span></div>`;
+
+    if (!d.items.length) {
+      $('#acctBody').innerHTML = head + `<div class="note warn"><i>⚠</i><div>
+        还没有账号。点上面<b>「扫码登录」</b>（推荐，不用手抓 cookie）或「粘贴 cookie 添加」。
+        ${d.shared ? '<br>⚠️ 共用模式下，这里加的账号 115offline 也会看到。' : ''}
+      </div></div>`;
+      return;
+    }
+    $('#acctBody').innerHTML = head + '<div class="list">' + d.items.map(a => {
+      const ok = a.valid === true, bad = a.valid === false;
+      const badge = ok ? '<span class="badge add">可用</span>'
+        : bad ? '<span class="badge del">失效</span>'
+        : a.usable ? '<span class="badge upd">未校验</span>' : '<span class="badge del">无 cookie</span>';
+      const on = a.id === ACTIVE_ID;
+      return `<div class="row" style="gap:8px">
+        ${badge}
+        <span class="p" style="font-family:inherit">${esc(a.nickname || a.name)}</span>
+        <span class="u">${esc(a.cookie_tail)}${a.checked ? ' · ' + esc(a.checked) : ''}</span>
+        ${on ? '<span class="badge upd">使用中</span>'
+             : `<button class="btn sm" style="padding:3px 9px" onclick="useAcct('${a.id}')">用它</button>`}
+        <button class="btn sm" style="padding:3px 9px" onclick="checkAcct('${a.id}')">校验</button>
+        <button class="btn sm" style="padding:3px 9px" onclick="renameAcct('${a.id}','${esc(a.name)}')">改名</button>
+        <button class="btn bad sm" style="padding:3px 8px" onclick="delAcct('${a.id}','${esc(a.name)}')">删</button>
+      </div>`;
+    }).join('') + '</div>';
+  } catch (e) {
+    $('#acctBody').innerHTML = `<div class="note bad"><i>⚠</i><div>${esc(e.message)}</div></div>`;
+  }
+}
+
+function closeAcctForm() {
+  $('#acctForm').innerHTML = '';
+  if (QR_TIMER) { clearInterval(QR_TIMER); QR_TIMER = null; }
+}
+
+function showPaste() {
+  closeAcctForm();
+  $('#acctForm').innerHTML = `<div class="card" style="margin:0 0 14px;box-shadow:none;background:#fafbfc">
+    <div class="card-b" style="padding:13px">
+      <div class="field"><label>备注名</label>
+        <input type="text" id="acName" placeholder="主号" style="width:100%;padding:8px 11px;
+          border:1px solid var(--line);border-radius:8px"></div>
+      <div class="field" style="margin-top:11px"><label>cookie</label>
+        <textarea id="acCookie" rows="4" style="width:100%;padding:8px 11px;border:1px solid var(--line);
+          border-radius:8px;font-family:ui-monospace,monospace;font-size:12px"
+          placeholder="UID=...;CID=...;SEID=..."></textarea>
+        <div class="desc">浏览器 F12 → Network → 点任意 115 请求 → Request Headers 里整行 Cookie 复制过来。</div>
+      </div>
+      <div class="actions" style="margin-top:11px">
+        <button class="btn pri sm" onclick="addAcct()">添加并校验</button>
+        <button class="btn sm" onclick="closeAcctForm()">取消</button>
+      </div>
+      <div id="acMsg"></div>
+    </div></div>`;
+}
+
+function addAcct() {
+  const name = ($('#acName')?.value || '').trim();
+  const cookie = ($('#acCookie')?.value || '').trim();
+  $('#acMsg').innerHTML = '<div class="note info" style="margin-top:11px"><i>⏳</i><div>正在校验…</div></div>';
+  api('/api/accounts', { method: 'POST', body: JSON.stringify({ name, cookie }) })
+    .then(d => {
+      const p = d.probe || {};
+      $('#acMsg').innerHTML = p.ok
+        ? `<div class="note ok" style="margin-top:11px"><i>✓</i><div>已添加${p.nickname ? '：' + esc(p.nickname) : ''}</div></div>`
+        : `<div class="note warn" style="margin-top:11px"><i>⚠</i><div>已存下，但校验没过：${esc(p.error || 'cookie 可能已过期')}</div></div>`;
+      setTimeout(closeAcctForm, 1200); loadAcct();
+    })
+    .catch(e => {
+      $('#acMsg').innerHTML = `<div class="note bad" style="margin-top:11px"><i>⚠</i><div>${esc(e.message)}</div></div>`;
+    });
+}
+
+async function showQr() {
+  closeAcctForm();
+  $('#acctForm').innerHTML = `<div class="card" style="margin:0 0 14px;box-shadow:none;background:#fafbfc">
+    <div class="card-b" style="padding:15px;text-align:center">
+      <div id="qrBox" style="min-height:180px;display:flex;align-items:center;justify-content:center">
+        <div class="muted">正在取二维码…</div></div>
+      <div id="qrMsg" class="muted" style="font-size:12.5px;margin-top:10px">正在准备…</div>
+      <div class="actions" style="margin-top:12px;justify-content:center">
+        <button class="btn sm" onclick="showQr()">换一张</button>
+        <button class="btn sm" onclick="closeAcctForm()">取消</button>
+      </div>
+    </div></div>`;
+  try {
+    const d = await api('/api/qrcode/token', { method: 'POST' });
+    QR_UID = d.uid;
+    $('#qrBox').innerHTML = d.image
+      ? `<img src="${d.image}" style="width:172px;height:172px">`
+      : `<div class="muted">二维码图片取不到，用这串：<br><span class="mono">${esc(d.qrcode || '')}</span></div>`;
+    $('#qrMsg').innerHTML = '用 <b>115 手机 App</b> 扫码 —— 会登录成 <b>电视端</b>（最不易把你其它设备挤掉）';
+    pollQr();
+  } catch (e) {
+    $('#qrBox').innerHTML = `<div class="note bad"><i>⚠</i><div>${esc(e.message)}</div></div>`;
+  }
+}
+
+function pollQr() {
+  if (QR_TIMER) clearInterval(QR_TIMER);
+  QR_TIMER = setInterval(async () => {
+    try {
+      const s = await api('/api/qrcode/status?uid=' + encodeURIComponent(QR_UID));
+      if (s.status === 2) {
+        clearInterval(QR_TIMER); QR_TIMER = null;
+        const r = await api('/api/qrcode/result', { method: 'POST', body: JSON.stringify({ uid: QR_UID }) });
+        $('#qrMsg').innerHTML = `<span style="color:#12a150">✅ 登录成功${r.nickname ? '：' + esc(r.nickname) : ''}</span>`;
+        setTimeout(() => { closeAcctForm(); loadAcct(); loadState(); }, 1400);
+      } else if (s.status === -1 || s.status === -2) {
+        clearInterval(QR_TIMER); QR_TIMER = null;
+        $('#qrMsg').innerHTML = `<span style="color:#dc2626">${s.status === -1 ? '二维码已过期，点「换一张」' : '已取消'}</span>`;
+      } else {
+        $('#qrMsg').innerHTML = esc(s.label || s.message || '等待扫码');
+      }
+    } catch (e) { /* 网络抖动忽略，下一轮继续 */ }
+  }, 1500);
+}
+
+async function useAcct(id) {
+  try {
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ values: { account_id: id } }) });
+    toast('已切换'); loadAcct(); loadState();
+  } catch (e) { toast('失败：' + e.message); }
+}
+
+async function checkAcct(id) {
+  toast('校验中…');
+  try {
+    const d = await api('/api/accounts/' + id + '/check', { method: 'POST' });
+    toast(d.ok ? `可用${d.nickname ? '：' + d.nickname : ''}` : `失效：${d.error || ''}`);
+    loadAcct();
+  } catch (e) { toast('失败：' + e.message); }
+}
+
+async function renameAcct(id, old) {
+  const name = prompt('新的备注名', old);
+  if (!name || name === old) return;
+  try {
+    await api('/api/accounts/' + id, { method: 'PUT', body: JSON.stringify({ name }) });
+    loadAcct();
+  } catch (e) { toast('失败：' + e.message); }
+}
+
+async function delAcct(id, name) {
+  if (!confirm(`删除账号「${name}」？\n（只从账号文件里删这一条，不影响 115 网盘本身）`)) return;
+  try {
+    await api('/api/accounts/' + id, { method: 'DELETE' });
+    toast('已删除'); loadAcct(); loadState();
+  } catch (e) { toast('失败：' + e.message); }
+}
+
+/* ---------------- 记录 ---------------- */
+async function loadHist() {
+  try {
+    const d = await api('/api/runs');
+    if (!d.items.length) { $('#histList').innerHTML = '<div class="row muted">还没有记录</div>'; return; }
+    $('#histList').innerHTML = d.items.map(r => `
+      <div class="row" onclick="openHist('${r.stem}')" style="cursor:pointer">
+        <span class="badge ${r.dry_run ? 'upd' : 'add'}">${r.dry_run ? '演练' : '执行'}</span>
+        <span class="p">${esc(r.started)}</span>
+        <span class="u">写 ${n(r.written)} · 删 ${n(r.deleted)} · 用时 ${esc(r.elapsed || '—')}</span>
+      </div>`).join('');
+  } catch (e) { $('#histList').innerHTML = `<div class="row muted">${esc(e.message)}</div>`; }
+}
+async function openHist(stem) {
+  try {
+    const d = await api('/api/runs/' + encodeURIComponent(stem));
+    $('#histDetail').classList.remove('hidden');
+    $('#histTitle').textContent = stem;
+    $('#histBody').textContent = d.markdown || JSON.stringify(d.json, null, 1);
+    if (d.detail) $('#histBody').textContent += '\n\n' + d.detail;
+  } catch (e) { toast(e.message); }
+}
+
+/* ---------------- 启动 ---------------- */
+(async function boot() {
+  try {
+    const s = await api('/api/state');
+    DRY_ON = !!s.dry_run;
+    applyDry(DRY_ON);          // ⚠️ 三种表意（轨道/文字/状态条）与真实值对齐
+  } catch (e) {}
+  loadState();
+  // 若已在跑，自动接上
+  try {
+    const r = await api('/api/run?after=0');
+    if (r.running) poll();
+  } catch (e) {}
+  setInterval(() => {
+    if ($('#p-home').classList.contains('on') && !TIMER) loadState();
+  }, 8000);
+})();
+</script>
+</body>
+</html>

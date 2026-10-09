@@ -16,6 +16,7 @@
 |:---|:---|
 | [`115offline`](https://hub.docker.com/r/xinxinenjoy/115offline) | 115 网盘离线下载推送工具：手机网页粘贴磁力，一键推给 115 |
 | [`115organize`](https://hub.docker.com/r/xinxinenjoy/115organize) | 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控 |
+| [`115strm`](https://hub.docker.com/r/xinxinenjoy/115strm) | 115 网盘结构镜像成本地 strm 树，给 Emby/Jellyfin/Kodi/Infuse/爆米花 扫，播放走 Alist 302 直连 CDN（⚠️ VidHub 不支持 strm） |
 | [`atv-tv-power`](https://hub.docker.com/r/xinxinenjoy/atv-tv-power) | Apple TV 开关机联动（Home Assistant / 推送通知） |
 
 镜像全名为 `xinxinenjoy/<项目名>`，源码在仓库内同名目录下。
@@ -47,6 +48,7 @@ docker run -d --name 115offline \
 
 - [`115offline/README.md`](115offline/README.md)
 - [`115organize/README.md`](115organize/README.md)
+- [`115strm/README.md`](115strm/README.md)
 - [`atv-tv-power/README.md`](atv-tv-power/README.md)
 
 ## 怎么构建
@@ -57,6 +59,7 @@ docker run -d --name 115offline \
 |:---|:---|
 | [`115offline.yml`](.github/workflows/115offline.yml) | `115offline/**` |
 | [`115organize.yml`](.github/workflows/115organize.yml) | `115organize/**` |
+| [`115strm.yml`](.github/workflows/115strm.yml) | `115strm/**` |
 | [`atv-tv-power.yml`](.github/workflows/atv-tv-power.yml) | `atv-tv-power/**` |
 
 也可在 [Actions](../../actions) 页面手动触发（`workflow_dispatch`）。

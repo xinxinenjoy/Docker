@@ -1,0 +1,15 @@
+# 本机专用（含路径 / 凭据），不入公开库
+deploy.sh
+compose.yaml
+DEPLOY-LOCAL.md
+.env
+data/
+localdata/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tools/
+# Windows 双击试跑脚本 —— 里面写死了本机 bash 路径与落点目录（本机专用，不入公开库）
+启动（双击）.cmd

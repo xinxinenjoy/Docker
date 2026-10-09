@@ -1,0 +1,79 @@
+name: 115strm
+
+# 改 115strm/ 下的东西才触发（monorepo 里一个项目一个 workflow）
+on:
+  push:
+    branches: [main]
+    paths:
+      - '115strm/**'
+      - '.github/workflows/115strm.yml'
+  workflow_dispatch:
+
+# 连推多个提交时只保留最新一次构建：旧的同 workflow run 会被自动取消，避免排队干等。
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  # ⚠️ 先跑单测再构建 —— 本项目的风险不在「编译不过」，而在**路径口径判错**：
+  #    · strm 前缀少写一层 ⇒ Alist 回 storage not found（**状态码还是 200**）⇒ 整库播不了
+  #    · 删除判定写错 ⇒ 本地 strm 被误删（不可逆）
+  #    · 文件名安全化漏了某一段 ⇒ Windows 上 mkdir 直接抛错
+  #    这些构建期发现不了，只有那 280 个用例能拦。用例全是纯离线的（可注入时钟 / 假 client）。
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # ⚠️ 网页层用例 import 需要 fastapi/httpx —— 必须装依赖。
+      #    依赖很薄（见 requirements.txt），装一下只多 5~10 秒。
+      - name: 装依赖
+        working-directory: ./115strm
+        run: pip install -r requirements.txt httpx
+      - name: 跑单测
+        working-directory: ./115strm
+        run: python -m unittest discover -s tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ⚠️ 没有 QEMU / 没有多架构（沿用 2026-10-05 的拍板：只保留 x86-64）。
+      #    runner 本身就是 amd64 ⇒ 构建是**原生**的，不再有模拟开销。
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: xinxinenjoy
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./115strm
+          platforms: linux/amd64
+          push: true
+          # 发新版时在这里加/改 tag
+          tags: |
+            xinxinenjoy/115strm:latest
+            xinxinenjoy/115strm:1.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 镜像推上去之后，把仓库里的 DOCKERHUB.md 同步到 Hub 仓库页（短描述 + Overview）。
+      # 规则见仓库根 README 的「维护者流程」—— 镜像更新了、说明还停在旧版 = 误导。
+      # ⚠️ Hub 页面只放「功能 + 用法」精简版，完整文档留在仓库 README.md。
+      - name: Sync Docker Hub description
+        env:
+          DOCKERHUB_USERNAME: xinxinenjoy
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HUB_REPO: 115strm
+          README_PATH: 115strm/DOCKERHUB.md
+          SHORT_DESCRIPTION: 115 网盘结构镜像成本地 strm，播放走 Alist 302 直连 CDN
+        run: python3 .github/scripts/sync-hub-description.py
