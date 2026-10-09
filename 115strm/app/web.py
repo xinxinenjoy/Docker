@@ -369,7 +369,7 @@ def get_scope(path: str = "") -> dict:
         raise HTTPException(400, f"目录树读不到：{exc}") from exc
 
     rel_root = (cfg.remote_root or "").strip("/")
-    # ⭐ 留空 ⇒ 落到**同步根**（列它的子项）；这样前端一进来就能勾「115电影」，
+    # ⭐ 留空 ⇒ 落到**同步根**（列它的子项）；这样前端一进来就能勾「电影」，
     #    而不是先看到同步根自己（它没得选）。
     cur = (path or "").strip("/")
     if not cur:
@@ -386,7 +386,7 @@ def get_scope(path: str = "") -> dict:
     # 面包屑：同步根 › …（树根那段是噪音，不显示）
     #
     # ⚠️ 这里**不能用长度切片**去前缀 —— 曾经写成 `cur[len(rel_root):]`，
-    #    当 `cur` 不以 `rel_root` 开头时（如 rel_root=`云下载`、cur=`115电影`）
+    #    当 `cur` 不以 `rel_root` 开头时（如 rel_root=`云下载`、cur=`电影`）
     #    切出来是 `电影`，面包屑直接错。改成「先判断在不在下面，再切」。
     crumbs: list[dict] = []
     root_name = tree.entries[tree.root_path].name
@@ -847,7 +847,7 @@ def detect_alist() -> dict:
     for item in (d.get("data") or {}).get("content") or []:
         node: dict = {"path": "/" + item["name"], "name": item["name"], "is_dir": item.get("is_dir")}
         out["mounts"].append(node)
-        # 下探一层，找 115 存储（影音/115影音 这种两级挂载很常见）
+        # 下探一层，找 115 存储（媒体/影音 这种两级挂载很常见）
         if item.get("is_dir") and len(out["mounts"]) < 40:
             try:
                 sub = post("/api/fs/list", {"path": node["path"], "password": "",
@@ -859,8 +859,8 @@ def detect_alist() -> dict:
                 pass
     out["hint"] = ("下面这些是 alist 根下能看到的路径。"
                    "★ strm 前缀应当是 `<alist 地址>/d/<115 存储的挂载路径>`，"
-                   "例如 115 挂在 `/影音/115影音` ⇒ 前缀写 `"
-                   + root + "/d/影音/115影音`。")
+                   "例如 115 挂在 `/媒体/影音` ⇒ 前缀写 `"
+                   + root + "/d/媒体/影音`。")
     return out
 
 

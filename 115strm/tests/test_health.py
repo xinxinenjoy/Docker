@@ -45,8 +45,8 @@ class FakeHeaders(dict):
 
 class TestSampleUrl(unittest.TestCase):
     def test_拼接(self):
-        u = sample_url(cfg("https://x/d/影音/115影音"))
-        self.assertTrue(u.startswith("https://x/d/影音/115影音/"))
+        u = sample_url(cfg("https://x/d/媒体/影音"))
+        self.assertTrue(u.startswith("https://x/d/媒体/影音/"))
 
     def test_尾斜杠规整(self):
         self.assertNotIn("//", sample_url(cfg("https://x/d/")).replace("https://", ""))
@@ -55,7 +55,7 @@ class TestSampleUrl(unittest.TestCase):
 class TestPrefixGuard(unittest.TestCase):
     def test_dav前缀直接判错_不发请求(self):
         with mock.patch("urllib.request.build_opener") as op:
-            r = check_prefix(cfg("https://x/dav/影音/115影音"))
+            r = check_prefix(cfg("https://x/dav/媒体/影音"))
         op.assert_not_called()
         self.assertFalse(r.ok)
         self.assertEqual(r.kind, "auth")
@@ -84,7 +84,7 @@ class TestPrefixGuard(unittest.TestCase):
 
 
 class TestPrefixCheck(unittest.TestCase):
-    def _run(self, resp=None, exc=None, prefix="https://x/d/影音/115影音"):
+    def _run(self, resp=None, exc=None, prefix="https://x/d/媒体/影音"):
         def fake_open(req, timeout=None):
             if exc:
                 raise exc
@@ -114,14 +114,14 @@ class TestPrefixCheck(unittest.TestCase):
         """🔴 最关键的用例 —— 这是最容易犯的错，必须给出可执行的指引。"""
         body = json.dumps({
             "code": 500,
-            "message": "storage not found; rawPath: /115影音/115电影/x.mkv",
+            "message": "storage not found; rawPath: /影音/电影/x.mkv",
         }).encode()
         r = self._run(FakeResp(200, FakeHeaders({
             "Content-Type": "application/json; charset=utf-8"}), body))
         self.assertFalse(r.ok)
         self.assertEqual(r.kind, "storage_not_found")
         self.assertIn("挂载", r.tip)
-        self.assertIn("/d/影音/115影音", r.tip)
+        self.assertIn("/d/媒体/影音", r.tip)
 
     def test_object_not_found_判配对正确(self):
         """🔴 `object not found` ≠ 配错 —— 它说明 alist **认得这个存储**，
@@ -199,7 +199,7 @@ class TestPrefixCheck(unittest.TestCase):
         with mock.patch("urllib.request.build_opener") as bo:
             bo.return_value.open.side_effect = fake_open
             # 前缀本身带中文 + 样本也不用编码 ⇒ 请求 URL 里必然有中文
-            check_prefix(cfg("https://x/d/影音/115影音"))
+            check_prefix(cfg("https://x/d/媒体/影音"))
         u = seen['url']
         self.assertAsciiEncodable(u)
         self.assertIn("%E5%BD%B1%E9%9F%B3", u)     # 「影音」
@@ -220,7 +220,7 @@ class TestPrefixCheck(unittest.TestCase):
 
         with mock.patch("urllib.request.build_opener") as bo:
             bo.return_value.open.side_effect = fake_open
-            check_prefix(cfg("https://x/d/影音/115影音"))
+            check_prefix(cfg("https://x/d/媒体/影音"))
         self.assertNotIn("%2F", seen['url'])
         self.assertIn("/d/", seen['url'])
 
@@ -233,7 +233,7 @@ class TestOfflineWarn(unittest.TestCase):
     详细的配对用例在 `test_scope.TestScopeWarn`，这里只留基本形态判定。
     """
 
-    def _warn(self, p: str, root: str = "115影音") -> str:
+    def _warn(self, p: str, root: str = "影音") -> str:
         from app.health import scope_warn
         return scope_warn(Config(strm_prefix=p, remote_root=root))
 
@@ -241,14 +241,14 @@ class TestOfflineWarn(unittest.TestCase):
         self.assertIn("还没配置", self._warn(""))
 
     def test_缺d段告警(self):
-        self.assertIn("/d/", self._warn("https://x/影音/115影音"))
+        self.assertIn("/d/", self._warn("https://x/媒体/影音"))
 
     def test_只到d时提示带上挂载路径(self):
         w = self._warn("https://x/d")
         self.assertIn("挂载路径", w)
 
     def test_写全了不告警(self):
-        self.assertEqual(self._warn("https://x/d/影音/115影音"), "")
+        self.assertEqual(self._warn("https://x/d/媒体/影音"), "")
 
     def test_dav前缀被当末段不一致(self):
         # `/dav/...` 不会含 `/d/`（因为 `/dav` 里的 `d` 后面是 `av` 不是 `/`），

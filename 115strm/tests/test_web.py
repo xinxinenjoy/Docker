@@ -16,14 +16,14 @@ except Exception:                                    # pragma: no cover
     TestClient = None
 
 BAR_TREE = """|——云下载
-| |-115电影
+| |-电影
 | | |-功夫片（2026）
 | | | |-a.mkv
 | | | |-b.mp4
-| |-115电视剧
+| |-电视剧
 | | |-某剧
 | | | |-S01E01.mkv
-| |-115短剧
+| |-短剧
 | | |-短剧A
 | | | |-c.mp4
 """
@@ -46,7 +46,7 @@ class TestWeb(unittest.TestCase):
             "OUTPUT_DIR": str(self.root / "out"),
             "TREE_DIR": str(self.root / "tree"),
             # ⚠️ 同步根必须设成**树里真实存在**的目录 ——
-            #    默认值 `115影音` 在这份测试树里不存在，会解析失败。
+            #    默认值 `影音` 在这份测试树里不存在，会解析失败。
             #    另外 `REMOTE_ROOT=""` 是**没用的**（`_env()` 空值会回落到默认），
             #    必须给一个真名字。
             "REMOTE_ROOT": "云下载",
@@ -219,11 +219,11 @@ class TestWeb(unittest.TestCase):
     def test_scope_列一层子目录(self):
         d = self.client.get("/api/scope").json()
         names = [i["name"] for i in d["items"]]
-        self.assertEqual(names, ["115电影", "115电视剧", "115短剧"])
+        self.assertEqual(names, ["电影", "电视剧", "短剧"])
         self.assertEqual(d["scope"]["remote_root"], "云下载")
 
     def test_scope_下钻一层(self):
-        d = self.client.get("/api/scope?path=115电影").json()
+        d = self.client.get("/api/scope?path=电影").json()
         self.assertEqual([i["name"] for i in d["items"]], ["功夫片（2026）"])
         it = d["items"][0]
         # ⚠️ `has_children` 指**有没有子目录**，不是有没有文件 ——
@@ -233,36 +233,36 @@ class TestWeb(unittest.TestCase):
         self.assertEqual(it["subdirs"], 0)
 
     def test_scope_面包屑(self):
-        d = self.client.get("/api/scope?path=115电影").json()
-        self.assertEqual([c["name"] for c in d["crumbs"]], ["云下载", "115电影"])
+        d = self.client.get("/api/scope?path=电影").json()
+        self.assertEqual([c["name"] for c in d["crumbs"]], ["云下载", "电影"])
 
     def test_scope_不存在的路径报错(self):
         self.assertEqual(self.client.get("/api/scope?path=没有这个").status_code, 400)
 
     def test_scope保存后白名单生效(self):
         r = self.client.post("/api/scope", json={
-            "remote_root": "云下载", "include_dirs": ["115电影", "115电视剧"]})
+            "remote_root": "云下载", "include_dirs": ["电影", "电视剧"]})
         self.assertEqual(r.status_code, 200)
         d = r.json()
-        self.assertEqual(d["scope"]["includes"], ["115电影", "115电视剧"])
+        self.assertEqual(d["scope"]["includes"], ["电影", "电视剧"])
         # 试算：短剧被排除 ⇒ 只剩 3 个媒体文件
         self.assertEqual(d["estimate"]["counts"]["add"], 3)
 
     def test_scope保存后预览也跟着变(self):
         self.client.post("/api/scope", json={
-            "remote_root": "云下载", "include_dirs": ["115电影"]})
+            "remote_root": "云下载", "include_dirs": ["电影"]})
         d = self.client.post("/api/preview", json={"limit": 50}).json()
         self.assertEqual(d["counts"]["add"], 2)          # 只剩 a.mkv / b.mp4
 
     def test_scope_带同步根前缀被归一(self):
         r = self.client.post("/api/scope", json={
-            "remote_root": "云下载", "include_dirs": ["云下载/115电影"]})
-        self.assertEqual(r.json()["scope"]["includes"], ["115电影"])
+            "remote_root": "云下载", "include_dirs": ["云下载/电影"]})
+        self.assertEqual(r.json()["scope"]["includes"], ["电影"])
 
     def test_scope_保存带出配对告警(self):
         # 前缀末段是 `d`（`https://example.test/d`）而同步根末段是 `云下载` ⇒ 应告警
         r = self.client.post("/api/scope", json={
-            "remote_root": "云下载", "include_dirs": ["115电影"]})
+            "remote_root": "云下载", "include_dirs": ["电影"]})
         self.assertTrue(r.json()["warn"], "末段不一致时必须告警")
 
     # ------------------------------------------------------------------ 运行

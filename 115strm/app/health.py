@@ -6,12 +6,12 @@ alist 的路由是**按挂载路径**匹配的。所以 strm 里的 URL 必须�
 
     https://<域名>:5244/d/<alist 挂载路径>/<文件相对路径>
 
-你的 115 挂在 alist 的 **`/影音/115影音`**（`root_folder_id=1975455453821155032`），
-所以整串必须是 `/d/影音/115影音/...`。
+你的 115 挂在 alist 的 **`/媒体/影音`**（`root_folder_id=<该目录在 115 上的 id>`），
+所以整串必须是 `/d/媒体/影音/...`。
 
-⛔ 少写一层（比如 `/d/115影音/...`）时 alist 会回：
+⛔ 少写一层（比如 `/d/影音/...`）时 alist 会回：
 
-    {"code":500,"message":"storage not found; rawPath: /115影音/115电影/…"}
+    {"code":500,"message":"storage not found; rawPath: /影音/电影/…"}
 
 —— 而且**返回 200 状态码**，看着不像错，是**最容易蒙混过关的错**。
 （2026-10-08 实测踩到，所以专门做这个自检。）
@@ -43,8 +43,8 @@ def scope_warn(cfg: Config) -> str:
     🔴 为什么需要它：alist 按**挂载路径**路由，而同步根是**树内路径**，
        两者必须指向 115 上的同一个目录。它们的共同点是「最后一层名字」：
 
-           115 盘上：  `115影音`            ← 同步根（树内填 `115影音`）
-           alist 挂载： `/影音/115影音`      ← 前缀写 `…/d/影音/115影音`
+           115 盘上：  `影音`            ← 同步根（树内填 `影音`）
+           alist 挂载： `/媒体/影音`      ← 前缀写 `…/d/媒体/影音`
 
         ⇒ **prefix 的末段应当等于 remote_root 的末段**。
 
@@ -61,14 +61,14 @@ def scope_warn(cfg: Config) -> str:
     tail = prefix.split("/d/", 1)[-1].strip("/") if "/d/" in prefix else ""
     if not tail:
         return ("前缀只写到 `/d`，**没有带上 alist 的挂载路径**。"
-                "115 挂在 alist 的哪一级，前缀就得写到那一级（如 `/d/影音/115影音`）。")
+                "115 挂在 alist 的哪一级，前缀就得写到那一级（如 `/d/媒体/影音`）。")
 
     tail_last = tail.rsplit("/", 1)[-1]
     root_last = root.rsplit("/", 1)[-1] if root else ""
     if root_last and tail_last != root_last:
         return (f"**同步根与前缀可能没配对**：同步根末段是 `{root_last}`，"
                 f"前缀末段是 `{tail_last}`。"
-                f"两者应指向 115 上同一个目录（如都写 `115影音`）—— "
+                f"两者应指向 115 上同一个目录（如都写 `影音`）—— "
                 f"配错时 alist 回 `storage not found`，但状态码是 200，很难察觉。")
     return ""
 
@@ -119,13 +119,13 @@ def check_prefix(cfg: Config, *, sample_rel: str = "") -> PrefixCheck:
         res.kind = "empty"
         res.message = "还没配置 strm 内容前缀 —— 它现在是空的，自检没有意义。"
         res.tip = ("去网页「设置 › 播放地址」填 `https://你的域名:端口/d/挂载路径`"
-                   "（如 `https://alist.example.com:5244/d/影音/115影音`）。")
+                   "（如 `https://alist.example.com:5244/d/媒体/影音`）。")
         return res
 
     if "/dav" in url.split("?")[0]:
         res.kind = "auth"
         res.message = "前缀里含 `/dav` —— 那是 WebDAV 端点，实测要认证。"
-        res.tip = "把前缀改成 alist 的 `/d` 端点，例如 https://域名:5244/d/影音/115影音"
+        res.tip = "把前缀改成 alist 的 `/d` 端点，例如 https://域名:5244/d/媒体/影音"
         return res
 
     # 🔴 URL 里可能含**未编码的中文**（`url_encode=0` 时，或前缀本身就带中文挂载路径）。
@@ -193,8 +193,8 @@ def check_prefix(cfg: Config, *, sample_rel: str = "") -> PrefixCheck:
             res.kind = "storage_not_found"
             res.message = f"alist 找不到这个存储：{msg}"
             res.tip = ("**前缀少了挂载路径的那一层**。alist 按挂载路径路由 —— "
-                       "115 挂在 `/影音/115影音`，前缀就得写到 `/d/影音/115影音`，"
-                       "不能只写到 `/d` 或 `/d/115影音`。")
+                       "115 挂在 `/媒体/影音`，前缀就得写到 `/d/媒体/影音`，"
+                       "不能只写到 `/d` 或 `/d/影音`。")
         elif "object not found" in msg or "failed to get file" in msg or "failed get" in msg:
             res.ok = True
             res.kind = "ok"

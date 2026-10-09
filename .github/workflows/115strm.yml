@@ -62,7 +62,7 @@ jobs:
           # 发新版时在这里加/改 tag
           tags: |
             xinxinenjoy/115strm:latest
-            xinxinenjoy/115strm:1.0
+            xinxinenjoy/115strm:1.1
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

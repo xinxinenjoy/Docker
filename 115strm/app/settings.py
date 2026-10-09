@@ -58,12 +58,12 @@ FIELDS: list[dict] = [
     # ⚠️ 这两个字段在网页上有**专门的目录选择器**（「同步范围」卡片），
     #    不放在普通表单里 —— 但必须登记在这，否则 `save_json` 会把它们当未知键拒掉。
     _f("remote_root", "REMOTE_ROOT", "str", "同步范围", "同步根目录",
-       "相对**目录树导出件**的根。例：树根是「根目录」、影音库在「115影音」⇒ 填 `115影音`。"
+       "相对**目录树导出件**的根。例：树根是「根目录」、影音库在「影音」⇒ 填 `影音`。"
        "⚠️ 它必须与 strm 前缀**配对**（末段同名），配错时 alist 回 storage not found 但状态码是 200。",
-       placeholder="115影音"),
+       placeholder="影音"),
     _f("include_dirs", "INCLUDE_DIRS", "str", "同步范围", "只处理这些子目录",
        "相对同步根，逗号或换行分隔；**留空 = 全部都要**。"
-       "勾一个目录 = 处理它整棵子树。", placeholder="115电影,115电视剧"),
+       "勾一个目录 = 处理它整棵子树。", placeholder="电影,电视剧"),
 
     # ---------------------------------------------------------------- 输出
     # ★ 本字段是「网页专属」—— 见模块顶部说明。
@@ -72,7 +72,7 @@ FIELDS: list[dict] = [
        "并且要写到**挂载路径的完整一层**（少一层 alist 会回 storage not found，"
        "而状态码还是 200，极难察觉）。内网外网都要能用就填公网域名。"
        "⚠️ 它**只存在 `data/config.json`**（不再认 `.env`），首次使用是空的。",
-       placeholder="https://alist.example.com:5244/d/影音/115影音",
+       placeholder="https://alist.example.com:5244/d/媒体/影音",
        web_only=True, required=True),
     _f("output_dir", "OUTPUT_DIR", "path", "输出", "strm 落点",
        "容器内路径。宿主机上挂一个你自己的目录给它（媒体服务器会扫这个目录）。", advanced=True),

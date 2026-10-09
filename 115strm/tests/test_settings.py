@@ -145,7 +145,7 @@ class TestPriority(unittest.TestCase):
         self.assertFalse(cfg.prefix_ready)
 
     def test_前缀填了才算就绪(self):
-        self.assertTrue(Config(strm_prefix="https://alist.example.com/d/影音/115影音").prefix_ready)
+        self.assertTrue(Config(strm_prefix="https://alist.example.com/d/媒体/影音").prefix_ready)
         self.assertFalse(Config(strm_prefix="   ").prefix_ready)
 
     def test_网页专属字段忽略环境变量(self):

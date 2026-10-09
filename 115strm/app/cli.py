@@ -207,7 +207,7 @@ def cmd_doctor(cfg: Config, log, args) -> int:
     #    ⇒ 空着就只报告状态，把「去哪填」写清楚。
     if cfg.prefix_ready:
         b = StrmBuilder.from_cfg(cfg)
-        print(f"URL 样例   : {b.url('115电影/示例片（2026）/示例.mkv')}")
+        print(f"URL 样例   : {b.url('电影/示例片（2026）/示例.mkv')}")
     else:
         print("URL 样例   : ⚠️ 还没配 strm 内容前缀（空着就生成不出可播的地址）")
         print("  ⇒ 网页「设置 › 播放地址」填你的 alist 地址"

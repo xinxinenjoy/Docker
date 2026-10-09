@@ -16,16 +16,16 @@ from app.namer import (DiffResult, StrmBuilder, StrmFile, is_video, local_path_o
 class TestUrlPath(unittest.TestCase):
     def test_逐段编码保留斜杠(self):
         # 🔴 关键：不能整体 quote()，否则 `/` 变 `%2F`，整个路径塌成一段
-        got = url_of_path("115电影/功夫女足（2026）/a b.mkv", encode=True)
+        got = url_of_path("电影/功夫女足（2026）/a b.mkv", encode=True)
         self.assertEqual(
             got,
-            "115%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/a%20b.mkv")
+            "%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/a%20b.mkv")
         self.assertIn("/", got)                       # 分隔符必须保留
         self.assertNotIn("%2F", got.upper().replace("%2f", "%2F").replace("%2F", "%2F"))
         self.assertNotIn("%2F", got)
 
     def test_不编码时原样输出(self):
-        self.assertEqual(url_of_path("115电影/a b.mkv", encode=False), "115电影/a b.mkv")
+        self.assertEqual(url_of_path("电影/a b.mkv", encode=False), "电影/a b.mkv")
 
     def test_前导斜杠被吃掉(self):
         self.assertEqual(url_of_path("/a/b/c", encode=False), "a/b/c")
@@ -42,34 +42,34 @@ class TestStrmBuilder(unittest.TestCase):
         curl / 浏览器能忍，但严格 HTTP 客户端编不了（urllib 直接抛 ascii 错）。
         播放器用的库五花八门，赌不起 ⇒ 全编。
         """
-        b = StrmBuilder(prefix="https://alist.example.com:5244/d/影音/115影音", encode=True)
-        u = b.url("115电影/功夫女足（2026）/x.mkv")
+        b = StrmBuilder(prefix="https://alist.example.com:5244/d/媒体/影音", encode=True)
+        u = b.url("电影/功夫女足（2026）/x.mkv")
         self.assertEqual(
             u,
-            "https://alist.example.com:5244/d/%E5%BD%B1%E9%9F%B3/115%E5%BD%B1%E9%9F%B3/"
-            "115%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/x.mkv")
+            "https://alist.example.com:5244/d/%E5%AA%92%E4%BD%93/%E5%BD%B1%E9%9F%B3/"
+            "%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/x.mkv")
         u.encode("ascii")                       # 必须能编 —— 编不了就会抛
         self.assertNotIn("影音", u)
 
     def test_保留斜杠不做成单段(self):
-        b = StrmBuilder(prefix="https://x/d/影音/115影音", encode=True)
+        b = StrmBuilder(prefix="https://x/d/媒体/影音", encode=True)
         u = b.url("a/b/c.mkv")
         self.assertNotIn("%2F", u)
         self.assertEqual(u.count("/"), u.count("/"))     # 结构没塌
 
     def test_不编码时原样(self):
-        b = StrmBuilder(prefix="https://x/d/影音/115影音", encode=False)
-        self.assertEqual(b.url("a.mkv"), "https://x/d/影音/115影音/a.mkv")
+        b = StrmBuilder(prefix="https://x/d/媒体/影音", encode=False)
+        self.assertEqual(b.url("a.mkv"), "https://x/d/媒体/影音/a.mkv")
 
     def test_带alist_base(self):
-        b = StrmBuilder(prefix="https://x/d", alist_base="影音/115影音", encode=False)
-        self.assertEqual(b.url("115电影/a.mkv"), "https://x/d/影音/115影音/115电影/a.mkv")
+        b = StrmBuilder(prefix="https://x/d", alist_base="媒体/影音", encode=False)
+        self.assertEqual(b.url("电影/a.mkv"), "https://x/d/媒体/影音/电影/a.mkv")
 
     def test_带alist_base且编码(self):
-        b = StrmBuilder(prefix="https://x/d", alist_base="影音/115影音", encode=True)
+        b = StrmBuilder(prefix="https://x/d", alist_base="媒体/影音", encode=True)
         self.assertEqual(
             b.url("a.mkv"),
-            "https://x/d/%E5%BD%B1%E9%9F%B3/115%E5%BD%B1%E9%9F%B3/a.mkv")
+            "https://x/d/%E5%AA%92%E4%BD%93/%E5%BD%B1%E9%9F%B3/a.mkv")
 
     def test_前缀尾斜杠被规整(self):
         b = StrmBuilder(prefix="https://x/d/", encode=False)
@@ -89,14 +89,14 @@ class TestStrmBuilder(unittest.TestCase):
 
     def test_无scheme前缀不产出畸形URL(self):
         """前缀手抖写成 `alist.example.com:5244/d/…`（没带 https://）时别炸。"""
-        b = StrmBuilder(prefix="alist.example.com:5244/d/影音/115影音", encode=True)
+        b = StrmBuilder(prefix="alist.example.com:5244/d/媒体/影音", encode=True)
         u = b.url("a.mkv")
         self.assertTrue(u.endswith("a.mkv"))
         u.encode("ascii")
 
     def test_绝不产出dav(self):
         # 🔴 回归：/dav 实测 401，任何情况下都不该出现
-        b = StrmBuilder(prefix="https://alist.example.com:5244/d/影音/115影音", encode=True)
+        b = StrmBuilder(prefix="https://alist.example.com:5244/d/媒体/影音", encode=True)
         self.assertNotIn("/dav", b.url("a/b.mkv"))
         self.assertNotIn("dav", b.url("a/b.mkv"))
 

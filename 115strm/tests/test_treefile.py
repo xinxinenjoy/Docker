@@ -8,21 +8,21 @@ from pathlib import Path
 from app.treefile import TreeParseError, parse_file, parse_text, pick_tree_file
 
 BAR_TREE = """|——云下载
-| |-115电影
+| |-电影
 | | |-功夫女足（2026）
 | | | |-功夫女足.Kung.Fu.Soccer.2026.2160p.WEB-DL.mkv
 | | |-歪心狼对阵ACME（2026）
 | | | |-歪心狼.mkv
-| |-115电视剧
+| |-电视剧
 | | |-怪奇物语
 | | | |-S01E01.mkv
 """
 
 TREE_CMD = """云下载
-├── 115电影
+├── 电影
 │   ├── 功夫女足（2026）
 │   │   └── a.mkv
-└── 115电视剧
+└── 电视剧
     └── b.mkv
 """
 
@@ -32,24 +32,24 @@ class TestBarTree(unittest.TestCase):
         t = parse_text(BAR_TREE)
         self.assertEqual(t.root_path, "云下载")
         top = [t.entries[d].name for d in t.children_dirs("云下载")]
-        self.assertEqual(top, ["115电影", "115电视剧"])
+        self.assertEqual(top, ["电影", "电视剧"])
 
     def test_文件归属正确(self):
         t = parse_text(BAR_TREE)
-        files = t.files_of("云下载/115电影/功夫女足（2026）")
+        files = t.files_of("云下载/电影/功夫女足（2026）")
         self.assertEqual(files, ["功夫女足.Kung.Fu.Soccer.2026.2160p.WEB-DL.mkv"])
 
     def test_统计(self):
         t = parse_text(BAR_TREE)
         st = t.stats()
-        # 云下载 + 115电影 + 功夫女足（2026） + 歪心狼对阵ACME（2026） + 115电视剧 + 怪奇物语
+        # 云下载 + 电影 + 功夫女足（2026） + 歪心狼对阵ACME（2026） + 电视剧 + 怪奇物语
         self.assertEqual(st["dirs"], 6)
         self.assertEqual(st["files"], 3)
 
     def test_深层目录认得(self):
         t = parse_text(BAR_TREE)
-        self.assertIn("云下载/115电影/功夫女足（2026）", t.entries)
-        self.assertTrue(t.entries["云下载/115电影/功夫女足（2026）"].is_dir)
+        self.assertIn("云下载/电影/功夫女足（2026）", t.entries)
+        self.assertTrue(t.entries["云下载/电影/功夫女足（2026）"].is_dir)
 
     def test_大小后缀被剥掉(self):
         t = parse_text("|——root\n| |-a.mkv 1.2GB\n")
@@ -59,9 +59,9 @@ class TestBarTree(unittest.TestCase):
 class TestTreeCmd(unittest.TestCase):
     def test_解析制表符树(self):
         t = parse_text(TREE_CMD)
-        self.assertIn("云下载/115电影", t.entries)
-        self.assertIn("云下载/115电视剧", t.entries)
-        self.assertEqual(t.files_of("云下载/115电影/功夫女足（2026）"), ["a.mkv"])
+        self.assertIn("云下载/电影", t.entries)
+        self.assertIn("云下载/电视剧", t.entries)
+        self.assertEqual(t.files_of("云下载/电影/功夫女足（2026）"), ["a.mkv"])
 
 
 class TestIndentTree(unittest.TestCase):
@@ -84,8 +84,8 @@ class TestErrors(unittest.TestCase):
 
     def test_rebase_有效(self):
         t = parse_text(BAR_TREE)
-        t2 = t.rebase("云下载/115电影")
-        self.assertEqual(t2.root_path, "云下载/115电影")
+        t2 = t.rebase("云下载/电影")
+        self.assertEqual(t2.root_path, "云下载/电影")
 
 
 class TestFileIO(unittest.TestCase):

@@ -174,7 +174,7 @@ def _dir_id(resp: Any) -> str:
 
     ⚠️ **两个接口把 id 放在不同地方**（115organize 真机实测，不是猜的）：
 
-        fs_dir_getid   GET /files/getid       → {"state":true, "id":"438124340056368324"}
+        fs_dir_getid   GET /files/getid       → {"state":true, "id":"<目录 id>"}
                                                 ⇒ 顶层 `id`
         fs_dir_getid2  GET /files/get_path_id → {"state":true, "data":{"file_id":"3533…"}}
                                                 ⇒ **`data.file_id`**，顶层没有 `id`

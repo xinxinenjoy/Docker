@@ -244,10 +244,10 @@ class TestRenameVsAnomaly(unittest.TestCase):
         """867 个里改掉 283 个（32.6% > 30%）—— 旧行为会误判成异常。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            old = [f"115电影/旧名{i}/片.mkv.strm" for i in range(30)]
+            old = [f"电影/旧名{i}/片.mkv.strm" for i in range(30)]
             s = self._prep(tmp, old)
             # 网盘侧：同样的文件，目录改了名（30 消失 + 30 新增）
-            new = [f("115电影/新名{i}/片.mkv") for i in range(30)]
+            new = [f("电影/新名{i}/片.mkv") for i in range(30)]
             res = s.run(remote_files=new, remote_dirs=[], source="tree")
             self.assertFalse(res.guard_tripped, "改名不该触发异常闸门")
             self.assertTrue(res.looks_like_move)
@@ -260,11 +260,11 @@ class TestRenameVsAnomaly(unittest.TestCase):
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp, delete_defer_minutes=0.0))
             for i in range(30):
-                p = tmp / "out" / f"115电影/旧名{i}/片.mkv.strm"
+                p = tmp / "out" / f"电影/旧名{i}/片.mkv.strm"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text("old", encoding="utf-8")
-            new = [f(f"115电影/新名{i}/片.mkv") for i in range(30)]
-            s.save_pending(Pending(paths=[f"115电影/旧名{i}/片.mkv.strm" for i in range(30)],
+            new = [f(f"电影/新名{i}/片.mkv") for i in range(30)]
+            s.save_pending(Pending(paths=[f"电影/旧名{i}/片.mkv.strm" for i in range(30)],
                                    first_seen=time.time() - 600, seen_times=1))
             res = s.run(remote_files=new, remote_dirs=[], source="tree")
             self.assertFalse(res.guard_tripped)
@@ -302,10 +302,10 @@ class TestRenameVsAnomaly(unittest.TestCase):
     def test_演练时也标出疑似改名(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = self._prep(tmp, [f"115电影/旧名{i}/片.mkv.strm" for i in range(30)])
+            s = self._prep(tmp, [f"电影/旧名{i}/片.mkv.strm" for i in range(30)])
             cfgd = make_cfg(tmp, dry_run=True)
             s2 = Syncer(None, cfgd)
-            new = [f(f"115电影/新名{i}/片.mkv") for i in range(30)]
+            new = [f(f"电影/新名{i}/片.mkv") for i in range(30)]
             res = s2.run(remote_files=new, remote_dirs=[], source="tree")
             self.assertTrue(res.looks_like_move)
 
@@ -327,17 +327,17 @@ class TestRenameVsAnomaly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            p = tmp / "out" / "115电影" / "片.mkv.strm"
+            p = tmp / "out" / "电影" / "片.mkv.strm"
             p.parent.mkdir(parents=True, exist_ok=True)
             # ⚠️ 故意写**错的内容**（不是那个网盘文件的 URL）⇒ 内容反查也认不出来
             p.write_text("https://别的地方/x.mkv", encoding="utf-8")
             p.rename(p.with_name("片-我改的.mkv.strm"))
-            res = s.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 1)               # 重新生成原名的
-            self.assertTrue((tmp / "out" / "115电影" / "片.mkv.strm").exists())
+            self.assertTrue((tmp / "out" / "电影" / "片.mkv.strm").exists())
             self.assertEqual(res.deleted, 0)               # 改过名的那份：挂起，没立即删
             self.assertEqual(res.pending_delete, 1)
-            self.assertIn("115电影/片-我改的.mkv.strm", s.load_pending().paths)
+            self.assertIn("电影/片-我改的.mkv.strm", s.load_pending().paths)
 
     def test_本地手动改内容会被改回来(self):
         with tempfile.TemporaryDirectory() as td:
@@ -372,28 +372,28 @@ class TestLocalRename(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            target = s.builder.url("115电影/片.mkv")
-            p = self._seed(tmp, "115电影/片.mkv.strm", target)
+            target = s.builder.url("电影/片.mkv")
+            p = self._seed(tmp, "电影/片.mkv.strm", target)
             # 用户改名
             p.rename(p.with_name("我改的名字.mkv.strm"))
 
-            res = s.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 0, "不该重新生成")
             self.assertEqual(res.deleted, 0, "不该删")
             self.assertEqual(res.pending_delete, 0, "不该进挂起")
             self.assertEqual(res.renamed, 1)
-            self.assertTrue((tmp / "out" / "115电影" / "我改的名字.mkv.strm").exists())
+            self.assertTrue((tmp / "out" / "电影" / "我改的名字.mkv.strm").exists())
             # ⚠️ 不能又冒出一个「原名的」来
-            self.assertFalse((tmp / "out" / "115电影" / "片.mkv.strm").exists())
+            self.assertFalse((tmp / "out" / "电影" / "片.mkv.strm").exists())
 
     def test_改名后内容仍会被更新(self):
         """改名 ≠ 冻结内容。URL 变了（如同批文件换了前缀）还是要就地更新。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            old = self._seed(tmp, "115电影/片.mkv.strm", "https://旧前缀/d/115电影/片.mkv")
+            old = self._seed(tmp, "电影/片.mkv.strm", "https://旧前缀/d/电影/片.mkv")
             old.rename(old.with_name("我改的名字.mkv.strm"))
-            res = s.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             # 内容对不上 ⇒ 认领失败 ⇒ 走正常流程（生成 + 旧的挂起）
             self.assertEqual(res.renamed, 0)
             self.assertEqual(res.written, 1)
@@ -404,8 +404,8 @@ class TestLocalRename(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            self._seed(tmp, "我给这部片单开的名字.mkv.strm", s.builder.url("115电影/片.mkv"))
-            res = s.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            self._seed(tmp, "我给这部片单开的名字.mkv.strm", s.builder.url("电影/片.mkv"))
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 0)
             self.assertEqual(res.deleted, 0)
             self.assertEqual(res.pending_delete, 0)
@@ -416,10 +416,10 @@ class TestLocalRename(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            self._seed(tmp, "115电影/旧名.mkv.strm", s.builder.url("115电影/旧名.mkv"))
-            res = s.run(remote_files=[f("115电影/新名.mkv")], remote_dirs=[], source="tree")
+            self._seed(tmp, "电影/旧名.mkv.strm", s.builder.url("电影/旧名.mkv"))
+            res = s.run(remote_files=[f("电影/新名.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 1)                     # 新名字的生成出来
-            self.assertTrue((tmp / "out" / "115电影" / "新名.mkv.strm").exists())
+            self.assertTrue((tmp / "out" / "电影" / "新名.mkv.strm").exists())
             self.assertEqual(res.pending_delete, 1)              # 旧名字的挂起
             self.assertEqual(res.renamed, 0)
 
@@ -439,8 +439,8 @@ class TestLocalRename(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            self._seed(tmp, "115电影/片.mkv.strm", s.builder.url("115电影/片.mkv"))
-            res = s.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            self._seed(tmp, "电影/片.mkv.strm", s.builder.url("电影/片.mkv"))
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 0)
             self.assertEqual(res.renamed, 0)      # 路径就配上了，不走内容反查
             self.assertEqual(res.unchanged, 1)
@@ -460,11 +460,11 @@ class TestLocalRename(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            u = s.builder.url("115电影/片.mkv")
-            p = self._seed(tmp, "115电影/片.mkv.strm", u)
+            u = s.builder.url("电影/片.mkv")
+            p = self._seed(tmp, "电影/片.mkv.strm", u)
             p.rename(p.with_name("改名了.mkv.strm"))
             s2 = Syncer(None, make_cfg(tmp, dry_run=True))
-            res = s2.run(remote_files=[f("115电影/片.mkv")], remote_dirs=[], source="tree")
+            res = s2.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 0)
             self.assertEqual(res.diff["counts"]["renamed"], 1)
             self.assertEqual(len(res.diff["renamed"]), 1)
@@ -548,11 +548,11 @@ class TestScanLocal(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            fp = tmp / "out" / "115电影" / "片名（2026）" / "x.mkv.strm"
+            fp = tmp / "out" / "电影" / "片名（2026）" / "x.mkv.strm"
             fp.parent.mkdir(parents=True, exist_ok=True)
             fp.write_text("x", encoding="utf-8")
             local = s.scan_local()
-            self.assertIn(_safe_rel("115电影/片名（2026）/x.mkv.strm"), local)
+            self.assertIn(_safe_rel("电影/片名（2026）/x.mkv.strm"), local)
 
     def test_只认strm(self):
         with tempfile.TemporaryDirectory() as td:
@@ -582,8 +582,8 @@ class TestRoundTripNoFalseDelete(unittest.TestCase):
             tmp = Path(td)
             cfg = make_cfg(tmp)
             s = Syncer(None, cfg)
-            remote = [f("115电影/片名（2026）/x.mkv"), f("115电视剧/某剧/S01E01.mkv")]
-            dirs = ["115电影", "115电影/片名（2026）", "115电视剧", "115电视剧/某剧"]
+            remote = [f("电影/片名（2026）/x.mkv"), f("电视剧/某剧/S01E01.mkv")]
+            dirs = ["电影", "电影/片名（2026）", "电视剧", "电视剧/某剧"]
 
             r1 = s.run(remote_files=remote, remote_dirs=dirs, source="tree")
             self.assertEqual(r1.written, 2)
@@ -601,7 +601,7 @@ class TestRoundTripNoFalseDelete(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            a = [f(f"115电影/片{i}.mkv") for i in range(10)]
+            a = [f(f"电影/片{i}.mkv") for i in range(10)]
             s.run(remote_files=a, remote_dirs=[], source="tree")
             b = a[:9]                                  # 少一个
             r = s.run(remote_files=b, remote_dirs=[], source="tree")

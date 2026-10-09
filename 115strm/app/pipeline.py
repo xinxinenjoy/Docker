@@ -157,7 +157,7 @@ def run_once(cfg: Config, log: Callable, *,
         raise ValueError(
             "还没配置 strm 内容前缀 —— 生成的 strm 里会写不出完整地址。\n"
             "  请到网页「设置 › 播放地址」填上你的 alist 地址，"
-            "格式是 `https://你的域名:端口/d/挂载路径`（如 `https://alist.example.com:5244/d/影音/115影音`）。\n"
+            "格式是 `https://你的域名:端口/d/挂载路径`（如 `https://alist.example.com:5244/d/媒体/影音`）。\n"
             "  ⚠️ 必须用 `/d` 端点（`/dav` 要认证、播不了），"
             "而且**要写到挂载路径的完整一层**（少一层 alist 会回 storage not found，"
             "状态码却还是 200）。填完可以点「自检 strm 前缀」验一下。")
