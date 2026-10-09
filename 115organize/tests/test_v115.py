@@ -67,13 +67,13 @@ class FakeClient:
         return self._maybe_fail("fs_history_receive_list") or {
             "state": True,
             "data": {"total": 2, "list": [
-                {"id": "rec1", "type": 7, "file_id": "3312870825789104125",
-                 "parent_id": "c1", "parent_name": "115电视剧",
-                 "file_name": "美剧【怪奇物语】1-4季 4K中字【255G】",
+                {"id": "rec1", "type": 7, "file_id": "<文件 id>",
+                 "parent_id": "c1", "parent_name": "电视剧",
+                 "file_name": "美剧【示例剧名】1-4季 4K中字【255G】",
                  "create_time": 1759700000, "update_time": 1759700000},
                 {"id": "rec2", "type": 7, "file_id": "",
                  "parent_id": "ROOT", "parent_name": "云下载",
-                 "file_name": "主谋_The Mastermind.srt等2个文件",
+                 "file_name": "示例剧名_The Show.srt等2个文件",
                  "create_time": 1759700001, "update_time": 1759700001},
             ]},
         }
@@ -259,7 +259,7 @@ class TestEnsureDir(unittest.TestCase):
     def test_目录id在data_file_id里而不是顶层id(self):
         """⛔ 2026-10-06 真机实测：两个查目录的接口**形态不一样**。
 
-            fs_dir_getid   → {"state":true, "id":"438124340056368324"}            ← 顶层 id
+            fs_dir_getid   → {"state":true, "id":"<目录 id>"}            ← 顶层 id
             fs_dir_getid2  → {"state":true, "data":{"file_id":"3533…"}}           ← data.file_id
 
         `fs_makedirs` 就是 `fs_dir_getid2(is_create=1)` 的封装 ⇒ 同一形态。
@@ -347,10 +347,10 @@ class TestReceiveList(unittest.TestCase):
         v = make_v(FakeClient())
         it = v.receive_list(limit=50)[0]
         self.assertEqual(it["record_id"], "rec1", "`id` 是接收记录的 id，不是文件的")
-        self.assertEqual(it["file_id"], "3312870825789104125")
-        self.assertEqual(it["file_name"], "美剧【怪奇物语】1-4季 4K中字【255G】")
+        self.assertEqual(it["file_id"], "<文件 id>")
+        self.assertEqual(it["file_name"], "美剧【示例剧名】1-4季 4K中字【255G】")
         self.assertEqual(it["parent_id"], "c1")
-        self.assertEqual(it["parent_name"], "115电视剧", "落在哪个目录 —— 发现新目录全靠它")
+        self.assertEqual(it["parent_name"], "电视剧", "落在哪个目录 —— 发现新目录全靠它")
         self.assertEqual(it["time"], 1759700000)
 
     def test_空file_id不等于目录(self):

@@ -168,7 +168,7 @@ def _dir_id(resp: Any) -> str:
 
     ⚠️ **两个接口把 id 放在不同地方**（2026-10-06 真机实测，不是猜的）：
 
-        fs_dir_getid   GET /files/getid       → {"state":true, "id":"438124340056368324"}
+        fs_dir_getid   GET /files/getid       → {"state":true, "id":"<目录 id>"}
                                                 ⇒ 顶层 `id`
         fs_dir_getid2  GET /files/get_path_id → {"state":true, "data":{"file_id":"3533…", "is_private":"0"}}
                                                 ⇒ **`data.file_id`**，顶层没有 `id`
@@ -289,8 +289,8 @@ class V115:
           · `create_time` / `update_time` —— unix 秒
 
         实测样本：
-            id=3312870825… file_id=3312870825… fname='美剧【怪奇物语】1-4季 4K中字【255G】' pname='115电视剧'
-            id=3328667864… file_id=''          fname='主谋_The Mastermind.srt等2个文件'       pname='主谋（2025）'
+            id=<文件 id> file_id=<文件 id> fname='美剧【示例剧名】1-4季 4K中字【255G】' pname='电视剧'
+            id=<文件 id> file_id='' fname='示例剧名_The Show.srt等2个文件' pname='示例剧名（2025）'
         """
         resp = self._call("fs_history_receive_list", {"limit": limit})
         data = (resp or {}).get("data")

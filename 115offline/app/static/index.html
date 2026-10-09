@@ -754,7 +754,7 @@
       </div>
       <label class="f">手动填写目录 ID</label>
       <div class="row">
-        <input type="text" id="pickManual" placeholder="wp_path_id，例如 2518445410911234067">
+        <input type="text" id="pickManual" placeholder="wp_path_id，例如 1234567890123456789">
         <button class="ghost sm" id="pickManualGo" style="flex:0 0 auto">用这个</button>
       </div>
     </div>
@@ -1140,7 +1140,7 @@ $('#pickManualGo').onclick = () => {
 };
 /* `cid` 切换目录时 offset=0；点「加载更多」只传 offset。
    ⚠️ 115 的 `fs_files` 单次上限 200 条（传 500 也只回 200）⇒ 子目录多的目录必须翻页，
-   否则**静默丢目录**（实测 `115电影` 257 个子目录只显示 200）。 */
+   否则**静默丢目录**（实测 `电影` 257 个子目录只显示 200）。 */
 async function pickerLoad(cid, offset) {
   if (!CURRENT) { alert('先在「账号管理」里添加一个 115 账号'); return; }
   offset = offset || 0;

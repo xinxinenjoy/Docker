@@ -262,7 +262,7 @@ python -m app run
 ## 八、开发
 
 ```bash
-python -m unittest discover -s tests        # 74 个用例，约 1 秒，不需要装任何第三方依赖
+python -m unittest discover -s tests        # 196 个用例，约 2 秒（网页层用例要装 requirements.txt + httpx）
 python tests/check_namer.py                 # 命名规则独立脚本（与 115offline 共用）
 ```
 
@@ -283,7 +283,7 @@ python tests/check_namer.py                 # 命名规则独立脚本（与 115
   - 清理：受 `JUNK_ALLOW_DIR` 管 —— 默认允许动目录（判据是按**名字**做的，目录一样成立，
     且默认动作是**可撤销**的 `quarantine`）；设 0 则只清文件、目录跳过并报出条数。
 - **`count` 缺失时靠翻页试探**，极端情况（接口不认 `offset`）会在 500 页处收手并告警。
-- **不动 `115电影` 那块**：`ROOT_PATH` 一次只指一个根，想整理另一块就另跑一份配置。
+- **不动 `电影` 那块**：`ROOT_PATH` 一次只指一个根，想整理另一块就另跑一份配置。
 
 ---
 

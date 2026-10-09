@@ -45,7 +45,7 @@ check("空账本 items", log.items(), [])
 check("空账本不建文件（没写过就别落盘）", FP.exists(), False)
 
 print("\n=== 记一笔 + 最新在前 ===")
-r1 = log.add(account_id="acc-home", account="家里 NAS", dir_id="d1", dir="115电影",
+r1 = log.add(account_id="acc-home", account="家里 NAS", dir_id="d1", dir="电影",
              count=2, skipped=1, ok=True, ts=1759651200,
              links=[{"url": "magnet:?xt=urn:btih:aaa", "source": "链接"},
                     {"url": "magnet:?xt=urn:btih:bbb", "source": "佛曰"}])
@@ -74,7 +74,7 @@ check("顺序不变（最新在前）", [x["id"] for x in back], [2, 1])
 check("账号名保形", back[0]["account"], "家里 NAS")
 check("失败标记保形", back[0]["ok"], False)
 check("失败原因保形", back[0]["message"], "推送失败：风控")
-check("目标目录保形", back[1]["dir"], "115电影")
+check("目标目录保形", back[1]["dir"], "电影")
 check("links 保形", back[1]["links"][1], {"url": "magnet:?xt=urn:btih:bbb", "source": "佛曰"})
 check("续写 id 不撞（恢复后接着 3）", again.add(count=1)["id"], 3)
 
