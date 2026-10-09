@@ -66,14 +66,19 @@ docker run -d --name 115offline \
 
 > 构建依赖仓库 secret `DOCKERHUB_TOKEN`（Docker Hub Access Token，权限 **Read & Write**）。
 >
-> ⚠️ `115organize.yml` 比另两个多一个 `test` job：**先跑 74 个离线单测，过了才构建**。
-> 那个项目的风险不在编译不过，而在**规则判错**（垃圾判错 = 正片被搬走；
-> `conflict_policy` 忘了传 = 文件被覆盖且不可恢复）—— 这类错误只有用例能拦。
+> ⚠️ `115organize.yml` / `115strm.yml` 比另两个多一个 `test` job：**先跑离线单测，过了才构建**
+> （`115organize` 102 个 / `115strm` 280 个）。这两个项目的风险不在编译不过，而在**规则判错**
+> （垃圾判错 = 正片被搬走；路径口径判错 = 整库播不了；删除判定写错 = 本地 strm 被误删）——
+> 这类错误只有用例能拦。
 
 ## 维护者流程
 
-1. 改 `115offline/` / `115organize/` / `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
-2. **镜像推送成功后，必须同步更新 Docker Hub 仓库页的说明与使用方法。**
+1. 改 `115offline/` / `115organize/` / `115strm/` / `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
+2. **镜像推送成功后，必须同步更新 Docker Hub 仓库页的说明。**
    Hub 页面是别人看到的第一眼 —— 镜像更新了、说明还停在旧版，等于误导。
-   **以各目录下的 `README.md` 为准**同步（Hub 的 Overview 与短描述都从它来）。
+   **同步的是各目录下的 `DOCKERHUB.md`**（Hub 的 Overview 与短描述都从它来），
+   `README.md` 留在仓库当**完整文档**。`DOCKERHUB.md` 的性质：
+   - **简明扼要**：≤ 100 行 / 6 KB；该压缩时压**句子**，别为了省行数漏列命令 / 环境变量
+   - **适配所有人**：⛔ 不出现作者自己的目录名 / 文件名 / 文件夹 id / 域名 / 内网地址，举例一律用通用占位
+   - **只讲「怎么用」和「怎么不踩坑」**：不写实现推导，一个坑只讲一次
 3. 验收以 `docker manifest inspect <镜像>` 为准，别只看 CI 是不是绿的。
