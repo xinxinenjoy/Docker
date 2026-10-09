@@ -44,7 +44,7 @@ main{flex:1;padding:16px;max-width:1080px;margin:0 auto;width:100%}
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:12px 16px;border-bottom:1px solid var(--line);
 }
-.card-h h2{margin:0;font-size:14px;font-weight:640}
+.card-h h2{margin:0;font-size:14px;font-weight:640;display:flex;align-items:center;gap:8px}
 .card-h .hint{font-size:12px;color:var(--dim)}
 .card-b{padding:16px}
 
@@ -295,20 +295,41 @@ nav button.on{color:var(--pri)}
 .savebar .btn.pri{background:#fff;border-color:#fff;color:#4338ca}
 .savebar .btn.pri:hover{background:#eef0ff;border-color:#eef0ff}
 
-/* ---------- 设置页：首次配置清单 ---------- */
+/* ---------- 设置页：首次配置清单 ----------
+   ⚠️ 条目的**序号**与下方三张卡的序号徽章（`.cno`）是同一套编号 ——
+      两处对不上比没有序号更糟，改一处必须改另一处。 */
 .setup{display:grid;gap:9px}
 .setup .step{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;
   border:1px solid var(--line);background:#fff;font-size:12.8px}
 .setup .step.todo{border-color:#fcd34d;background:#fffbeb}
 .setup .step.done{color:var(--dim)}
+/* 「还没轮到」：条件没到位（如还没目录树）—— 虚线降级，但**正文不淡化**，
+   因为这里装的正是「先去干 X」的引导文案。 */
+.setup .step.locked{background:#fafbfc;border-style:dashed}
 .setup .step .tick{flex:0 0 auto;width:22px;height:22px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;
   background:#e5e7eb;color:#6b7280}
 .setup .step.done .tick{background:#dcfce7;color:#15803d}
 .setup .step.todo .tick{background:#fde68a;color:#92400e}
+.setup .step.locked .tick{background:#e5e7eb;color:#8b93a1}
 .setup .step .body{flex:1;min-width:0}
 .setup .step .t{font-weight:620}
 .setup .step .h{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.5}
+.setup .step .go{margin-left:auto;flex:0 0 auto}
+
+/* ---------- 设置页：卡片序号徽章 ----------
+   序号 = 引导顺序（账号 → 播放地址 → 同步范围），颜色即状态：
+   琥珀 = 还差你一步 / 绿勾 = 已完成 / 灰 = 还没轮到。 */
+.cno{flex:0 0 auto;width:21px;height:21px;border-radius:50%;display:inline-flex;
+  align-items:center;justify-content:center;font-size:11.5px;font-weight:700;
+  background:#eef0ff;color:var(--pri)}
+.cno.todo{background:#fde68a;color:#92400e}
+.cno.done{background:#dcfce7;color:#15803d}
+.cno.lock{background:#e5e7eb;color:#8b93a1}
+/* 条件不足的卡片：虚线边框 + 灰表头 —— ⚠️ 只降表头，**不淡化正文**
+   （卡里装的恰恰是「先去干 X」的引导文案，淡化了就读不清）。 */
+.card.locked{border-style:dashed}
+.card.locked .card-h{background:#fafbfc}
 </style>
 </head>
 <body>
@@ -432,15 +453,22 @@ nav button.on{color:var(--pri)}
          上一版是「范围 / 参数 / 账号」跳着排，而且所有参数（含十几项进阶的）
          全塞在一张卡里，找不到重点。
          现在：第一屏只留「必须你决定的」，其余全部折进「进阶参数」。
+
+      🔴 2026-10-09 又改了一次顺序（红领巾定「引导顺序 A」）：
+         「同步范围」与「播放地址」**对调** ⇒ 卡片顺序变成
+         **① 115 账号 → ② 播放地址 → ③ 同步范围 → 参数**。
+         为什么必须换：顶部清单要求「先填播放地址（唯一必填项）」，
+         而卡片却把「同步范围」摆在它前面 —— 两处顺序打架，新用户照哪边走都别扭。
+         ⚠️ 三张卡的序号徽章（`.cno`）与顶部清单的编号**是同一套**，改顺序必须同步改。
     -->
     <section class="page" id="p-set">
 
       <!-- 首次配置清单（JS 渲染；都齐了就自动收起） -->
       <div id="setupCard"></div>
 
-      <div class="card">
+      <div class="card" id="acctCard">
         <div class="card-h">
-          <h2>115 账号</h2>
+          <h2><span class="cno todo" id="cnoAcct">1</span>115 账号</h2>
           <div class="actions">
             <button class="btn sm" onclick="loadAcct()">刷新</button>
             <button class="btn sm" onclick="showQr()">扫码登录</button>
@@ -453,23 +481,10 @@ nav button.on{color:var(--pri)}
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-h">
-          <h2>同步范围</h2>
-          <div class="actions">
-            <button class="btn sm" onclick="loadScope()">重新读取</button>
-            <button class="btn pri sm" onclick="saveScope()">保存范围</button>
-          </div>
-        </div>
-        <div class="card-b">
-          <div id="scopeOut"></div>
-        </div>
-      </div>
-
       <!-- ⭐ 单独一张卡：这是唯一「必须填」的参数，且它现在只存在 data/config.json -->
-      <div class="card">
+      <div class="card" id="outCard">
         <div class="card-h">
-          <h2>播放地址</h2>
+          <h2><span class="cno todo" id="cnoPrefix">2</span>播放地址</h2>
           <span class="hint" id="outHint"></span>
         </div>
         <div class="card-b">
@@ -479,6 +494,19 @@ nav button.on{color:var(--pri)}
             <button class="btn sm" onclick="detectAlist()">探测 Alist 挂载</button>
           </div>
           <div id="checkOut" style="margin-top:11px"></div>
+        </div>
+      </div>
+
+      <div class="card" id="scopeCard">
+        <div class="card-h">
+          <h2><span class="cno lock" id="cnoScope">3</span>同步范围</h2>
+          <div class="actions">
+            <button class="btn sm" onclick="loadScope()">重新读取</button>
+            <button class="btn pri sm" id="btnSaveScope" onclick="saveScope()">保存范围</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div id="scopeOut"></div>
         </div>
       </div>
 
@@ -548,14 +576,25 @@ function toast(msg) {
 }
 const n = v => (v == null ? '0' : Number(v).toLocaleString());
 
-/* ---------------- 导航 ---------------- */
-$$('#nav button').forEach(b => b.onclick = () => {
-  $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
-  $$('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.p));
-  if (b.dataset.p === 'hist') loadHist();
-  if (b.dataset.p === 'set') { loadScope(); loadSettings(); loadAcct(); }
+/* ---------------- 导航 ----------------
+   ⚠️ 抽成 `goPage()` 是因为「首次配置清单」里的按钮也要跳页/跳卡 ——
+      复制一份切换逻辑出来必然分叉（迟早一边改了另一边没改）。 */
+function goPage(p) {
+  $$('#nav button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
+  $$('.page').forEach(x => x.classList.toggle('on', x.id === 'p-' + p));
+  if (p === 'hist') loadHist();
+  if (p === 'set') { loadScope(); loadSettings(); loadAcct(); }
   window.scrollTo(0, 0);
-});
+}
+/* 清单里的「去 X →」：目标在本页就**只滚过去不重载** ——
+   重载会把正在填的播放地址冲掉，那比不跳更烦人。 */
+function gotoStep(page, anchor) {
+  if (page !== 'set') { goPage(page); return; }
+  if (!$('#p-set').classList.contains('on')) goPage('set');
+  const el = anchor ? document.getElementById(anchor) : null;
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+$$('#nav button').forEach(b => b.onclick = () => goPage(b.dataset.p));
 
 /* ---------------- 概览 ---------------- */
 async function loadState() {
@@ -589,7 +628,9 @@ async function loadState() {
   if (s.dry_run) notes.push(['info', '🧪', '当前是「只演练」模式：一个文件都不会写、不会删。确认无误后在「同步」页关掉。']);
   $('#homeNotes').innerHTML = notes.map(([c, i, t]) =>
     `<div class="note ${c}"><i>${i}</i><div>${t}</div></div>`).join('');
-  // 设置页的「首次配置」清单也吃这份状态（配对告警、账号就绪）
+  // 设置页的「首次配置」清单也吃这份状态（配对告警、账号就绪、跑没跑过）
+  // ⚠️ `window.__state` 必须先落位 —— renderSetup 要读 `run` 判断「跑过第一轮没」。
+  window.__state = s;
   if (SETUP_D) renderSetup();
 
   // 同步页的执行区：前缀没配时先把话说明白，别等点了才报错
@@ -864,12 +905,15 @@ function poll() {
 //   `dirty=True` 表示用户改过、还没保存 ⇒ 此时**不能再被服务端值覆盖**。
 //   （这个坑踩过：勾了之后 `loadScope()` 重读服务端 ⇒ 勾选被静默清掉、
 //     界面看着「点了没反应」。）
-let SCOPE = { remote_root: '', includes: [], path: '', node: null, dirty: false };
+// `tree_missing`：null = 还没问过 / false = 有树 / true = 没树。
+//   —— 它决定「同步范围」卡是正常态，还是「等一棵目录树」的降级态（见 updateBadges）。
+let SCOPE = { remote_root: '', includes: [], path: '', node: null, dirty: false, tree_missing: null };
 
 async function loadScope(path) {
   try {
     const q = (path === undefined) ? (SCOPE.path || '') : path;
     const d = await api('/api/scope?path=' + encodeURIComponent(q));
+    SCOPE.tree_missing = false;
     SCOPE.path = d.node.path;
     SCOPE.node = d;
     SCOPE.tree_root = d.tree_root;
@@ -877,8 +921,33 @@ async function loadScope(path) {
     if (!SCOPE.dirty) SCOPE.includes = d.scope.includes.slice();   // ⛔ 改过就别覆盖
     renderScope(d);
   } catch (e) {
-    $('#scopeOut').innerHTML = `<div class="note bad"><i>⚠</i><div>${esc(e.message)}</div></div>`;
+    // 🔴 「目录树读不到」**不是故障**，是首次使用一定会撞上的状态 ——
+    //    树由工具每轮同步时自己导（`data/tree/`），所以这里必须说清「先去跑一轮」。
+    //    原来只把后端异常原样甩出来（`目录树读不到：[Errno 2] …`），
+    //    新用户只会以为工具坏了，猜不到要先跑一轮。
+    const noTree = String(e.message || '').indexOf('目录树读不到') === 0;
+    SCOPE.tree_missing = noTree;
+    SCOPE.node = null;
+    $('#scopeOut').innerHTML = noTree
+      ? noTreeHint()
+      : `<div class="note bad"><i>⚠</i><div>${esc(e.message)}</div></div>`;
   }
+  // ⚠️ 清单必须一起重画 —— 「有没有目录树」正是第 3 步的判据。
+  //    而 `loadSettings` 常常**先于** `loadScope` 返回（导树文件比配置大得多），
+  //    只刷徽章的话，第 3 步会一直停在「要先跑一轮」——树明明已经在了。
+  renderSetup();
+  updateBadges();
+}
+
+function noTreeHint() {
+  return `<div class="note warn"><i>⚠</i><div>
+      这一段要靠<b>目录树</b>才列得出你的目录 —— 而现在还没有树。<br>
+      树不是你手动导的，是<b>工具跑一轮时自己导</b>的（落在 <span class="mono">data/tree/</span>，只留最近 5 份）。</div></div>
+    <div class="actions">
+      <button class="btn pri sm" onclick="goPage('run')">去「同步」页跑一轮 →</button>
+      <span class="muted" style="font-size:11.5px">
+        「只演练」开着就行 —— 它只导树、算差异，一个文件都不写</span>
+    </div>`;
 }
 
 // 不重新请求，只按当前内存状态重画（勾选走这条路）
@@ -1047,11 +1116,20 @@ async function loadSettings() {
   } catch (e) { $('#setBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
 }
 
-/* 首次配置清单 —— 照**第一次配置的顺序**列，缺哪步点哪步。
-   ⚠️ 账号那一项的数据来自 `/api/accounts`（`loadAcct` 会填到 `SETUP.staff`），
-      所以这里只用「配置层」能确定的两项 + 一个占位。
+/* 首次配置清单 —— 照**第一次配置的顺序**（A：账号 → 播放地址 → 同步范围 → 跑一轮）
+   列，缺哪步点哪步。序号与三张卡的徽章（`.cno`）**是同一套编号**。
+   ⚠️ 数据来源三处：账号 ← `/api/accounts`（`loadAcct` 填 `SETUP_ACCT_OK`）、
+      有没有目录树 ← `SCOPE.tree_missing`、跑没跑过 ← `/api/state` 的 `run`。
    ⭐ 全部就绪时整张卡**自动收起** —— 配好了还杵在首页就是噪音。 */
 let SETUP_ACCT_OK = null, SETUP_D = null;
+
+/* 🔴 2026-10-09：第 3 步从「同步根 ↔ 播放地址 配对」**换成「同步范围」**。
+   起因（翻代码确认）：前缀为空时 `health.scope_warn()` 返回的原话是
+   「还没配置 strm 前缀。」—— 于是第 3 步的说明跟第 2 步**几乎一字不差**：
+   同一条事实说两遍，而它真正想说的「跟*谁*配对」反而没说。
+   现在配对告警改挂到第 3 步的说明里（有则优先显示），既不丢、也不再重复。
+   ⭐ 第 4 步「跑第一轮」是**新增**的 —— 这一步原来界面上完全没提，
+      可它才是拿到目录树的唯一途径。 */
 function renderSetup(d) {
   if (d) SETUP_D = d;
   d = SETUP_D;
@@ -1059,32 +1137,77 @@ function renderSetup(d) {
   const by = {}; (d.fields || []).forEach(f => by[f.key] = f);
   const prefix = by.strm_prefix || {};
   const needPrefix = SETUP_MISSING.includes('strm_prefix');
+  const treeOk = SCOPE.tree_missing === false;
+  const st = window.__state || {};
+  const ranBefore = !!(st.run && (st.run.result || st.run.finished));
+  const incs = SCOPE.includes || [];
+  const scopeSaved = `${SCOPE.remote_root || '（树根）'} / ${incs.length ? incs.join(' + ') : '全部目录'}`;
   const steps = [
-    { ok: SETUP_ACCT_OK === true, t: '115 账号',
+    { n: 1, ok: SETUP_ACCT_OK === true, t: '115 账号', go: '去配 →',
+      page: 'set', anchor: 'acctCard',
       hint: SETUP_ACCT_OK === null ? '检查中…'
-        : (SETUP_ACCT_OK ? '已就绪' : '还没配 —— 在本页「115 账号」里扫码登录或粘贴 cookie') },
-    { ok: !needPrefix, t: '播放地址（strm 内容前缀）· 必填',
-      hint: needPrefix ? '还没填 —— 空着**跑不了**（工具会在开跑前拦住你）'
-        : String(prefix.value || '') },
-    { ok: !prefix_warn_from_state, t: '同步根 ↔ 播放地址 配对',
-      hint: prefix_warn_from_state || '离线看是配对的（连通性以「自检」发的真请求为准）' },
+        : (SETUP_ACCT_OK ? '已就绪 —— 工具用它去 115 导目录树'
+                         : '还没配 —— 在本页「115 账号」里扫码登录或粘贴 cookie') },
+    { n: 2, ok: !needPrefix, t: '播放地址（strm 内容前缀）', go: '去填 →',
+      page: 'set', anchor: 'outCard', req: true,
+      hint: needPrefix ? '唯一必填项 —— 空着**跑不了**（工具会在开跑前拦住你）'
+                       : String(prefix.value || '') },
+    // ⚠️ `ok` 必须**同时**要求「没有配对告警」—— 否则四步全齐时整张清单收起，
+    //    配对告警会跟着一起消失（它正是挂在本步说明里的）。
+    { n: 3, ok: treeOk && !prefix_warn_from_state, lock: !treeOk, t: '同步范围',
+      go: treeOk ? '去选 →' : '去跑一轮 →',
+      page: treeOk ? 'set' : 'run', anchor: 'scopeCard',
+      hint: prefix_warn_from_state ? prefix_warn_from_state
+        : (!treeOk ? '要先跑一轮拿到目录树，这里才列得出你的目录'
+                   : `已保存：${scopeSaved}`) },
+    { n: 4, ok: ranBefore, lock: !ranBefore, t: '跑第一轮（在「同步」页）', go: '去跑 →',
+      page: 'run', anchor: '',
+      hint: ranBefore ? '已跑过'
+                      : '建议「只演练」开着先跑一遍：会导树、会算差异，但一个文件都不写' },
   ];
   const todo = steps.filter(s => !s.ok).length;
-  if (todo === 0) { $('#setupCard').innerHTML = ''; return; }
+  if (todo === 0) { $('#setupCard').innerHTML = ''; updateBadges(); return; }
   $('#setupCard').innerHTML = `
     <div class="card">
       <div class="card-h"><h2>还差 ${todo} 步就能跑</h2>
-        <span class="hint">按顺序来；齐了这张卡会自动消失</span></div>
+        <span class="hint">序号就是建议的顺序；配齐这张卡会自动消失</span></div>
       <div class="card-b"><div class="setup">
-        ${steps.map(s => `<div class="step ${s.ok ? 'done' : 'todo'}">
-          <div class="tick">${s.ok ? '✓' : '!'}</div>
-          <div class="body"><div class="t">${esc(s.t)}${s.ok ? '' : ' <span class="tag">要做</span>'}</div>
+        ${steps.map(s => `<div class="step ${s.ok ? 'done' : (s.lock ? 'locked' : 'todo')}">
+          <div class="tick">${s.ok ? '✓' : s.n}</div>
+          <div class="body"><div class="t">${esc(s.t)}${s.req ? ' <span class="tag" style="background:#fde68a;color:#92400e">必填</span>' : ''}${s.ok ? '' : (s.lock ? ' <span class="tag">等一棵目录树</span>' : ' <span class="tag">要做</span>')}</div>
           <div class="h">${bold(s.hint)}</div></div>
+          ${s.ok ? '' : `<button class="btn sm ${s.lock ? '' : 'pri'} go"
+            onclick="gotoStep('${s.page}', '${s.anchor || ''}')">${s.go}</button>`}
         </div>`).join('')}
       </div></div>
     </div>`;
+  updateBadges();
 }
 let prefix_warn_from_state = '';
+
+/* ---------- 卡片序号徽章 ----------
+   序号 = 引导顺序（A：账号 → 播放地址 → 同步范围），与上面清单的编号**必须一致**。
+   颜色即状态：琥珀 = 还差你一步 / 绿勾 = 已完成 / 灰 = 还没轮到。 */
+function setBadge(id, n, st) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'cno ' + st;
+  el.textContent = st === 'done' ? '✓' : String(n);
+}
+function updateBadges() {
+  setBadge('cnoAcct', 1, SETUP_ACCT_OK === true ? 'done' : 'todo');
+  setBadge('cnoPrefix', 2, SETUP_MISSING.includes('strm_prefix') ? 'todo' : 'done');
+  // ⚠️ 只有**确知有树**才算完成；`null`（还没问过）也按「没轮到」处理，
+  //    否则首屏会先亮一下绿勾、再被打回灰色。
+  const treeOk = SCOPE.tree_missing === false;
+  // 有树、但同步根与前缀配不上对 ⇒ 琥珀（还差你一步）；配对也过了才是绿勾。
+  setBadge('cnoScope', 3, treeOk ? (prefix_warn_from_state ? 'todo' : 'done') : 'lock');
+  const card = document.getElementById('scopeCard');
+  if (card) card.classList.toggle('locked', !treeOk);
+  // 没有树就没有可保存的范围 —— 但**「重新读取」保持可用**：它正是重试入口。
+  const btn = document.getElementById('btnSaveScope');
+  if (btn) btn.disabled = !treeOk;
+}
 
 function renderSettings(d) {
   const groups = {};
