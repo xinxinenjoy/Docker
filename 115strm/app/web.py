@@ -23,7 +23,7 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
@@ -970,6 +970,11 @@ def _cfg_for_run(body: RunIn) -> Config:
 # --------------------------------------------------------------------------- 定时
 _SCHED: dict = {"thread": None, "cron": "", "stop": threading.Event()}
 
+# 分段睡的**段长**（秒）。它唯一的作用 = 让「网页上改的 cron」在 ≤30 秒内被感知到。
+# ⛔ 它**不是**触发周期：每睡满一段都必须重算「到点没有」（见 `_wait_due`）。
+#    v1.1 就是因为把「睡满一段」当成了触发点 ⇒ `0 6 * * *` 退化成每小时跑一次。
+_SCHED_SEG = 30.0
+
 
 def _cron_next(cron: str, now: datetime | None = None) -> datetime | None:
     """极简 cron 解析 —— 只要「分 时 日 月 周」五段，够用就好。
@@ -1014,6 +1019,49 @@ def _cron_field(part: str, lo: int, hi: int) -> set[int]:
     return {v}
 
 
+def _fmt_next(nxt: datetime, now: datetime | None = None) -> str:
+    """把「下一次触发时刻」说成人话（设置页与日志共用一份文案）。"""
+    now = now or datetime.now()
+    days = (nxt.date() - now.date()).days
+    day = {0: "今天", 1: "明天", 2: "后天"}.get(days) or f"{nxt:%m-%d}"
+    mins = max(int((nxt - now).total_seconds() // 60), 0)
+    left = f"{mins // 60} 小时 {mins % 60} 分" if mins >= 60 else f"{mins} 分钟"
+    return f"{day} {nxt:%H:%M}（还有 {left}）"
+
+
+def _wait_due(nxt: datetime, cron: str, stop: threading.Event, *,
+              read_cron: Callable[[], str], now=datetime.now,
+              seg: float | None = None) -> str:
+    """分段睡到 `nxt` 到点为止。返回 `'fire'` / `'reconfig'` / `'cancel'`。
+
+    ⭐ **这里是 v1.1 那个 bug 的修复点 —— 说清楚，别再改回去。**
+       现象：设置填 `0 6 * * *`（每天 06:00），实际**每小时跑一次**，周期恒为 `61m01s`。
+
+       病根是「睡满一段 = 到点」这个错误等价。睡**分段**是**故意**的，但它的目的
+       只有一个：让「网页上改的 cron」尽快生效（≤ `seg` 秒感知一次改动）。
+       ⇒ 每段醒来**必须重算**还差多久，没到就接着睡。
+
+       老写法（已删）：
+           `if wait > 0 and _SCHED["stop"].wait(min(wait, 3600)): continue`
+       它在 `wait()` **超时**（返回 `False`）后**没有重算就往下走**去开跑
+       ⇒ 只要「离下一轮 > 1 小时」，每睡满 1 小时就误触发一次。
+
+    ⚠️ 到点判定一律用**传进来的 `nxt`**，⛔ 不能在到点后立刻调 `_cron_next()` 重算：
+       它是「从 `now+1min` 起找」⇒ 在 `06:00:00.x` 重算会算成**明天**，这一轮就永远不触发。
+
+    参数：`read_cron` = 读当前配置里的 cron（改了就回外层重算）；`now` 可注入（好测）。
+    """
+    seg = _SCHED_SEG if seg is None else seg
+    while not stop.is_set():
+        if (read_cron() or "").strip() != cron:
+            return "reconfig"
+        left = (nxt - now()).total_seconds()
+        if left <= 0:
+            return "fire"
+        stop.wait(min(left, seg))
+    return "cancel"
+
+
 def start_scheduler() -> None:
     """起一个后台线程，按 `schedule_cron` 定时跑一轮。
 
@@ -1024,11 +1072,12 @@ def start_scheduler() -> None:
         「目录树不更新、定时结果就不会变」，定时形同虚设。这是被改掉的那处。）
     ⚠️ （v0.2 这里读 `sync_mode` 配置；2026-10-08 去掉模式概念后一并删了 ——
         现在**只有一条路**，定时和手动不可能再走出两种行为。）
+    🔴 （v1.1 这里把「睡满一段」当成了到点 ⇒ `0 6 * * *` 每小时跑一次；
+        判据与修法见 `_wait_due` 的 docstring —— 那段注释是留给下一个改这里的人的。）
     """
     def loop() -> None:
         while not _SCHED["stop"].is_set():
-            cfg = load()
-            cron = (cfg.schedule_cron or "").strip()
+            cron = (load().schedule_cron or "").strip()
             if not cron:
                 _SCHED["stop"].wait(30)
                 continue
@@ -1036,11 +1085,15 @@ def start_scheduler() -> None:
             if nxt is None:
                 _SCHED["stop"].wait(300)
                 continue
-            wait = (nxt - datetime.now()).total_seconds()
-            if wait > 0 and _SCHED["stop"].wait(min(wait, 3600)):
-                continue
-            if _SCHED["stop"].is_set():
+            # ⭐ 睡到点（分段睡只为感知配置改动，⛔ 睡满一段 ≠ 到点）——
+            #    ⚠️ 这里原来写的是 `wait(min(wait, 3600))` 且超时后直接开跑，
+            #       于是 `0 6 * * *` 变成每小时跑一次。细节与判据见 `_wait_due`。
+            verdict = _wait_due(nxt, cron, _SCHED["stop"],
+                                read_cron=lambda: load().schedule_cron)
+            if verdict == "cancel":
                 break
+            if verdict == "reconfig":
+                continue                     # 网页上改了 cron ⇒ 回外层重算，等新的点
             try:
                 if not _runner().status.get("running"):
                     _runner().log.add("info", f"定时触发（{cron}）⇒ 开始同步")
@@ -1052,6 +1105,23 @@ def start_scheduler() -> None:
     t = threading.Thread(target=loop, daemon=True)
     _SCHED["thread"] = t
     t.start()
+
+
+@app.get("/api/schedule/next", dependencies=[Depends(auth)])
+def schedule_next(cron: str = Query(default="")) -> dict:
+    """算「下一次什么时候跑」—— 给设置页显示用（填 cron 时**边打边看**）。
+
+    ⚠️ 与调度器**共用同一个 `_cron_next`**：⛔ 前端不许自己再抄一份 cron 解析 ——
+       两处各写一遍必然分叉（本项目吃过这个亏，别再来一次）。
+    """
+    c = (cron or "").strip()
+    if not c:
+        return {"ok": False, "text": "留空 ⇒ 不自动跑"}
+    nxt = _cron_next(c)
+    if nxt is None:
+        return {"ok": False,
+                "text": "认不出这个 cron —— 要 5 段「分 时 日 月 周」，只认 * / 数字 / */N"}
+    return {"ok": True, "text": _fmt_next(nxt), "next": f"{nxt:%Y-%m-%d %H:%M}"}
 
 
 # --------------------------------------------------------------------------- 启动

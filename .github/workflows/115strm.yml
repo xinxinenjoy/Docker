@@ -19,7 +19,7 @@ jobs:
   #    · strm 前缀少写一层 ⇒ Alist 回 storage not found（**状态码还是 200**）⇒ 整库播不了
   #    · 删除判定写错 ⇒ 本地 strm 被误删（不可逆）
   #    · 文件名安全化漏了某一段 ⇒ Windows 上 mkdir 直接抛错
-  #    这些构建期发现不了，只有那 280 个用例能拦。用例全是纯离线的（可注入时钟 / 假 client）。
+  #    这些构建期发现不了，只有那 296 个用例能拦。用例全是纯离线的（可注入时钟 / 假 client）。
   test:
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +62,7 @@ jobs:
           # 发新版时在这里加/改 tag
           tags: |
             xinxinenjoy/115strm:latest
-            xinxinenjoy/115strm:1.1
+            xinxinenjoy/115strm:1.2
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -1112,6 +1112,7 @@ function renderSettings(d) {
       <div style="margin-top:13px">${inner}</div></details>`;
   }
   $('#setBody').innerHTML = html;
+  wireCronNext();
 
   // ---- 「播放地址」卡：唯一必填项，单独一张卡 ----
   $('#outBody').innerHTML = fieldHtml(d.fields.find(f => f.key === 'strm_prefix') || {});
@@ -1153,6 +1154,9 @@ function fieldHtml(f) {
     : '';
   const unit = f.unit ? ` <span class="muted">${f.unit}</span>` : '';
   const ctl = controlHtml(f, id);
+  // 「定时扫描」下面挂一行**实时的**下次运行时刻 —— 见 wireCronNext()
+  const extra = f.key === 'schedule_cron'
+    ? '<div class="desc" id="cronNext" style="margin-top:6px"></div>' : '';
   // 布尔项：整行「左文右开关」，让开关的位置**对齐成一列**，一眼扫完
   if (f.type === 'bool') {
     return `<div class="field sw ${f.value ? 'on' : ''}">
@@ -1164,9 +1168,30 @@ function fieldHtml(f) {
   }
   return `<div class="field ${isEnv ? 'env' : ''}">
     <label for="${id}">${esc(f.label)}${tag}${unit}</label>${ctl}
+    ${extra}
     ${stale}
     ${f.help ? `<div class="desc">${esc(f.help)}</div>` : ''}
   </div>`;
+}
+
+/* ---------------- 定时：下次什么时候跑 ---------------- */
+// ⚠️ 时刻由**后端**算（`/api/schedule/next` 复用调度器同一个 `_cron_next`），
+//    前端只负责显示 —— ⛔ 别在前端抄一份 cron 解析，那样两边必然分叉。
+//    ⭐ 边打边看：填 `0 6 * * *` 当场就能看到「明天 06:00」，不用等保存、更不用翻记录页。
+let _cronTimer = null;
+function wireCronNext() {
+  const el = $('#f_schedule_cron'), box = $('#cronNext');
+  if (!el || !box) return;
+  const upd = async () => {
+    try {
+      const d = await api('/api/schedule/next?cron=' + encodeURIComponent(el.value || ''));
+      box.innerHTML = d.ok
+        ? `下次运行：<b>${esc(d.text)}</b>`
+        : `<span class="muted">${esc(d.text)}</span>`;
+    } catch (e) { box.textContent = ''; }
+  };
+  el.addEventListener('input', () => { clearTimeout(_cronTimer); _cronTimer = setTimeout(upd, 300); });
+  upd();
 }
 
 function controlHtml(f, id) {

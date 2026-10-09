@@ -67,7 +67,7 @@ docker run -d --name 115offline \
 > 构建依赖仓库 secret `DOCKERHUB_TOKEN`（Docker Hub Access Token，权限 **Read & Write**）。
 >
 > ⚠️ `115organize.yml` / `115strm.yml` 比另两个多一个 `test` job：**先跑离线单测，过了才构建**
-> （`115organize` 102 个 / `115strm` 280 个）。这两个项目的风险不在编译不过，而在**规则判错**
+> （`115organize` 102 个 / `115strm` 296 个）。这两个项目的风险不在编译不过，而在**规则判错**
 > （垃圾判错 = 正片被搬走；路径口径判错 = 整库播不了；删除判定写错 = 本地 strm 被误删）——
 > 这类错误只有用例能拦。
 
