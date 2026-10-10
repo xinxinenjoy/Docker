@@ -621,6 +621,12 @@
             <p>扫描只问 115 要「当前这一层」，不递归整棵树。5 分钟自动过期；
                改名 / 删除 / 还原 / 推送之后立即失效。缓存存在 NAS 的数据目录里，容器重启不丢。</p>
             <button class="ghost sm" id="fsClearCache">清空缓存</button>
+            <h4>文件名诊断</h4>
+            <p>本层 mp4 的「服务端算出来的候选名 vs 本地清洗结果」——排查「候选里混进字幕 / 站点尾巴」时，
+               整段复制给我。（只读，不发任何写请求）</p>
+            <pre id="fsDiag" style="max-height:180px; overflow:auto; margin:0; font-size:11px;
+              line-height:1.5; background:#f7f8fc; border:1px solid var(--line); border-radius:9px;
+              padding:8px; white-space:pre-wrap; word-break:break-all">打开这个目录、点过「⟳ 扫描」后，重新拉开这个菜单即可填充</pre>
           </div>
         </details>
       </div>
@@ -800,6 +806,67 @@ const SUBS = ['log', 'cloud', 'rb'];
 const PAGE_SIZE = 30;   /* 一页只渲染 30 条（红领巾：一页 20~50 更好） */
 
 /* ================= 基础 ================= */
+/* 🔴 文件名的「抠片名」诊断板（红领巾 2026-10-10 提的两个问题之一：
+     「像这个名称的修改就有问题，后边明显的是广告」）。
+   —— 现象：`坠落2：死点.1080p.HD中英双字[最新电影www.dyg7.com].mp4` 的候选给了
+      `坠落2：死点.中英双字.mp4`。**多出来的 `中英双字` 是唯一可疑点**。
+   —— 为什么光看界面断定不了：本仓库有**两套**抠片名实现 ——
+      · `app/namer.py`（服务端；候选新名就是它算的）
+      · `tools/render/mock.js` 的 `miniNamer`（跑 `tools/render/drive.py` 截图自测时
+        顶替后端；**屏幕截图里的候选名出自它**）—— 只用来做自测，不进生产。
+   ⇒ 两者若漂移，「本地跑一遍没问题、丢给用户就出问题」（或反过来）都会发生。
+      所以这板同时打三样：服务端实算 / 浏览器本地算 / 词表条数，一眼看出是谁的问题。
+   ⚠️ 纯**只读**诊断：不发任何写请求，也不影响任何正常功能；要在浏览器控制台跑，
+      直接 `console.log(NAMER_DIAG)` 也行。 */
+const AD_WORDS = ('地址发布页 地址發布頁 发布页 收藏不迷路 请牢记 請牢記 防走失 永久域名 永久地址 备用网址 '
+  + '最新地址 点击进入 点击查看 更多精彩 免费观看 在线观看 高清影视之家 最新电影 迅雷下载 磁力链接 '
+  + '种子下载 高清下载 无水印 请访问 請訪問 本站 官网 最新网址 网址找回 地址找回 找回网址 找回 收藏 '
+  + '不迷路 防丢失 防屏蔽 加群 进群 扫码 关注公众号 公众号 免费看 在线看 完整版 未删减 点击下载 '
+  + '立即下载 高速下载 极速下载 种子搜索 磁力搜索 更多资源 更多内容').split(' ');
+/* 浏览器本地算一份「保守清洗名」（只去广告、不动片名）—— 与服务端 clean_file 同口径 */
+function localCleanStem(name) {
+  const m = String(name || '').match(/\.([A-Za-z0-9]{1,6})$/);
+  const stem = m ? String(name).slice(0, m.index) : String(name || '');
+  let s = stem;
+  AD_WORDS.forEach(w => { s = s.split(w).join(' '); });
+  return s.replace(/\s+/g, ' ').replace(/^[\s.·\-_/|]+|[\s.·\-_/|]+$/g, '').trim();
+}
+
+const NAMER_DIAG = { note: '只读诊断：把 NAMER_DIAG 贴给我，或 console.log(NAMER_DIAG)',
+                     cases: [], engine: '', words: AD_WORDS.length, url: location.href };
+(async function runNamerDiag() {
+  const root = (FS && FS.cid) ? String(FS.cid) : '0';
+  const seen = new Set();
+  const files = ((FS && FS.items) || []).filter(
+    it => !it.is_dir && (it.ext || '').toLowerCase() === 'mp4').slice(0, 4);
+  NAMER_DIAG.engine = '服务端 app/namer.py';
+  for (const it of files) {
+    if (seen.has(it.name)) continue;
+    seen.add(it.name);
+    const row = { 文件名: it.name, 本地: localCleanStem(it.name) };
+    try {
+      const r = await api('/suggest', {
+        method: 'POST',
+        body: JSON.stringify({
+          paren: PAREN,
+          items: [{ name: it.name, is_dir: false, add_year: (FS && FS.addYear) || null }],
+        }),
+      });
+      const o = ((r.items || [])[0] || {});
+      row.服务端候选 = (o.suggestions || []).map(s => s.name);
+      row.命中广告 = !!o.ad_hint;
+    } catch (e) { row.报错 = String((e && e.message) || e); }
+    NAMER_DIAG.cases.push(row);
+  }
+  try { console.log('NAMER_DIAG', NAMER_DIAG); } catch (e) { /* 忽略 */ }
+  try {
+    const box = $('#fsDiag');
+    const el = box || document.getElementById('fsDiag');
+    if (el) el.textContent = JSON.stringify(NAMER_DIAG, null, 1);
+  } catch (e) { /* 忽略 */ }
+  try { window.__NAMER_DIAG = NAMER_DIAG; } catch (e) { /* 忽略 */ }
+})();
+
 async function api(path, opts = {}) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
   const token = localStorage.getItem(TOKEN_KEY);
@@ -917,6 +984,17 @@ async function loadAccounts() {
   PICKVIEW = { cid: '0', path: [], items: [] };
   applyAccountDefaults();
   renderAccounts();
+  /* 授权一次 → 两个全局点开就能看/被读到：
+       window.__NAMER_DIAG  「文件名诊断」（服务端实算的候选名，用来查广告没洗干净）
+       window.__DELDIAG     「删除回执」（最近一次删除的完整回执，用来查删除没效果）
+     主动 approve ⇒ mock（真机渲染自测）里不会弹授权框卡住，`--dump-dom` 也读得到。 */
+  try {
+    window.__NAMER_DIAG = NAMER_DIAG;
+    console.log('NAMER_DIAG', NAMER_DIAG);
+  } catch (e) {
+    /* 控制台被占（例如自测里换成假后端）⇒ 至少把诊断块填上 */
+    refreshNamerDiag();
+  }
 }
 function applyAccountDefaults() {
   const acc = curAcc();
@@ -1587,7 +1665,12 @@ async function fsSuggest(only) {
   list.forEach(it => req.push({
     name: it.name,
     is_dir: it.is_dir,
-    add_year: it.is_dir ? FS.addYear : null,
+    /* 🔴 2026-10-10 修：原来这里是 `it.is_dir ? FS.addYear : null` —— **文件永远拿不到添加年份**。
+       而「去整理」跳进来时（`openFromTask`）年份是**从离线任务的 add_time 推出来的**，
+       正是给文件补年份用的；不给文件 ⇒ 截图里那行 mp4 的候选只能是 `坠落2：死点.mp4`，
+       拿不到设计好的 `坠落2：死点（2026）.mp4`（目录那边一直是对的，所以没被发现）。
+       服务端 `SuggestItem.add_year` 本来就与 is_dir 无关，两个分支都该带。 */
+    add_year: FS.addYear || null,
     series_title: FS.rootTitle || null,
   }));
   if (!req.length) return;
@@ -1908,7 +1991,17 @@ function bindFsList() {
   /* 「进入」按钮已去掉 —— 目录改为点名字进入（见上） */
   const more = $('#fsMore');
   if (more) more.onclick = () => fsLoadMore();
+  /* 扫描完顺手刷新「⋯ → 文件名诊断」那块（只读，只打本层的 mp4） */
+  try { runNamerDiag(); } catch (e) { /* 诊断本身绝不能影响浏览 */ }
   setupFsAutoload();
+}
+
+/** 只做「诊断块填充」的那半截 —— 首次加载时 runNamerDiag 可能已经把 #fsDiag 写过了 */
+function refreshNamerDiag() {
+  try {
+    const box = $('#fsDiag');
+    if (box) box.textContent = JSON.stringify(window.__NAMER_DIAG || NAMER_DIAG, null, 1);
+  } catch (e) { /* 忽略 */ }
 }
 
 function updateFsBar() {
@@ -2121,22 +2214,60 @@ async function doDelete(ids) {
   if (!ids.length || !FS || FS.busy) return;
   FS.busy = true;
   setFsBusy('正在删除（分块串行，别关页面）…');
+  /* 🔴 删除「没效果」的**取证**（红领巾 2026-10-10：「改名可以正常生效，删除没效果」）。
+     后端 `/delete` 返回里本来就有 `failed[].error`（115 挡回来的原文），但旧版只在
+     对话框里贴**第一条**、关掉就没了 ⇒ 现场什么都没留下。这里把整段回执存下来：
+       ① 贴进控制台 / 挂到 window.__DELDIAG（**只读**，不含 cookie）
+       ② 显示成一个能选中的块，方便整段复制发我
+       ③ 顺手把「删除前后这一层还剩几个文件」也打下来 —— 好判断是真没删还是没刷新
+     ⚠️ 不自动重试、不自动改任何东西：先拿到证据再动手。 */
+  const diag = {
+    at: new Date().toLocaleString('zh-CN'),
+    cid: FS.cid, 路径: (FS.path || []).map(p => p.name).join(' / '),
+    account: (curAcc() || {}).name || '', 选中: ids.length,
+    提交前这一层条目数: (FS.items || []).length,
+  };
+  try {
+    console.log('%c[删除回执]', 'color:#c00', JSON.stringify(diag));
+  } catch (e) { /* 忽略 */ }
   try {
     const r = await api('/delete', {
       method: 'POST',
       body: JSON.stringify({ account_id: CURRENT, file_ids: ids, chunk: 20, delay: 1.2 }),
     });
+    Object.assign(diag, {
+      http: 'ok', ok: r.ok, changed: r.deleted_count, failed: r.failed_count,
+      seconds: r.seconds,
+      error: ((r.failed || [])[0] || {}).error || '',
+      failedList: (r.failed || []).slice(0, 20),
+      ids: ids.slice(0, 20),
+      response: r,
+    });
+    try { console.log('%c[删除回执·响应]', 'color:#c00', r); } catch (e) { /* 忽略 */ }
     if (r.ok) alert('✅ 已提交删除 ' + r.deleted_count + ' 项，用了 ' + r.seconds + ' 秒\n' + (r.note || ''));
-    else alert('⚠️ 成功 ' + r.deleted_count + ' 项，失败 ' + r.failed_count + ' 项\n' + ((r.failed[0] || {}).error || ''));
+    else alert('⚠️ 成功 ' + r.deleted_count + ' 项，失败 ' + r.failed_count + ' 项\n' + (diag.error || ''));
     FS.busy = false;
     FS.sel = new Set();
     await fsLoad(FS.cid, { refresh: true });
+    diag.提交后这一层条目数 = (FS.items || []).length;
+    diag.同名的还在吗 = ids.map(fid => {
+      const row = (FS.items || []).find(x => x.file_id === fid);
+      return (row ? '还在：' + row.name : '不在了');
+    }).slice(0, 20);
   } catch (e) {
+    Object.assign(diag, { http: 'http-error', 报错: String((e && e.message) || e) });
+    try { console.error('[删除回执·异常]', e); } catch (e2) { /* 忽略 */ }
     alert('删除失败：' + e.message);
     FS.busy = false;
     setFsBusy('');
   }
+  /* 最后统一把整段证据摆出来（成功 / 失败都摆 —— 只有「回执说成功、条目还在」才说明是别的问题） */
+  diag.结论 = (!diag.failed && (diag.同名的还在吗 || []).some(x => x.startsWith('还在')))
+    ? '⚠️ 后端回执说成功，但这一层里对象还在 ⇒ 大概率是 115 的异步删除尚未落地，把这段发我看' : '';
+  try { window.__DELDIAG = diag; console.log('%c[删除回执·汇总]', 'color:#c00', diag); } catch (e) { /* 忽略 */ }
+  try { window.alert(JSON.stringify(diag, null, 1)); } catch (e) { /* 忽略 */ }
 }
+
 
 /* ================= 启动 ================= */
 async function boot() {

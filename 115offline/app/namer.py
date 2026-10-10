@@ -169,6 +169,42 @@ TECH_RE = re.compile(
     r")(?![A-Za-z0-9])",
     re.I,
 )
+
+# —— 2026-10-10：**中文技术词允许紧贴英文技术词**（`HD中英双字`）———————————
+# 🔴 成因（实测，别照抄上面的 TECH_RE 直接改）：
+#    `TECH_RE` 的门是 `(?<![A-Za-z0-9])` + `(?![A-Za-z0-9])` —— 目的是「别在英文词中间切」。
+#    可是**字幕/语言类标签常常紧贴在技术词后面、中间没有分隔符**（`1080p.HD中英双字`、`HD双语中字`）。
+#    对这种位置，`(?<![A-Za-z0-9])` 拿**原文**判，前一个字是 `D` ⇒ 整段**直接匹配不上**，白留一段噪声。
+#    ⚠️ 原来的代码只靠自己「删掉 HD 后再来一遍」绕，结果 `HD双语中字` 只吃到 `中字`、
+#       剩下的 `双语` 粘进了片名（实测 `坠落2：死点.双语`）。这属于**没修干净**。
+# ⇒ 正解：把「中文的」技术词**单独拿出来**，这批词**去掉前界限制**（它们本身是中日韩字，
+#    不可能成为某个英文单词的中间部分，所以不需要 ASCII 边界保护），后界仍照旧。
+#    这样 `HD中英双字` / `HD双语中字` / `HD中字` 一次就吃干净，无需依赖「删了再来一遍」的顺序巧合。
+#    ⛔ 别用字符类拼（`[简簡繁]英双字`）—— 中间那个字会变成独立分支，实测把 `死点` 拆成 `死.点`。
+_CJK_TECH_WORDS = (
+    "国语", "國語", "粤语", "粵語", "双语", "雙語", "中字", "中文字幕", "简繁", "簡繁",
+    "特效字幕", "内嵌", "內嵌", "外挂", "外掛",
+    "中英双字", "中英雙字", "双语中字", "雙語中字",
+    "简英双字", "簡英雙字", "繁英双字", "繁英雙字", "国英双字", "粤英双字",
+)
+# 长词优先，保证 `双语中字` 不会被 `双语` 先咬一口、剩个孤零零的 `中字`
+_CJK_TECH_RE = re.compile(
+    r"(?:" + "|".join(sorted(_CJK_TECH_WORDS, key=len, reverse=True)) + r")(?![A-Za-z0-9])"
+)
+
+
+def strip_tech(s: str) -> str:
+    """去技术标签。
+
+    ⚠️ 三处调用点（title_of / episode_name）**都必须走这里**，别各自拼正则 ——
+    中文技术词的边界规则与英文词不一样（见 `_CJK_TECH_RE` 上方那段说明）。
+
+    顺序：中文技术词先吃（它们没有前界限制、能咬掉 `HD中英双字` 这种粘连），
+          再吃通用技术词（`1080p` / `HD` / `BluRay` …）。
+    """
+    if not s:
+        return s
+    return TECH_RE.sub(" ", _CJK_TECH_RE.sub(" ", s))
 # 「年份」的严格判定：前后不能紧贴中文或字母数字 —— 这样 `寒战1994` 里的 1994 不会被当成年份
 _YEAR_RE = re.compile(r"(?<![\w\u4e00-\u9fff])((?:19|20)\d{2})(?![\w\u4e00-\u9fff])")
 # 集号
@@ -394,7 +430,7 @@ def title_of(name: str) -> str:
     if not s:
         return ""
     s = _BRACKET_RE.sub(" ", s)
-    s = TECH_RE.sub(" ", s)
+    s = strip_tech(s)
     s = _YEAR_RE.sub(" ", s)
     s = _GROUP_RE.sub("", s)
     s = _tidy(s)
@@ -679,7 +715,7 @@ def episode_name(filename: str, series_title: str | None = None) -> str | None:
     #   清完就变空 ⇒ 自动落回「无集标题」形式 `剧名.SxxExx.ext`（与截图真值一致）
     if tail:
         tail = _tidy(
-            _SITE_TAIL_RE.sub("", TECH_RE.sub(" ", _strip_bracketed_ad(tail)))
+            _SITE_TAIL_RE.sub("", strip_tech(_strip_bracketed_ad(tail)))
         )
         tail = tail.strip(" .·-_")
 
