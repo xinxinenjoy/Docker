@@ -157,8 +157,11 @@ class TestPlanDir(unittest.TestCase):
         # 配上了、但按设置跳过
         self.assertEqual([s for s, _r in skipped], ["Sample.Movie.2009.sup"])
         # 没配上的 ⇒ **必须进 unmatched**（哪怕它是 `.sup`）
-        self.assertEqual([s for _v, s, _k in unmatched],
+        self.assertEqual([m.sub for m in unmatched],
                          ["另一部片 2025 精修简体中字 V2.sup"])
+        # 且**带着它在哪个目录**（回执按目录分组显示，见 `SubMiss.rel_dir`）
+        self.assertEqual([m.rel_dir for m in unmatched],
+                         ["电影/示例影片三（2009）"])
 
     def test_跳过的只挡配上的(self):
         vids = ["a.mkv"]
@@ -196,11 +199,18 @@ class TestWalkFromTree(unittest.TestCase):
                 "电影/示例影片三（2009）/Sample.Movie.2009.mkv.zh.ass",
             ]))
             # 配不上的：另一部片「配不上」+ 剧集那个「仅前缀」（都只进报告，不下载）
-            kinds = sorted(k for _v, _s, k in s.tree_sub_unmatched)
+            kinds = sorted(m.kind for m in s.tree_sub_unmatched)
             self.assertEqual(kinds, ["④仅前缀", "⑤配不上"])
             self.assertEqual(
-                sorted(x for _v, x, _k in s.tree_sub_unmatched),
+                sorted(m.sub for m in s.tree_sub_unmatched),
                 sorted(["某某剧.S01E01 精修简体中字.sup", "另一部片 2025 精修简体中字 V2.sup"]))
+            # 🔴 2026-10-11 钉住：每条**必须带它在哪个目录** —— 回执按它分组显示。
+            #    红领巾看到光秃秃的一长串文件名：「直接显示文件我根本就不知道
+            #    需要处理的文件在哪」⇒ 光给名字等于没说。
+            self.assertEqual(
+                sorted((m.rel_dir, m.sub) for m in s.tree_sub_unmatched),
+                [("电影/示例影片三（2009）", "另一部片 2025 精修简体中字 V2.sup"),
+                 ("电视剧/某某剧（2026）", "某某剧.S01E01 精修简体中字.sup")])
             # 配上了但按默认设置跳过 `.sup` 的
             self.assertEqual([x for x, _r in s.tree_sub_skipped], ["Sample.Movie.2009.sup"])
             self.assertEqual(len(files), 4, "视频照旧，不受字幕影响")
@@ -210,6 +220,21 @@ class TestWalkFromTree(unittest.TestCase):
             s = Syncer(None, cfg(Path(td)))
             s.walk_from_tree(parse_text(TREE))
             self.assertFalse([x for x in s.tree_subs if "孤零零" in x.rel])
+
+    def test_配不上的进回执且带目录(self):
+        """🔴 回执里每一条都必须带 `dir` —— 网页正是按它**分组**显示的。
+
+        2026-10-11 红领巾看到一长串光秃秃的文件名：「直接显示文件我根本就不知道
+        需要处理的文件在哪」。⇒ 光给名字没用了，得给**目录**（这才知道去哪儿处理）。
+        """
+        with tempfile.TemporaryDirectory() as td:
+            s = Syncer(None, cfg(Path(td)))
+            res = run_sync(s)                      # 开关默认关，也照样要列出来
+            self.assertEqual(
+                sorted((r["dir"], r["sub"]) for r in res.subs_unmatched),
+                [("电影/示例影片三（2009）", "另一部片 2025 精修简体中字 V2.sup"),
+                 ("电视剧/某某剧（2026）", "某某剧.S01E01 精修简体中字.sup")])
+            self.assertEqual(res.subs_unmatched_more, 0)
 
 
 class TestSubtitlesRun(unittest.TestCase):

@@ -221,6 +221,14 @@ class TestWalkFromTree(unittest.TestCase):
             self.assertEqual(s.tree_notes.get("extensionless"), 1)
             self.assertIn("示例影片二（2022）",
                           s.tree_notes.get("extensionless_sample", [])[0])
+            # ⭐ 光报数没用 —— 「是哪几个」也得进回执
+            #    （红领巾 2026-10-11：「这个也不知道说的是哪个」）
+            res = s.run(remote_files=files, remote_dirs=dirs, source="tree")
+            self.assertEqual(res.extensionless, 1)
+            self.assertEqual(len(res.extensionless_sample), 1)
+            self.assertIn("示例影片二（2022）", res.extensionless_sample[0])
+            self.assertFalse(res.extensionless_sample[0].startswith("根目录"),
+                             "树根那一段必须去掉，否则前面白挡一截")
 
     def test_树统计能数出疑似截断(self):
         from app.treefile import parse_text as pt

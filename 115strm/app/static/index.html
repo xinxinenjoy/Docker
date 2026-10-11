@@ -177,6 +177,9 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
 .badge.add{background:#dcfce7;color:#166534}
 .badge.upd{background:#dbeafe;color:#1e40af}
 .badge.del{background:#fee2e2;color:#991b1b}
+/* 「配不上的字幕」那块是按**目录**分组的（2026-10-11 红领巾：光给文件名不知道去哪儿处理）
+   ⇒ 目录那行用个中性徽标，跟「新增/更新/删除」的彩色徽标区分开。 */
+.badge.dir{background:#f1f5f9;color:#475569}
 
 /* ---------- 差异预览：两行式 ----------
    ⚠️ 原来是一行里「路径 + URL」并排，长路径会把 URL 挤成一小条灰字、两边都读不了。
@@ -678,6 +681,44 @@ const RES_SEG = [
   ['add', '新增'], ['update', '更新'], ['delete', '删除'], ['renamed', '已改名'],
 ];
 
+/* 疑似「被截断的子树」到底是**哪几个** —— 光报数等于没说。
+   🔴 红领巾 2026-10-11 看到「有 3 个条目既没有子项、也没有扩展名」：「这个也不知道说的是哪个」
+   ⇒ 把后端存的前几条路径直接列出来。路径已由后端去掉树根那一段，直接对应 115 里的位置。 */
+function exList(res) {
+  const s = res.extensionless_sample || [];
+  if (!s.length) return '';
+  const rest = (res.extensionless || 0) - s.length;
+  return `<div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:11.5px;
+    line-height:1.75;word-break:break-all">${
+      s.map(p => '· ' + esc(p)).join('<br>')}${
+      rest > 0 ? `<br>· …另有 ${n(rest)} 个未列出` : ''}</div>`;
+}
+
+/* 配不上的字幕 —— **按目录分组**。
+   🔴 2026-10-11 红领巾：「直接显示文件我根本就不知道需要处理的文件在哪」
+   ⇒ 先给**目录**（这才知道去哪儿处理），文件挂在它下面。
+   ⚠️ 老回执里没有 `dir` 键 ⇒ 归到「(同步根)」，别让整块炸掉。 */
+function umGroups(res) {
+  const um = res.subs_unmatched || [];
+  if (!um.length) return '';
+  const more = res.subs_unmatched_more || 0;
+  const by = {};
+  um.forEach(x => { const d = x.dir || '(同步根)'; (by[d] = by[d] || []).push(x); });
+  const dirs = Object.keys(by).sort();
+  return `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
+      <b>有 ${n(um.length + more)} 个字幕跟视频名对不上</b> —— 只列出来、<b>没有下载</b>
+      （配错字幕比没字幕更糟）。下面按 <b>目录</b> 列：${
+        more ? `前 ${n(um.length)} 条涉及 ${dirs.length} 个目录` : `共 ${dirs.length} 个目录`}。
+    </div></div>
+    <div class="diff" style="margin-top:11px">${dirs.map(d => `<div class="it">
+      <div class="l1"><span class="badge dir">目录</span>
+        <span class="p"><b>${esc(d)}</b></span>
+        <span class="u" style="flex:0 0 auto;max-width:none;padding-left:0">${by[d].length} 条</span></div>
+      ${by[d].map(x => `<div class="u">${esc(x.sub || '')}　·　${esc(x.kind || '')}${
+        x.video ? `　·　同目录视频：${esc(x.video)}` : '　·　同目录没找到相关视频'}</div>`).join('')}
+    </div>`).join('')}${more ? `<div class="it" style="color:#78808f">…还有 ${n(more)} 条未列出</div>` : ''}</div>`;
+}
+
 function showResult({ res, det = {}, finished = '', isLatest = true }) {
   RES = res || {};
   $('#resultTitle').textContent = isLatest ? '这一轮结果' : '那一轮结果';
@@ -693,7 +734,6 @@ function showResult({ res, det = {}, finished = '', isLatest = true }) {
   const fellBack = origin.indexOf('本地') >= 0;
   const cx = (RES.diff && RES.diff.counts) || {};
   const hasList = !!(RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
-  const um = RES.subs_unmatched || [];
 
   $('#lastRun').innerHTML = `
     <div class="stats">
@@ -732,14 +772,9 @@ function showResult({ res, det = {}, finished = '', isLatest = true }) {
       ${RES.source === 'tree' && origin && origin.indexOf('自动导出') < 0
         ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
         : '<br>工具自己导时已按 115 的上限 25 层导。'}
+      ${exList(RES)}
     </div></div>` : ''}
-    ${um.length ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
-      <b>有 ${n(um.length + (RES.subs_unmatched_more || 0))} 个字幕跟视频名对不上</b>
-      —— 只列出来、<b>没有下载</b>（配错字幕比没字幕更糟）。列表见下。</div></div>
-      <div class="diff" style="margin-top:11px">${um.map(x => `<div class="it">
-        <div class="l1"><span class="badge upd">配不上</span><span class="p">${esc(x.sub || '')}</span></div>
-        <div class="u">同目录的视频：${esc(x.video || '(找不到对应视频)')}　·　判定：${esc(x.kind || '')}</div>
-      </div>`).join('')}${(RES.subs_unmatched_more || 0) ? `<div class="it" style="color:#78808f">…还有 ${n(RES.subs_unmatched_more)} 条未列出</div>` : ''}</div>` : ''}
+    ${umGroups(RES)}
 
     <div style="margin-top:16px">
       <div class="seg" id="resSeg" style="margin-bottom:11px">

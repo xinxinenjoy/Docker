@@ -59,6 +59,19 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
         L.append(f"> {res.get('guard_reason', '')}")
         L.append("")
 
+    # 「既没有子项、也没有扩展名」的条目 —— 光报个数没法处理，**得说是哪几个**
+    # （红领巾 2026-10-11：「这个也不知道说的是哪个」）。
+    if res.get("extensionless"):
+        n_ext = res["extensionless"]
+        sample = res.get("extensionless_sample") or []
+        L.append(f"> ⚠️ 目录树里有 **{n_ext:,} 个**条目既没有子项、也没有扩展名 —— "
+                 f"这几乎只能是**导出时层级选少了**（子树被截断），不是空目录；工具一律不建。")
+        for p in sample:
+            L.append(f">   · `{p}`")
+        if n_ext > len(sample):
+            L.append(f">   · …另有 {n_ext - len(sample):,} 个未列出（回执只存前 {len(sample)} 条）")
+        L.append("")
+
     # ---- 外挂字幕（2026-10-11 新增；口径见 app/subtitle.py）----
     # ⚠️ 只在**有内容可说**时才出这一节 —— 没开这功能的那一轮，回执不该多出一堆 0。
     if res.get("subs_enabled") or res.get("subs_planned"):
@@ -87,16 +100,28 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
             L.append("")
         um = res.get("subs_unmatched") or []
         if um:
+            more = res.get("subs_unmatched_more") or 0
             L.append("### 配不上的字幕（**没有下载**，要的话人工改名）")
             L.append("")
-            L.append(_table(
-                [(r.get("video") or "(找不到对应视频)", r.get("sub", ""), r.get("kind", ""))
-                 for r in um[:50]], ("同目录的视频", "字幕", "判定")))
-            more = res.get("subs_unmatched_more") or 0
-            if more:
-                L.append("")
-                L.append(f"（还有 {more} 条，见 json 回执）")
+            # ⚠️ **按目录列出**，不是一张列名字的表 —— 2026-10-11 红领巾：
+            #    「直接显示文件我根本就不知道需要处理的文件在哪」。
+            L.append(f"共 **{len(um) + more:,}** 条，按目录列（去对应目录里对着改名即可）：")
             L.append("")
+            by_dir: dict[str, list] = {}
+            for r in um[:50]:
+                by_dir.setdefault(r.get("dir") or "(同步根)", []).append(r)
+            for d in sorted(by_dir):
+                L.append(f"**{d}**")
+                L.append("")
+                for r in by_dir[d]:
+                    who = (f"，同目录视频 `{r['video']}`" if r.get("video")
+                           else "，同目录没找到相关视频")
+                    L.append(f"- `{r.get('sub', '')}` —— {r.get('kind', '')}{who}")
+                L.append("")
+            if len(um) > 50 or more:
+                L.append(f"（本回执按目录只列了前 50 条；同一轮的 json 回执里有前 "
+                         f"{len(um):,} 条）")
+                L.append("")
 
     if res.get("errors"):
         L.append("## 三、错误")

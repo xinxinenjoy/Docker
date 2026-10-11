@@ -146,6 +146,24 @@ class SubFile:
     lang: str = ""           # 语言尾（没有就是空）
 
 
+@dataclass(frozen=True)
+class SubMiss:
+    """**配不上**的一个字幕 —— 只进回执、不下载（配错比不配更糟）。
+
+    🔴 `rel_dir` 是这里**最要紧**的字段，不是顺手加的：
+       2026-10-11 红领巾看到网页上那一长串光秃秃的文件名之后说
+       「直接显示文件我根本就不知道需要处理的文件在哪」——
+       光给名字没用，得先给**它在哪个目录**，人才知道去哪儿处理。
+       ⇒ 回执（网页 + markdown）一律**按 `rel_dir` 分组**显示，两边同口径。
+       ⚠️ 它是**相对同步根**的（与 `SubFile.local_rel` 的目录部分同口径）；
+          直接落在同步根下的文件是空串，显示时写「(同步根)」。
+    """
+    rel_dir: str             # 所在目录（相对同步根）
+    sub: str                 # 字幕文件名
+    video: str = ""          # 同目录里疑似相关的视频（只有 ④仅前缀 才有）
+    kind: str = ""           # ④仅前缀 / ⑤配不上
+
+
 def classify(video: str, sub: str, lang_tags: frozenset[str] = LANG_TAGS):
     """把「一个字幕」配到「一个视频」上。
 
@@ -189,14 +207,15 @@ def plan_dir(rel_dir: str, videos: list[str], subs: list[str], *,
 
     返回 `(matched, unmatched, skipped)`：
       · `matched`   —— `list[SubFile]`，**可以下载**的
-      · `unmatched` —— `list[(视频名或空, 字幕名, 类别)]`，**只进报告、不下载**
+      · `unmatched` —— `list[SubMiss]`，**只进报告、不下载**（含它**在哪个目录** ——
+                       光有文件名的话，人不知道去哪儿处理，见 `SubMiss.rel_dir`）
       · `skipped`   —— `list[(字幕名, 原因)]`，被设置挡掉的（如 `.sup` 体积大）
 
     ⚠️ 同一目录里**多个视频**时，同写字幕只认「名字完全对得上」的那一个 ——
        前缀匹配（④）一律不猜，宁可漏配也不错配。
     """
     matched: list[SubFile] = []
-    unmatched: list[tuple[str, str, str]] = []
+    unmatched: list[SubMiss] = []
     skipped: list[tuple[str, str]] = []
     if not videos:
         # 这个目录里一个视频都没有 ⇒ 没有 strm 可挂，怎么配都没意义
@@ -235,7 +254,10 @@ def plan_dir(rel_dir: str, videos: list[str], subs: list[str], *,
             s_stem = s.rsplit(".", 1)[0]
             near = [v for v in ordered
                     if s_stem.startswith(v.rsplit(".", 1)[0]) or v.rsplit(".", 1)[0].startswith(s_stem)]
-            unmatched.append((near[0] if near else "", s, "④仅前缀" if near else "⑤配不上"))
+            unmatched.append(SubMiss(
+                rel_dir=rel_dir, sub=s,
+                video=near[0] if near else "",
+                kind="④仅前缀" if near else "⑤配不上"))
             continue
 
         if s_ext in skip_exts:

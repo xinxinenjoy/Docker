@@ -70,7 +70,7 @@ from typing import Any, Callable, Iterable
 from . import subtitle as subtitle_mod
 from .config import Config
 from .namer import DiffResult, StrmBuilder, StrmFile, is_video, local_path_of, safe_name
-from .subtitle import SubFile, is_subtitle, plan_dir
+from .subtitle import SubFile, SubMiss, is_subtitle, plan_dir
 from .throttle import Throttle
 from .v115 import V115, V115Error, Node
 
@@ -84,6 +84,11 @@ PENDING_NAME = "pending-delete.json"
 #       台账丢了/坏了 ⇒ 只是「不删」（安全侧），不会误删。
 SUBS_STATE_NAME = "subs-managed.json"
 SUBS_PENDING_NAME = "pending-delete-subs.json"
+# 「配不上的字幕」进回执的条数上限。
+# ⚠️ 上限**刻意**留着（同 `_DIFF_CAP` 的道理）：整季日番能配不上几百上千条，
+#    全塞进回执 JSON 会让 `reports/` 膨胀、网页拉一次卡半天。
+#    200 条足够看清「哪几个目录有问题」，其余走 `subs_unmatched_more` **只报数**。
+_SUBS_MISS_CAP = 200
 
 
 def _safe_rel(rel: str) -> str:
@@ -137,6 +142,9 @@ class SyncResult:
     dirs_skipped: int = 0                  # 整棵子树都没有 strm ⇒ 没建的目录数
     dirs_pruned: int = 0                   # 收掉的本地空目录数
     extensionless: int = 0                 # 树里「既无子项又无扩展名」的条目数（疑似截断）
+    # ⭐ 光报个数字没用 —— 红领巾 2026-10-11：「这个也不知道说的是哪个」
+    #    ⇒ 把**具体是哪几个**（前 5 条）一并落进回执，网页就能直接列出来。
+    extensionless_sample: list = field(default_factory=list)
     deleted: int = 0
     pending_delete: int = 0                # 挂起等二次确认的
     renamed: int = 0                       # 本地改过名、被认出来的（原样保留）
@@ -205,7 +213,7 @@ class Syncer:
         # 外挂字幕：`walk_from_tree` 顺手配对出来的（同样走「实例上攒、调用方读」这条路，
         # ⚠️ 不改 `walk_from_tree` 的返回值 —— 它有二十多处调用方按二元组解包）。
         self.tree_subs: list[SubFile] = []
-        self.tree_sub_unmatched: list[tuple[str, str, str]] = []
+        self.tree_sub_unmatched: list[SubMiss] = []
         self.tree_sub_skipped: list[tuple[str, str]] = []
 
     def stage(self, label: str) -> None:
@@ -419,16 +427,23 @@ class Syncer:
         #    ⇒ 所以这话**不能说死**是截断：单看一棵树区分不了这两种，
         #       只能拿「数量」旁证（几十上百基本就是截断）。无论哪种都**一律不建**。
         ext_less = tree.extensionless()
+        # ⭐ 光报个数没用（红领巾 2026-10-11：「这个也不知道说的是哪个」）——
+        #    把**具体哪几个**也带上，网页才能直接列出来。前 5 条够定位。
+        # ⚠️ 路径先**去掉树根那一段**（`根目录/影音/电影/x` → `影音/电影/x`）：
+        #    树根是导出件自带的一层名，对红领巾没意义，留着只会在前面挡一截。
+        _rp = tree.root_path or ""
+        sample = [(p[len(_rp):].lstrip("/") if _rp and p.startswith(_rp) else p)
+                  for p in ext_less[:5]]
         self.tree_notes = {
             "skipped_dirs": skipped_dirs,
             "extensionless": len(ext_less),
-            "extensionless_sample": ext_less[:5],
+            "extensionless_sample": sample,
         }
         if ext_less:
             many = len(ext_less) >= 20
             self.log("warning" if many else "info",
                      f"{'⚠️ ' if many else ''}目录树里有 {len(ext_less)} 个条目"
-                     f"**既没有子项、也没有扩展名**（例如：{ext_less[0]}）")
+                     f"**既没有子项、也没有扩展名**（例如：{sample[0] if sample else ''}）")
             if many:
                 self.log("warning",
                          "   这个数量基本可以断定是**导出时层级选少了**（子树被截断）——"
@@ -733,6 +748,8 @@ class Syncer:
         notes = self.tree_notes or {}
         res.dirs_skipped = int(notes.get("skipped_dirs") or 0)
         res.extensionless = int(notes.get("extensionless") or 0)
+        # ⚠️ 光有计数不够 —— 得能说出「是哪几个」（见 `SyncResult.extensionless_sample`）
+        res.extensionless_sample = list(notes.get("extensionless_sample") or [])
 
         # ① 目录先建齐 —— ⚠️ 传进来的 `remote_dirs` 已经过滤过，
         #    **只含「子树里有 strm」的目录**，不会再建出空目录（见 keep_only_file_dirs）
@@ -918,8 +935,13 @@ class Syncer:
         res.subs_skipped_ext = len(self.tree_sub_skipped)
 
         um = self.tree_sub_unmatched
-        res.subs_unmatched = [{"video": v, "sub": s, "kind": k} for v, s, k in um[:200]]
-        res.subs_unmatched_more = max(0, len(um) - 200)
+        # ⚠️ `dir` 必须带上 —— 2026-10-11 之前只给 「视频 / 字幕名 / 判定」，
+        #    网页上就是一长串光秃秃的文件名，人根本不知道该去哪儿处理。
+        res.subs_unmatched = [
+            {"dir": m.rel_dir, "sub": m.sub, "video": m.video, "kind": m.kind}
+            for m in um[:_SUBS_MISS_CAP]
+        ]
+        res.subs_unmatched_more = max(0, len(um) - _SUBS_MISS_CAP)
         if res.subs_skipped_ext:
             res.subs_notes.append(
                 f"{res.subs_skipped_ext} 个 `.sup`（蓝光图形字幕）按设置跳过 —— "
