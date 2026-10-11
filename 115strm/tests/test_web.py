@@ -190,7 +190,7 @@ class TestWeb(unittest.TestCase):
         """真跑那条路由 `pipeline.run_once` 的 ⓪ 守卫管 —— 错误要能传到前端。"""
         from app import settings as sm
         sm.reset_json(self.root)
-        r = self.client.post("/api/run", json={"mode": "tree", "dry_run": True})
+        r = self.client.post("/api/run", json={"mode": "tree"})
         self.assertEqual(r.status_code, 200)
         self._wait_idle()
         st = self.client.get("/api/state").json()["run"]
@@ -269,14 +269,30 @@ class TestWeb(unittest.TestCase):
     def test_运行_多余的mode字段被忽略(self):
         """⛔ 防回归：模式已删 —— `RunIn` 上没有 `mode` 字段，
         再传它应当被**静默忽略**（不再有 400），而不是又被当成选项。"""
-        r = self.client.post("/api/run", json={"mode": "瞎写", "dry_run": True})
+        r = self.client.post("/api/run", json={"mode": "瞎写"})
         self.assertEqual(r.status_code, 200, "多余的字段应当被忽略，不该再报 400")
         self._wait_idle()
 
-    def test_运行_演练(self):
-        r = self.client.post("/api/run", json={"dry_run": True})
+    def test_运行_启动瞬间是在跑(self):
+        r = self.client.post("/api/run", json={})
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json()["running"], "刚启动的这一瞬间应当是在跑")
+        self._wait_idle()
+
+    def test_干掉的dry_run不再有任何作用(self):
+        """⛔ 防回归：`dry_run` 2026-10-11 整个删了（配置项 / `/api/run` 入参 /
+        回执里的「演练」分支全拆）。
+
+        再传它**必须什么都不影响** —— ⛔ 不能留着一条「传了就不写文件」的暗门：
+        那种暗门比没有更糟（他会以为「我明明传了别写」）。这里没 cookie、跑不起来，
+        所以验的是「请求照样被接受 + 运行状态里没有 `dry_run` 这个键」。
+        """
+        r = self.client.post("/api/run", json={"dry_run": True})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("dry_run", r.json())
+        # 配置里也不该再有它（连字段都没了）
+        st = self.client.get("/api/state").json()
+        self.assertNotIn("dry_run", st)
         self._wait_idle()
 
     def test_运行中再起一个会拒绝(self):
@@ -290,9 +306,9 @@ class TestWeb(unittest.TestCase):
             raise RuntimeError("测试用：不真的跑")
 
         with mock.patch("app.pipeline.run_once", side_effect=slow):
-            r = self.client.post("/api/run", json={"dry_run": True})
+            r = self.client.post("/api/run", json={})
             self.assertEqual(r.status_code, 200)
-            r2 = self.client.post("/api/run", json={"dry_run": True})
+            r2 = self.client.post("/api/run", json={})
             self.assertEqual(r2.status_code, 409)
         self._wait_idle(timeout=15)
 

@@ -48,7 +48,9 @@
 
 ## ⛔ 安全线
 
-    · `dry_run` 打开时**一个文件都不写、一个都不删**
+    · 「先看再动」＝「同步」页的**差异预览**（零请求、不落盘、无持久开关）
+      ⚠️ 以前还有个 `dry_run`（只演练）—— 2026-10-11 删掉了，因为它是个**持久设置**，
+         忘了关就变成「每轮都只演练、还报跑成功」，比没有更糟
     · 删除**永远**要过「延迟二次确认」（`delete_defer_minutes`）——
       本轮发现有消失 ⇒ 记进 pending，等 N 分钟后再扫一次，确认了才真删
     · 一轮里消失比例 > `delete_ratio_guard` ⇒ 判「异常」（多半是 cookie 失效）
@@ -126,7 +128,6 @@ class SyncResult:
     finished: str = ""
     elapsed: str = ""
     source: str = ""                       # 数据来源（现在恒为 tree）
-    dry_run: bool = True
     scanned_remote: int = 0                # 网盘上看到的条目数
     scanned_local: int = 0                 # 本地已有 .strm 数
     written: int = 0
@@ -587,7 +588,7 @@ class Syncer:
                 made += 1
         return made
 
-    def prune_empty_dirs(self, keep: Iterable[str], *, dry: bool = False) -> list[str]:
+    def prune_empty_dirs(self, keep: Iterable[str]) -> list[str]:
         """收掉**本地那些空掉的、且这一轮也不需要存在的**目录（自下而上）。
 
         为什么要有它：上一版按「空目录也建」跑过（本版那盘假空壳留下的），
@@ -600,9 +601,8 @@ class Syncer:
            · `output_dir` 自己**永不删**
            · 隐藏目录 / 群晖垃圾（`.@`、`@eaDir`、`#recycle`）不碰
            · 这一轮本该存在的目录（在 `keep` 里）不删
-           · `dry=True` 只算不删（`dry_run` 打开时走这条）
 
-        返回**被删掉的**相对路径列表（`dry` 时是「本来要删的」）。
+        返回**被删掉的**相对路径列表。
         """
         root = self.out.resolve()
         if not root.is_dir():
@@ -626,9 +626,6 @@ class Syncer:
             except (OSError, ValueError):
                 continue
             if rel in keep_norm:
-                continue
-            if dry:
-                victims.append(rel)
                 continue
             try:
                 p.rmdir()
@@ -724,7 +721,7 @@ class Syncer:
         t0 = time.time()
         res = SyncResult(
             started=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            source=source, dry_run=bool(self.cfg.dry_run),
+            source=source,
             scanned_remote=len(remote_files),
         )
 
@@ -737,34 +734,6 @@ class Syncer:
         res.dirs_skipped = int(notes.get("skipped_dirs") or 0)
         res.extensionless = int(notes.get("extensionless") or 0)
 
-        if self.cfg.dry_run:
-            # 演练：一个文件都不动，只把「会做什么」算出来
-            d = self.diff(remote_files, local)
-            res.unchanged = len(remote_files) - len(d.to_add) - len(d.to_update)
-            # ⚠️ 演练时只**数**空目录、不删（`dry=True`）
-            res.dirs_pruned = len(self.prune_empty_dirs(remote_dirs, dry=True))
-            res.diff = {
-                "add": [f.local_rel for f in d.to_add[:500]],
-                "update": [f.local_rel for f in d.to_update[:500]],
-                "delete": d.to_delete[:500],
-                "renamed": [{"local": r, "remote": f.rel} for r, f in d.renamed[:500]],
-                "more": {"add": max(0, len(d.to_add) - 500),
-                         "update": max(0, len(d.to_update) - 500),
-                         "delete": max(0, len(d.to_delete) - 500)},
-            }
-            res.diff["counts"] = d.counts()
-            # ⭐ 演练时也把「是不是改名/移动」判出来 —— 他要**动手之前**就知道
-            #    「这一大批跟那一大批其实是同一批文件换了个名」。
-            #    ⚠️ 只看 `to_add`（新路径），不算 `to_update`（只是内容变）。
-            res.looks_like_move = bool(
-                d.to_delete and len(d.to_add) > 0 and len(d.to_add) >= len(d.to_delete) * 0.5)
-            # ⭐ 演练时也把「字幕这一步会做什么」算出来 —— 他要**动手之前**就看到代价
-            self.run_subtitles(res, dry=True)
-            res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            res.elapsed = _human(time.time() - t0)
-            return res
-
-        # ---- 真干 ----
         # ① 目录先建齐 —— ⚠️ 传进来的 `remote_dirs` 已经过滤过，
         #    **只含「子树里有 strm」的目录**，不会再建出空目录（见 keep_only_file_dirs）
         res.dirs_made = self.mkdirs(remote_dirs)
@@ -772,6 +741,10 @@ class Syncer:
         # ② 写 strm
         d = self.diff(remote_files, local)
         res.unchanged = len(remote_files) - len(d.to_add) - len(d.to_update)
+        # 差异**明细**收进回执 —— 网页「记录」点开要显示的就是它。
+        # ⚠️ 这份明细原来**只有「演练」那条路会填**，真跑时只写 `{"counts": …}`
+        #    ⇒ 于是记录里只能看到「写了几个」，看不到「写的是哪几个」。2026-10-11 补上。
+        res.diff = _diff_payload(d)
         self.write(list(d.to_add) + list(d.to_update), res)
         if d.renamed:
             res.renamed = len(d.renamed)
@@ -808,7 +781,6 @@ class Syncer:
 
         res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         res.elapsed = _human(time.time() - t0)
-        res.diff = {"counts": d.counts()}
         return res
 
     def _handle_delete(self, gone: list[str], local: dict[str, float],
@@ -939,7 +911,7 @@ class Syncer:
         except OSError as exc:
             self.log("warning", f"字幕台账写入失败（不影响本轮）：{exc}")
 
-    def run_subtitles(self, res: SyncResult, *, dry: bool = False) -> None:
+    def run_subtitles(self, res: SyncResult) -> None:
         """跑字幕这一步。**怎么都不会抛异常出去**（除代码 bug 外，也由调用方兜底）。"""
         res.subs_enabled = bool(self.cfg.subtitle_enable)
         res.subs_planned = len(self.tree_subs)
@@ -971,16 +943,6 @@ class Syncer:
 
         if not self.cfg.subtitle_enable:
             return                          # 开关没开：只报「本来能下多少」，不发任何请求
-
-        if dry:
-            gone, kept = self._scan_stale_subs(self.load_subs_ledger(), planned)
-            res.subs_pending_delete = len(gone)
-            for k in kept:
-                res.subs_notes.append(f"本地字幕 `{k}` 你自己换过（内容与下载时不同）⇒ 保留不删")
-            if todo:
-                res.subs_notes.append(f"演练：本轮**会下载 {len(todo)} 个字幕**"
-                                      f"（本地已有 {res.subs_skipped} 个，跳过）")
-            return
 
         ledger_before = self.load_subs_ledger()
         ledger = dict(ledger_before)
@@ -1145,7 +1107,7 @@ class Syncer:
     def _recheck(self, rels: list[str]) -> list[str]:
         """对候选删除再核一次 —— 能查网盘就查，查不了就用传入的清单。
 
-        ⚠️ 这里刻意**保守**：`V115` 不可用（没 cookie / 演练）时，
+        ⚠️ 这里刻意**保守**：`V115` 不可用（没 cookie）时，
            不擅自认为「删得对」，而是照用清单（清单本身已经是二次扫描的产物）。
         """
         if self.v is None:
@@ -1165,6 +1127,36 @@ class Syncer:
             if not found:
                 out.append(rel)
         return out
+
+
+# ------------------------------------------------------------------ 差异 → 回执
+# ⚠️ 上限**刻意**留着：首页首跑动辄四千条，全塞进回执 JSON 会让
+#    `reports/` 迅速膨胀、网页拉一次卡半天。500 条够看清「动的是什么」，
+#    剩下的条数走 `more`，**只报数不列名**。
+_DIFF_CAP = 500
+
+
+def _diff_payload(d) -> dict:
+    """`Diff` → 回执里那份「到底动了哪些文件」的明细。
+
+    ⚠️ 这份明细以前**只有「演练」那条路会填**（`run()` 里那个分支），
+       真跑时只写 `{"counts": …}` ⇒ 网页「记录」点开只能看到数字、
+       看不到动的是哪几个文件。2026-10-11 把明细并到真跑这条路上。
+
+    `renamed` 也带上 —— 那些是**他手动改过名、工具原样保留**的条目，
+    不列出来他会以为「我改的名没生效」或「工具不认识我改的名」。
+    """
+    return {
+        "add": [f.local_rel for f in d.to_add[:_DIFF_CAP]],
+        "update": [f.local_rel for f in d.to_update[:_DIFF_CAP]],
+        "delete": list(d.to_delete[:_DIFF_CAP]),
+        "renamed": [{"local": r, "remote": f.rel} for r, f in d.renamed[:_DIFF_CAP]],
+        "more": {"add": max(0, len(d.to_add) - _DIFF_CAP),
+                 "update": max(0, len(d.to_update) - _DIFF_CAP),
+                 "delete": max(0, len(d.to_delete) - _DIFF_CAP),
+                 "renamed": max(0, len(d.renamed) - _DIFF_CAP)},
+        "counts": d.counts(),
+    }
 
 
 def _human(seconds: float) -> str:

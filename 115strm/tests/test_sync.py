@@ -28,7 +28,6 @@ def make_cfg(tmp: Path, **kw) -> Config:
         output_dir=tmp / "out",
         strm_prefix="https://example.test/d",
         url_encode=False,
-        dry_run=False,
         delete_defer_minutes=10.0,
         delete_ratio_guard=0.3,
         video_ext="mp4,mkv",
@@ -123,26 +122,47 @@ class TestWrite(unittest.TestCase):
             self.assertEqual(left, [])
 
 
-class TestDryRun(unittest.TestCase):
-    def test_演练一个文件都不写(self):
+class TestDiffPayload(unittest.TestCase):
+    """差异**明细**必须落进回执 —— 网页「记录」点开显示的就是它。
+
+    🔴 2026-10-11：以前这份明细**只有「只演练」那条路会填**（`run()` 里那个分支），
+       真跑只写 `{"counts": …}` ⇒ 于是记录里只能看到「写了几个」，
+       看不到「写的是哪几个」。演练模式删掉后，明细改由真跑这条路提供
+       （前端 `renderResList()` 读的就是 `res.diff.add/update/delete/renamed`）。
+    """
+
+    def test_新增的明细进回执(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, make_cfg(tmp, dry_run=True))
-            res = s.run(remote_files=[f("a/b.mkv")], remote_dirs=["a"], source="tree")
-            self.assertEqual(res.written, 0)
-            self.assertEqual(list((tmp / "out").rglob("*")), [])
-            self.assertEqual(res.diff["counts"]["add"], 1)   # 但算出来了
+            res = Syncer(None, make_cfg(tmp)).run(
+                remote_files=[f("a/b.mkv")], remote_dirs=["a"], source="tree")
+            self.assertEqual(res.diff["add"], ["a/b.mkv.strm"])
+            self.assertEqual(res.diff["counts"]["add"], 1)
 
-    def test_演练也不删(self):
+    def test_删除的明细进回执(self):
+        """第一次发现只挂起（等 10 分钟），但**明细里照样要能看到它**。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             (tmp / "out").mkdir(parents=True, exist_ok=True)
             (tmp / "out" / "孤儿.mkv.strm").write_text("x", encoding="utf-8")
-            s = Syncer(None, make_cfg(tmp, dry_run=True))
-            res = s.run(remote_files=[], remote_dirs=[], source="tree")
-            self.assertEqual(res.deleted, 0)
+            res = Syncer(None, make_cfg(tmp)).run(
+                remote_files=[], remote_dirs=[], source="tree")
+            self.assertEqual(res.diff["delete"], ["孤儿.mkv.strm"])
+            self.assertEqual(res.pending_delete, 1)
             self.assertTrue((tmp / "out" / "孤儿.mkv.strm").exists())
-            self.assertEqual(res.diff["counts"]["delete"], 1)
+
+    def test_明细有上限超出只报数(self):
+        """几千条时不把回执撑爆 —— 超出的进 `more`，只报数不列名。"""
+        from app.sync import _DIFF_CAP
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            n = _DIFF_CAP + 7
+            res = Syncer(None, make_cfg(tmp)).run(
+                remote_files=[f(f"a/{i:04d}.mkv") for i in range(n)],
+                remote_dirs=["a"], source="tree")
+            self.assertEqual(len(res.diff["add"]), _DIFF_CAP)
+            self.assertEqual(res.diff["more"]["add"], 7)
+            self.assertEqual(res.diff["counts"]["add"], n)
 
 
 class TestDeleteGuard(unittest.TestCase):
@@ -316,15 +336,15 @@ class TestRenameVsAnomaly(unittest.TestCase):
             res = s.run(remote_files=[f("隔壁/新片.mkv")], remote_dirs=[], source="api")
             self.assertTrue(res.guard_tripped)
 
-    def test_演练时也标出疑似改名(self):
+    def test_整目录改名会标出疑似改名(self):
+        """30 条全消失、同时 30 条全新增 ⇒ 判「改名/移动」，不该触发异常闸门。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = self._prep(tmp, [f"电影/旧名{i}/片.mkv.strm" for i in range(30)])
-            cfgd = make_cfg(tmp, dry_run=True)
-            s2 = Syncer(None, cfgd)
             new = [f(f"电影/新名{i}/片.mkv") for i in range(30)]
-            res = s2.run(remote_files=new, remote_dirs=[], source="tree")
+            res = s.run(remote_files=new, remote_dirs=[], source="tree")
             self.assertTrue(res.looks_like_move)
+            self.assertFalse(res.guard_tripped)
 
     def test_只消失不改名不标记(self):
         with tempfile.TemporaryDirectory() as td:
@@ -473,18 +493,20 @@ class TestLocalRename(unittest.TestCase):
             self.assertEqual(res.written, 1)
             self.assertEqual(res.pending_delete, 1)
 
-    def test_演练模式也报出改名(self):
+    def test_改名的也进回执明细(self):
+        """⭐ 「记录」里要能看见「这轮有哪些是我自己改过名的」——
+        `res.diff.renamed` 就是它（前端 `renderResList('renamed')` 读这个）。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
             u = s.builder.url("电影/片.mkv")
             p = self._seed(tmp, "电影/片.mkv.strm", u)
             p.rename(p.with_name("改名了.mkv.strm"))
-            s2 = Syncer(None, make_cfg(tmp, dry_run=True))
-            res = s2.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
-            self.assertEqual(res.written, 0)
+            res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
+            self.assertEqual(res.written, 0)          # 内容一致 ⇒ 什么都不用做
             self.assertEqual(res.diff["counts"]["renamed"], 1)
             self.assertEqual(len(res.diff["renamed"]), 1)
+            self.assertEqual(res.diff["renamed"][0]["local"], "电影/改名了.mkv.strm")
 
 
 class TestRemoveSafety(unittest.TestCase):

@@ -357,12 +357,14 @@ class TestCriticalFieldsRegistered(unittest.TestCase):
 
     当时漏的是 `dry_run` ⇒ 配置里 `DRY_RUN` 永远是 1
     ⇒ **定时任务每轮都只演练、一个文件都不写**，表面上还「跑成功了」。
+    （⚠️ `dry_run` 已于 2026-10-11 整个删掉 —— 但这类坑的判据不变，
+       所以下面继续拿**还在的真正关键字段**守这条线。）
     """
 
     # 这些字段**必须**能持久保存 —— 漏一个都会造成「看着成功、实际没生效」
-    MUST_SAVE = ("dry_run", "schedule_cron", "remote_root", "include_dirs",
+    MUST_SAVE = ("schedule_cron", "remote_root", "include_dirs",
                  "strm_prefix", "delete_defer_minutes", "delete_ratio_guard",
-                 "throttle_min", "video_ext")
+                 "throttle_min", "video_ext", "subtitle_enable")
 
     def test_都在字段表里(self):
         keys = {f["key"] for f in settings.FIELDS}
@@ -372,25 +374,31 @@ class TestCriticalFieldsRegistered(unittest.TestCase):
     def test_都能真的存下来(self):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
-            r = settings.save_json(d, {"dry_run": False, "schedule_cron": "0 4 * * *"})
-            self.assertIn("dry_run", r["saved"], "dry_run 没存下来 ⇒ 定时任务会永远只演练")
+            r = settings.save_json(d, {"remote_root": "影音", "schedule_cron": "0 4 * * *"})
+            self.assertIn("schedule_cron", r["saved"],
+                          "schedule_cron 没存下来 ⇒ 定时任务永远不跑")
+            self.assertIn("remote_root", r["saved"])
             self.assertEqual(r["rejected"], [])
             got = settings.load_json(d)
-            self.assertEqual(got["DRY_RUN"], "False")
+            self.assertEqual(got["REMOTE_ROOT"], "影音")
             self.assertEqual(got["SCHEDULE_CRON"], "0 4 * * *")
 
-    def test_关闭后读回来是False(self):
+    def test_存False能读回False(self):
         """⚠️ `_flag` 的判据是「值在 ('1','true',…) 里」——
-        存成 `"False"` 字符串要能正确读成 False（不能因为「非空」就当真）。"""
+        存成 `"False"` 字符串要能正确读成 False（不能因为「非空」就当真）。
+
+        ⚠️ 原来这条拿 `dry_run` 试（2026-10-11 已删）⇒ 换成 `subtitle_skip_sup`：
+           它出厂 True，正好能用「存 False ⇒ 读回 False」验同一条判据。
+        """
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
-            settings.save_json(d, {"dry_run": False})
+            settings.save_json(d, {"subtitle_skip_sup": False})
             saved = os.environ.get("DATA_DIR")
             os.environ["DATA_DIR"] = str(d)
             try:
                 from app import config as cm
                 cm.reload_overrides()
-                self.assertFalse(cm.Config().dry_run, "存了 False 却读成 True")
+                self.assertFalse(cm.Config().subtitle_skip_sup, "存了 False 却读成 True")
             finally:
                 if saved is None:
                     os.environ.pop("DATA_DIR", None)
@@ -409,8 +417,8 @@ class TestConfigHelpers(unittest.TestCase):
     def test_replace_只认已知键(self):
         cfg = Config()
         object.__setattr__(cfg, "临时属性", 1)
-        c2 = cfg.replace(dry_run=False)
-        self.assertFalse(c2.dry_run)
+        c2 = cfg.replace(remote_root="影音")
+        self.assertEqual(c2.remote_root, "影音")
         self.assertFalse(hasattr(c2, "临时属性"))
 
     def test_all_隐藏cookie(self):

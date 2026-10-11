@@ -110,7 +110,7 @@ class Runner:
             "running": False, "source": "",
             "stage": "", "stage_label": "",
             "written": 0, "deleted": 0, "pending_delete": 0, "requests": 0,
-            "dry_run": True, "started": "", "finished": "",
+            "started": "", "finished": "",
             "result": None, "error": "", "stopping": False, "cancelled": False,
             "detail": {},
         }
@@ -147,7 +147,7 @@ class Runner:
             self.log = LogBuffer()
             self.status = self._blank()
             self.status.update({
-                "running": True, "dry_run": bool(cfg.dry_run),
+                "running": True,
                 "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             })
             self._thread = threading.Thread(
@@ -174,9 +174,7 @@ class Runner:
         """
         stamp = report_mod.now_stamp()
         try:
-            self.log.add("info",
-                         f"开始同步（自己导目录树 → 全量对账）；"
-                         f"DRY_RUN={'开' if cfg.dry_run else '关'}")
+            self.log.add("info", "开始同步（自己导目录树 → 全量对账）")
             out = pipeline_mod.run_once(
                 cfg, self._log, sleeper=self._sleeper,
                 force_delete=force_delete, on_stage=self._set_stage)
@@ -184,7 +182,9 @@ class Runner:
             with self._lock:
                 self.status["source"] = out.source
                 self.status["detail"] = out.detail
-            self._finish(res, stamp)
+            # ⭐ 把「目录树是哪来的」一并带进回执 —— 以前它只活在内存的
+            #    `status.detail` 里 ⇒ **记录里点开旧的那一轮，这行是空的**。
+            self._finish(res, stamp, tree_origin=str(out.detail.get("tree_origin") or ""))
         except Cancelled:
             self._finish(None, stamp, cancelled=True)
         except CookieMissing as exc:
@@ -194,18 +194,25 @@ class Runner:
         except Exception as exc:
             self._fail(type(exc).__name__, str(exc))
 
-    def _finish(self, res: SyncResult | None, stamp: str, *, cancelled: bool = False) -> None:
+    def _finish(self, res: SyncResult | None, stamp: str, *,
+                cancelled: bool = False, tree_origin: str = "") -> None:
         """收尾。
 
         🔴 **顺序不能换**：先把回执落地、**最后**才把 `running` 翻 False。
            反过来的话，前端一看到 running=False 就停止轮询，
            而「回执已写出」那行是在之后才进缓冲的 ⇒ 页面上永远看不到它。
+
+        `tree_origin` —— 「这一轮用的是刚导的新树，还是退回用了本机旧树」。
+        ⚠️ 它**必须落进回执**：不落的话「记录」里翻旧的那一轮就只有数字、
+           看不出那轮是不是降级跑的（而那恰恰是最该被看见的失败形态）。
         """
         if res:
             try:
                 out = Path(self.data_dir) / "reports"
                 out.mkdir(parents=True, exist_ok=True)
                 d = res.as_dict()
+                if tree_origin:
+                    d["tree_origin"] = tree_origin
                 (out / f"sync-{stamp}.json").write_text(
                     json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
                 (out / f"sync-{stamp}.md").write_text(
@@ -273,7 +280,7 @@ class ResetIn(BaseModel):
 
 
 class RunIn(BaseModel):
-    dry_run: bool | None = None        # None = 跟随配置；显式给只影响这一次
+    # ⚠️ 原来的 `dry_run`（只演练一次）2026-10-11 删了 —— 「先看再动」走 `/api/preview`。
     force_delete: bool = False         # 跳过挂起等待，立刻删
 
 
@@ -311,7 +318,6 @@ def state() -> dict:
         "remote_root": cfg.remote_root or "(网盘根)",
         "strm_prefix": cfg.strm_prefix,
         "prefix_ready": cfg.prefix_ready,
-        "dry_run": cfg.dry_run,
         "schedule_cron": cfg.schedule_cron,
         "delete_defer_minutes": cfg.delete_defer_minutes,
         "delete_ratio_guard": cfg.delete_ratio_guard,
@@ -459,7 +465,7 @@ def set_scope(body: ScopeIn) -> dict:
     try:
         tp = Path(treefile.pick_tree_file(cfg.tree_dir))
         tree = treefile.parse_file(tp)
-        syncer = Syncer(None, cfg.replace(dry_run=True))
+        syncer = Syncer(None, cfg)
         dirs, files = syncer.walk_from_tree(tree)
         local = syncer.scan_local()
         d = syncer.diff(files, local)
@@ -727,8 +733,9 @@ def _need_prefix(cfg: Config) -> None:
 def preview(body: PreviewIn) -> dict:
     """只读预览：拿网盘结构 + 本地现状，算出「会写多少 / 会删多少」，**一个文件都不动**。
 
-    ⚠️ 与 `/api/run` 的区别：这里**强制 dry_run**，而且**只走目录树**（零请求）
-       —— 「先看再动」是这个工具的第一原则。
+    ⚠️ 与 `/api/run` 的区别：这里**只走本地目录树（零请求）、一个文件都不动**。
+       「先看再动」是这个工具的第一原则 —— 而**实现它的是这个接口**，
+       不是那个已经删掉的「只演练」开关（见 config.py 里那段注释）。
     """
     if _runner().status.get("running"):
         raise HTTPException(409, "正在执行中 —— 先等它结束")
@@ -741,7 +748,7 @@ def preview(body: PreviewIn) -> dict:
     except Exception as exc:
         raise HTTPException(400, f"目录树读不到：{exc}") from exc
 
-    syncer = Syncer(None, cfg.replace(dry_run=True))
+    syncer = Syncer(None, cfg)
     remote_dirs, remote_files = syncer.walk_from_tree(tree)
     local = syncer.scan_local()
     d = syncer.diff(remote_files, local)
@@ -925,9 +932,12 @@ def list_runs() -> dict:
             d = json.loads(p.read_text(encoding="utf-8"))
             item.update({
                 "started": d.get("started", ""), "elapsed": d.get("elapsed", ""),
-                "dry_run": d.get("dry_run"), "written": d.get("written", 0),
-                "deleted": d.get("deleted", 0), "source": d.get("source", ""),
-                "requests": d.get("requests", 0),
+                "written": d.get("written", 0), "deleted": d.get("deleted", 0),
+                "source": d.get("source", ""), "requests": d.get("requests", 0),
+                # 字幕数也一起给 —— 「记录」列表那行要显示「字幕 451」。
+                # ⚠️ 老回执没有这几个键（就当 0），别让整行因此炸掉。
+                "subs_downloaded": d.get("subs_downloaded", 0),
+                "subs_enabled": d.get("subs_enabled", False),
             })
         except Exception:
             item["broken"] = True
@@ -958,13 +968,14 @@ def get_run(stem: str) -> dict:
 def _cfg_for_run(body: RunIn) -> Config:
     """这一次执行用的配置。
 
-    ⛔ `dry_run=False` 只对**这一次**生效 —— 不写回 `config.json`。
-       否则「我明明只是试跑一次真跑，怎么以后每次都是真跑」迟早发生。
+    ⚠️ 现在**没有任何「只影响这一次」的覆盖**了（原来那个是 `dry_run`）——
+       一律按 `config.json` 里那份跑，省掉一整类「我明明只试跑一次，
+       怎么以后每次都是真跑」的隐性状态。
+       ⛔ 别把 `body` 这个形参删掉改签名 —— 留着它，将来真要加「只影响这一次」
+          的覆盖，入口就在这，不用回头翻调用点。
     """
-    cfg = load()
-    if body.dry_run is not None:
-        cfg = cfg.replace(dry_run=bool(body.dry_run))
-    return cfg
+    _ = body
+    return load()
 
 
 # --------------------------------------------------------------------------- 定时

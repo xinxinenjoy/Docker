@@ -23,8 +23,8 @@ def _table(rows: list[tuple], header: tuple) -> str:
 def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
     """一轮同步的回执（Markdown）。"""
     L: list[str] = []
-    mode = "演练（未落盘）" if res.get("dry_run") else "执行"
-    L.append(f"# 115strm 同步回执 · {mode}")
+    # ⚠️ 原来这里还有个「· 演练（未落盘）」的后缀 —— 2026-10-11 随 `dry_run` 一起撤了。
+    L.append("# 115strm 同步回执")
     L.append("")
     L.append(_table([
         ("开始", res.get("started", "")),

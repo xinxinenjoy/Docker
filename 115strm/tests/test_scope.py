@@ -44,7 +44,7 @@ PREFIX = "https://alist.example.com:5244/d/媒体/影音"
 def cfg(tmp: Path, **kw) -> Config:
     base = dict(
         data_dir=tmp / "data", output_dir=tmp / "out",
-        strm_prefix=PREFIX, url_encode=False, dry_run=True,
+        strm_prefix=PREFIX, url_encode=False,
         remote_root="影音", include_dirs="", video_ext="mp4,mkv",
     )
     base.update(kw)

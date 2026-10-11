@@ -61,11 +61,14 @@ def setup_log(cfg: Config) -> tuple[logging.Logger, object]:
     return logger, log
 
 
-def _write_receipt(cfg: Config, res) -> str:
+def _write_receipt(cfg: Config, res, tree_origin: str = "") -> str:
     out = Path(cfg.data_dir) / "reports"
     out.mkdir(parents=True, exist_ok=True)
     stamp = report_mod.now_stamp()
     d = res.as_dict()
+    # ⚠️ 与 web 那条路保持一致：`tree_origin` 要落进回执（见 `web._finish` 的注释）。
+    if tree_origin:
+        d["tree_origin"] = tree_origin
     (out / f"sync-{stamp}.json").write_text(json.dumps(d, ensure_ascii=False, indent=1),
                                             encoding="utf-8")
     (out / f"sync-{stamp}.md").write_text(report_mod.render_sync_markdown(d, cfg.all()),
@@ -91,7 +94,7 @@ def _run_sync(cfg: Config, log) -> int:
     out = pipeline_mod.run_once(cfg, log)
     res = out.res
     log("info", f"网盘侧：{res.scanned_remote:,} 项 / 本地 {res.scanned_local:,} 个 strm")
-    stamp = _write_receipt(cfg, res)
+    stamp = _write_receipt(cfg, res, str(out.detail.get("tree_origin") or ""))
     log("info", f"写了 {res.written} 个 strm、删了 {res.deleted} 个"
                 f"、挂起 {res.pending_delete} 个；回执：reports/sync-{stamp}.md")
     if res.guard_tripped:
@@ -117,8 +120,9 @@ def cmd_preview(cfg: Config, log, args) -> int:
         log("info", "  ⇒ 先 `python -m app export` 让 115 导一份；"
                     "或直接跑 `python -m app sync`（它会自己导）")
         return 1
-    dry = cfg.replace(dry_run=True)
-    syncer = Syncer(None, dry, log)
+    # ⚠️ 这里**不需要**任何「不落盘」开关 —— 下面只调 walk/scan/diff 这几个
+    #    **纯读**方法，`run()` 压根不参与（`dry_run` 已于 2026-10-11 删除）。
+    syncer = Syncer(None, cfg, log)
     tree = treefile.parse_file(tp)
     _dirs, files = syncer.walk_from_tree(tree)
     local = syncer.scan_local()

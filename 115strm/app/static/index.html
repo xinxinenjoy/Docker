@@ -138,16 +138,11 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
 .field.sw .sw-txt .t{font-size:13px;font-weight:620;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .field.sw .sw-txt .d{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.5}
 
-/* 危险/重要开关（如「只演练」）：整块做成醒目的状态条 */
-.switchbox{display:flex;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;
-  border:1px solid var(--line);background:#f3f4f6;transition:.18s}
-.switchbox .label{font-size:12.5px;font-weight:650}
-.switchbox.on{border-color:#c7d2fe;background:#eef0ff}
-.switchbox.off{border-color:#fecaca;background:#fef2f2}
-.switchbox.off .label{color:#991b1b}
-.switchbox .tag2{font-size:10.5px;padding:2px 8px;border-radius:5px;font-weight:650}
-.switchbox.on .tag2{background:#dbeafe;color:#1e40af}
-.switchbox.off .tag2{background:#fee2e2;color:#991b1b}
+/* ⛔ 这里原来有一整套 `.switchbox`（「只演练」那个醒目开关的三处表意：
+   整块状态条 + 开/关文字 + 蓝/红配色）。`dry_run` 2026-10-11 删掉后
+   **没有任何地方再用它** —— 一并清掉：留着一堆无人引用的选择器，
+   下次改样式时会以为它还在起作用（本项目 2026-10-08 就为「看不出开是关」
+   在它上面返过一次工，别再把它当活的）。 */
 
 /* ---------- 动作区 ---------- */
 .actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
@@ -340,20 +335,27 @@ nav button.on{color:var(--pri)}
     <div class="chip" id="chip"><span class="dot"></span><span id="chipTxt">检查中…</span></div>
   </header>
 
+  <!--
+    🔴 2026-10-11 合并页签（红领巾：「概览和同步、记录整合一下应该更好吧」）：
+       原来 概览 / 同步 / 设置 / 记录 四个页签，前三个其实是**同一条时间线的三段**
+       （现状 → 这一轮 → 历史），拆开等于把「看数据」这个动作切碎；
+       而且 `goPage()` 里切页签各触发不同重载，更容易看到旧数据。
+       ⇒ 现在只剩 **同步** 和 **设置** 两个。设置独立，因为它低频、且写配置。
+
+       ⚠️ 页内**顺序不能乱**：现状 → 待确认删除 → 开始一轮 → 差异预览 →
+          这一轮结果 → 日志 → 运行记录。结果区**只有一个**，
+          点历史某一行 = 把那一轮填进同一个结果区（顶部给「← 回到最近一轮」）。
+  -->
   <nav id="nav">
-    <button data-p="home" class="on">
-      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>概览</button>
-    <button data-p="run">
+    <button data-p="sync" class="on">
       <svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>同步</button>
     <button data-p="set">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.6-1H1.3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 7 4.6h.1A1.7 1.7 0 0 0 8.1 3V2.9a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>设置</button>
-    <button data-p="hist">
-      <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>记录</button>
   </nav>
 
   <main>
-    <!-- ======================= 概览 ======================= -->
-    <section class="page on" id="p-home">
+    <!-- ======================= 同步（现状 + 执行 + 结果 + 日志 + 记录） ======================= -->
+    <section class="page on" id="p-sync">
       <div id="homeNotes"></div>
 
       <div class="card">
@@ -377,45 +379,20 @@ nav button.on{color:var(--pri)}
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-h"><h2>上一轮</h2><span class="hint" id="lastAt"></span></div>
-        <div class="card-b"><div id="lastRun" class="muted">还没有跑过</div></div>
-      </div>
-    </section>
-
-    <!-- ======================= 同步 ======================= -->
-    <section class="page" id="p-run">
       <!--
-        🔴 2026-10-08 改：**「数据来源」选择器整个删掉**。
-           红领巾：「事件流、实例都去掉…**只保留 AUTO 即可，只有 auto 的情况下就不要写 auto 了**」。
-           ⇒ 只剩一条路，摆个选择器只会让人以为还有别的走法。
-             换成一张**说清「这一轮会做什么」**的卡 —— 步骤由后端 `SYNC_STEPS` 提供，
-             前端只渲染、不另写文案。
+        🔴 2026-10-08：「数据来源」选择器整个删掉（只有一条路，摆个选择器是误导），
+           换成这张说清「这一轮会做什么」的卡 —— 步骤由后端 `SYNC_STEPS` 提供。
+        🔴 2026-10-11：「执行」卡并进来，标题改「开始一轮」。
       -->
       <div class="card">
         <div class="card-h">
-          <h2>这一轮会做什么</h2>
+          <h2>开始一轮</h2>
           <span class="hint">工具自己导目录树，你不用手动导</span>
         </div>
         <div class="card-b">
           <ol class="steps" id="stepList"></ol>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-h">
-          <h2>执行</h2>
-          <div class="switchbox on" id="dryBox">
-            <label class="switch"><input type="checkbox" id="dryRun"
-              onchange="syncDryUI(); setDry(this.checked)">
-              <span class="track"></span><span class="state" id="dryState">开</span></label>
-            <span class="label">只演练</span>
-            <span class="tag2" id="dryTag">不会写文件</span>
-          </div>
-        </div>
-        <div class="card-b">
-          <div id="runGuard"></div>
-          <div class="actions">
+          <div id="runGuard" style="margin-top:13px"></div>
+          <div class="actions" style="margin-top:13px">
             <button class="btn" onclick="preview()">预览差异</button>
             <button class="btn pri" id="btnRun" onclick="run()">立即执行</button>
             <button class="btn bad sm" id="btnStop" onclick="stop()" style="display:none">停止</button>
@@ -440,9 +417,34 @@ nav button.on{color:var(--pri)}
         </div>
       </div>
 
+      <!--
+        ⭐ **结果区只有一个** —— 「最近一轮」和「点历史某一行」都填这里。
+           ⛔ 不要为历史另开一块：那样同一种信息会有两处渲染，必然跑偏。
+      -->
+      <div class="card" id="resultCard">
+        <div class="card-h">
+          <h2 id="resultTitle">这一轮结果</h2>
+          <span class="hint" id="lastAt"></span>
+          <button class="btn sm hidden" id="resultBack" onclick="showLatest()">← 回到最近一轮</button>
+        </div>
+        <div class="card-b"><div id="lastRun" class="muted">还没有跑过</div></div>
+      </div>
+
       <div class="card">
         <div class="card-h"><h2>日志</h2><span class="hint" id="logHint"></span></div>
         <div class="card-b"><div class="log" id="log"></div></div>
+      </div>
+
+      <!-- 折叠着放最后 —— 默认不展开，避免一进来就见 60 行列表 -->
+      <div class="card">
+        <div class="card-h">
+          <h2>运行记录</h2>
+          <span class="hint" id="histHint">最近 60 次 · 点一行看那一轮处理了什么</span>
+          <button class="btn sm" id="btnHist" onclick="toggleHist()">展开</button>
+        </div>
+        <div class="card-b hidden" id="histBody">
+          <div class="list" id="histList"></div>
+        </div>
       </div>
     </section>
 
@@ -527,20 +529,6 @@ nav button.on{color:var(--pri)}
         <button class="btn pri" onclick="saveSettings()">保存</button>
       </div>
     </section>
-
-    <!-- ======================= 记录 ======================= -->
-    <section class="page" id="p-hist">
-      <div class="card">
-        <div class="card-h"><h2>运行记录</h2><span class="hint">最近 60 次</span></div>
-        <div class="card-b"><div class="list" id="histList"></div></div>
-      </div>
-      <div class="card hidden" id="histDetail">
-        <div class="card-h"><h2 id="histTitle">详情</h2>
-          <button class="btn sm" onclick="document.getElementById('histDetail').classList.add('hidden')">关闭</button>
-        </div>
-        <div class="card-b"><div class="log" id="histBody" style="max-height:520px"></div></div>
-      </div>
-    </section>
   </main>
 </div>
 <div class="toast" id="toast"></div>
@@ -582,7 +570,8 @@ const n = v => (v == null ? '0' : Number(v).toLocaleString());
 function goPage(p) {
   $$('#nav button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
   $$('.page').forEach(x => x.classList.toggle('on', x.id === 'p-' + p));
-  if (p === 'hist') loadHist();
+  // ⚠️ 只有两个页签了（`sync` / `set`）。原来那个 `hist` 页并进了 `sync`，
+  //    所以这里**不再**有「切到记录页才 loadHist()」—— 运行记录随首屏一起加载。
   if (p === 'set') { loadScope(); loadSettings(); loadAcct(); }
   window.scrollTo(0, 0);
 }
@@ -606,9 +595,6 @@ async function loadState() {
   $('#chip').classList.toggle('off', !okCookie);
   $('#chipTxt').textContent = okCookie ? `账号已就绪 · ${s.cookie.tail}` : '未配置 115 账号';
   $('#homeAt').textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  // 「只演练」的真实值跟服务端走（设置页改过、或定时任务受它管）
-  DRY_ON = !!s.dry_run;
-  applyDry(DRY_ON);
 
   // 提示条
   const notes = [];
@@ -625,7 +611,6 @@ async function loadState() {
   // ⛔ **不再提示「没有本地目录树」** —— 工具每一轮都会自己导一份，
   //    本地暂时没有 txt 是**正常**的（旧版那条提示是给「本地目录树」模式用的，已删）。
   if (!s.output_exists) notes.push(['warn', '📁', `输出目录还不存在：<span class="mono">${s.output_dir}</span> —— 第一次同步会自动建。`]);
-  if (s.dry_run) notes.push(['info', '🧪', '当前是「只演练」模式：一个文件都不会写、不会删。确认无误后在「同步」页关掉。']);
   $('#homeNotes').innerHTML = notes.map(([c, i, t]) =>
     `<div class="note ${c}"><i>${i}</i><div>${t}</div></div>`).join('');
   // 设置页的「首次配置」清单也吃这份状态（配对告警、账号就绪、跑没跑过）
@@ -668,59 +653,147 @@ async function loadState() {
     $('#pendingCard').style.display = 'none';
   }
 
-  // 上一轮
+  // 这一轮结果 —— 渲染器抽在 `showResult()` 里（「记录」点开走的也是它）
   const r = s.run || {};
   if (r.result || r.finished) {
-    const res = r.result || {};
-    const det = r.detail || {};
-    $('#lastAt').textContent = r.finished || '';
-    // ⭐ 「目录树是从哪来的」要写出来 —— 否则他没法判断这一轮到底有没有真去打扰 115。
-    // ⭐ 更要紧的是区分「这一轮用的是**刚导的新树**，还是**退回用了本机旧树**」——
-    //    退回 = 导树失败后的降级，必须一眼看出来，别让人以为一切正常
-    //    （旧版这里显示的是「来源模式」，模式删掉后换成这个信息量更大的）。
-    const origin = String(det.tree_origin || '');
-    const fellBack = origin.indexOf('本地') >= 0;
-    $('#lastRun').innerHTML = `
-      <div class="stats">
-        <div class="stat pri"><div class="k">写入</div><div class="v">${n(r.written)}</div></div>
-        <div class="stat bad"><div class="k">删除</div><div class="v">${n(r.deleted)}</div></div>
-        <div class="stat warn"><div class="k">挂起</div><div class="v">${n(r.pending_delete)}</div></div>
-        <div class="stat"><div class="k">请求</div><div class="v">${n(r.requests)}</div></div>
-        <div class="stat ${fellBack ? 'warn' : ''}"><div class="k">目录树</div>
-          <div class="v" style="font-size:13px">${fellBack ? '本机旧树 ⚠' : '刚导的新树'}</div></div>
-        <div class="stat"><div class="k">耗时</div><div class="v" style="font-size:14px">${res.elapsed || '—'}</div></div>
-      </div>
-      <div class="desc muted" style="margin-top:10px;line-height:1.7">
-        ${origin ? `目录树：${esc(origin)}<br>` : ''}
-        目录：建了 <b>${n(res.dirs_made)}</b> 个 ·
-        <b>${n(res.dirs_skipped)}</b> 个「整棵子树都没有视频」没收 ·
-        收掉 <b>${n(res.dirs_pruned)}</b> 个空目录
-      </div>
-      ${(res.subs_planned || res.subs_enabled) ? `<div class="desc muted" style="margin-top:6px;line-height:1.7">
-        字幕：能配上 <b>${n(res.subs_planned)}</b> 个 ·
-        本轮下载 <b>${n(res.subs_downloaded)}</b> ·
-        本地已有跳过 <b>${n(res.subs_skipped)}</b>
-        ${res.subs_failed ? ` · <b style="color:#b91c1c">失败 ${n(res.subs_failed)}</b>` : ''}
-        ${res.subs_skipped_ext ? ` · .sup 跳过 <b>${n(res.subs_skipped_ext)}</b>` : ''}
-        ${res.subs_deleted ? ` · 删除 <b>${n(res.subs_deleted)}</b>` : ''}
-        ${res.subs_enabled ? '' : ' · <b>（这功能没开）</b>'}
-      </div>` : ''}
-      ${(res.subs_unmatched || []).length ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
-        <b>有 ${n((res.subs_unmatched || []).length + (res.subs_unmatched_more || 0))} 个字幕跟视频名对不上</b>
-        —— 只列出来、<b>没有下载</b>（配错字幕比没字幕更糟）。例如：
-        <span class="mono">${esc((res.subs_unmatched[0] || {}).sub || '')}</span>
-      </div></div>` : ''}
-      ${res.extensionless ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
-        <b>这份目录树里有 ${n(res.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
-        这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
-        ${res.source === 'tree' && det.tree_origin && det.tree_origin.indexOf('自动导出') < 0
-          ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
-          : '<br>工具自己导时已按 115 的上限 25 层导。'}
-      </div></div>` : ''}
-      ${res.guard_tripped ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>${esc(res.guard_reason)}</div></div>` : ''}`;
+    showResult({ res: r.result || {}, det: r.detail || {}, finished: r.finished || '',
+                 isLatest: true });
   }
   window.__state = s;
   renderSteps(s.steps);
+  if (!HIST_LOADED) loadHist();
+}
+
+/* ---------------- 这一轮结果（**唯一**一块结果区） ----------------
+   ⭐ 「最近一轮」与「记录里点开的某一轮」都走这一个渲染器。
+   ⛔ 别为历史另写一份 —— 两处各写一份必然跑偏（本项目反复踩过这个坑，
+      见 `goPage()` 上方、以及 `web.py` 里那段「web / cli 各写一遍就分叉」的注释）。
+   ⚠️ 点开记录原来是把回执的 **Markdown 原文**塞进 `textContent`（深色块里一坨），
+      红领巾 2026-10-11：「我想让他点开之后显示都处理了哪些数据」⇒ 改成表格。 */
+let RES = null;          // 结果区当前那份回执（明细分段切换读它）
+let HIST_LOADED = false;
+
+// 明细里每种类型的短语——档 0 = 计数为 0 时也照样列（位置固定，好认）
+const RES_SEG = [
+  ['add', '新增'], ['update', '更新'], ['delete', '删除'], ['renamed', '已改名'],
+];
+
+function showResult({ res, det = {}, finished = '', isLatest = true }) {
+  RES = res || {};
+  $('#resultTitle').textContent = isLatest ? '这一轮结果' : '那一轮结果';
+  $('#lastAt').textContent = finished || RES.started || '';
+  $('#resultBack').classList.toggle('hidden', !!isLatest);
+
+  // ⭐ 「目录树是从哪来的」要写出来 —— 否则他没法判断这一轮到底有没有真去打扰 115。
+  //    更要紧的是区分「刚导的新树」与「退回用本机旧树」：退回 = 导树失败后的降级，
+  //    不显眼就等于让人以为一切正常。
+  //    ⚠️ `det.tree_origin` 只有「刚跑完那一轮」在内存里有；翻旧记录要读回执里的
+  //       `res.tree_origin`（2026-10-11 起才落盘，更老的回执没这个键 ⇒ 这行会省掉）。
+  const origin = String(det.tree_origin || RES.tree_origin || '');
+  const fellBack = origin.indexOf('本地') >= 0;
+  const cx = (RES.diff && RES.diff.counts) || {};
+  const hasList = !!(RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
+  const um = RES.subs_unmatched || [];
+
+  $('#lastRun').innerHTML = `
+    <div class="stats">
+      <div class="stat pri"><div class="k">写入</div><div class="v">${n(RES.written)}</div></div>
+      <div class="stat bad"><div class="k">删除</div><div class="v">${n(RES.deleted)}</div></div>
+      <div class="stat warn"><div class="k">挂起</div><div class="v">${n(RES.pending_delete)}</div></div>
+      <div class="stat"><div class="k">请求</div><div class="v">${n(RES.requests)}</div></div>
+      <div class="stat ${fellBack ? 'warn' : ''}"><div class="k">目录树</div>
+        <div class="v" style="font-size:13px">${
+          origin ? (fellBack ? '本机旧树 ⚠' : '刚导的新树') : '—'}</div></div>
+      <div class="stat"><div class="k">耗时</div><div class="v" style="font-size:14px">${esc(RES.elapsed || '—')}</div></div>
+    </div>
+    <div class="desc muted" style="margin-top:10px;line-height:1.7">
+      ${origin ? `目录树：${esc(origin)}<br>` : ''}
+      网盘条目 <b>${n(RES.scanned_remote)}</b> · 本地已有 strm <b>${n(RES.scanned_local)}</b> ·
+      内容没变跳过 <b>${n(RES.unchanged)}</b><br>
+      目录：建了 <b>${n(RES.dirs_made)}</b> 个 ·
+      <b>${n(RES.dirs_skipped)}</b> 个「整棵子树都没有视频」没收 ·
+      收掉 <b>${n(RES.dirs_pruned)}</b> 个空目录
+    </div>
+    ${(RES.subs_planned || RES.subs_enabled) ? `<div class="desc muted" style="margin-top:6px;line-height:1.7">
+      字幕：能配上 <b>${n(RES.subs_planned)}</b> 个 ·
+      本轮下载 <b>${n(RES.subs_downloaded)}</b> ·
+      本地已有跳过 <b>${n(RES.subs_skipped)}</b>
+      ${RES.subs_failed ? ` · <b style="color:#b91c1c">失败 ${n(RES.subs_failed)}</b>` : ''}
+      ${RES.subs_skipped_ext ? ` · .sup 跳过 <b>${n(RES.subs_skipped_ext)}</b>` : ''}
+      ${RES.subs_deleted ? ` · 删除 <b>${n(RES.subs_deleted)}</b>` : ''}
+      ${RES.subs_enabled ? '' : ' · <b>（这功能没开）</b>'}
+    </div>` : ''}
+    ${RES.looks_like_move ? `<div class="note info" style="margin-top:12px"><i>🔀</i><div>
+      本轮判定为<b>改名 / 移动</b>（消失的条数 ≈ 新增的条数），不是异常。</div></div>` : ''}
+    ${RES.guard_tripped ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>${esc(RES.guard_reason)}</div></div>` : ''}
+    ${RES.extensionless ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
+      <b>这份目录树里有 ${n(RES.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
+      这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
+      ${RES.source === 'tree' && origin && origin.indexOf('自动导出') < 0
+        ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
+        : '<br>工具自己导时已按 115 的上限 25 层导。'}
+    </div></div>` : ''}
+    ${um.length ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
+      <b>有 ${n(um.length + (RES.subs_unmatched_more || 0))} 个字幕跟视频名对不上</b>
+      —— 只列出来、<b>没有下载</b>（配错字幕比没字幕更糟）。列表见下。</div></div>
+      <div class="diff" style="margin-top:11px">${um.map(x => `<div class="it">
+        <div class="l1"><span class="badge upd">配不上</span><span class="p">${esc(x.sub || '')}</span></div>
+        <div class="u">同目录的视频：${esc(x.video || '(找不到对应视频)')}　·　判定：${esc(x.kind || '')}</div>
+      </div>`).join('')}${(RES.subs_unmatched_more || 0) ? `<div class="it" style="color:#78808f">…还有 ${n(RES.subs_unmatched_more)} 条未列出</div>` : ''}</div>` : ''}
+
+    <div style="margin-top:16px">
+      <div class="seg" id="resSeg" style="margin-bottom:11px">
+        ${RES_SEG.map(([t, lab], i) => `<button data-t="${t}"${i ? '' : ' class="on"'}
+          onclick="renderResList('${t}')">${lab} <span class="muted">${n(cx[t] != null ? cx[t] : 0)}</span></button>`).join('')}
+      </div>
+      <div class="diff" id="resList"></div>
+      <div class="muted" style="font-size:11.5px;margin-top:9px;word-break:break-all" id="resMore"></div>
+    </div>`;
+  renderResList('add', hasList);
+}
+
+/* 明细列表。`hasList=false` ⇒ 这份回执是旧版本跑的（只存了计数、没存明细）。 */
+function renderResList(t, hasList) {
+  if (t === undefined) t = 'add';
+  if (hasList === undefined) {
+    hasList = !!(RES && RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
+  }
+  $$('#resSeg button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+  const d = (RES && RES.diff) || {};
+  const more = (d.more && d.more[t]) || 0;
+  const items = d[t] || [];
+  const lab = { add: '增', update: '改', delete: '删', renamed: '留' }[t];
+
+  if (!hasList) {
+    $('#resList').innerHTML = `<div class="it" style="color:#78808f">
+      这一轮是旧版本跑的 —— 回执里只存了计数，没有「动了哪些文件」的明细。</div>`;
+    $('#resMore').innerHTML = '';
+    return;
+  }
+  if (!items.length) {
+    $('#resList').innerHTML = `<div class="it" style="color:#78808f">没有</div>`;
+  } else if (t === 'renamed') {
+    $('#resList').innerHTML = items.map(x => `<div class="it">
+      <div class="l1"><span class="badge upd">${lab}</span><span class="p">${esc(x.local)}</span></div>
+      <div class="u">↔ 网盘上的 ${esc(x.remote)}　（内容一致 ⇒ 不动它）</div></div>`).join('');
+  } else {
+    $('#resList').innerHTML = items.map(rel => `<div class="it">
+      <div class="l1"><span class="badge ${t === 'add' ? 'add' : (t === 'delete' ? 'del' : 'upd')}">${lab}</span><span class="p">${esc(rel)}</span></div>
+      <div class="u">${t === 'add' ? '本地没有 → 新建这个 strm'
+        : (t === 'delete' ? '本地有、网盘上没了 → 删除这个 strm'
+                          : '文件还在、内容变了 → 重写这个 strm')}</div></div>`).join('');
+  }
+  $('#resMore').innerHTML = more ? `…还有 ${n(more)} 条未列出（回执 JSON 里有前 ${n(500)} 条）` : '';
+}
+
+/* 「← 回到最近一轮」 */
+function showLatest() {
+  const s = window.__state || {};
+  const r = s.run || {};
+  if (!(r.result || r.finished)) { toast('还没有跑过'); return; }
+  showResult({ res: r.result || {}, det: r.detail || {}, finished: r.finished || '',
+               isLatest: true });
+  $('#resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /* 「这一轮会做什么」—— 条目**来自后端** `pipeline.SYNC_STEPS`（单一事实源）。
@@ -738,36 +811,15 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 function bold(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
 
 /* ---------------- 同步 ---------------- */
-// ⚠️ 「只演练」是**决定会不会真动文件**的开关，必须一眼看出状态 ——
-//    红领巾 2026-10-08 反馈「看不出是开是关」。这里是三处同时表意：
-//    轨道颜色 + 「开/关」文字 + 整块的状态条（蓝=演练 / 红=真写）。
-//
-// 🔴 而且它是**持久设置**（写进 config.json），不是「只影响这一次」——
-//    2026-10-08 部署后发现的坑：`dry_run` 原先没登记进设置表，
-//    保存被静默 reject ⇒ 配置里永远是「只演练」⇒ **定时任务每轮白跑**。
-//    现在改了会立刻存下来，状态条同步刷新，定时任务也照它办。
-let DRY_FIXED = false;          // 防止「回填 UI」触发一次多余的保存
-function syncDryUI() {
-  const on = $('#dryRun').checked;
-  $('#dryState').textContent = on ? '开' : '关';
-  $('#dryTag').textContent = on ? '不会写文件' : '⚠ 会真的写/删文件';
-  $('#dryBox').classList.toggle('on', on);
-  $('#dryBox').classList.toggle('off', !on);
-}
-async function setDry(on) {
-  if (DRY_FIXED) return;
-  try {
-    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ values: { dry_run: on } }) });
-    toast(on ? '已切到「只演练」——不会写文件' : '已切到「真写」——会真的动文件（定时任务也生效）');
-    loadState();
-  } catch (e) { toast('保存失败：' + e.message); }
-}
-function applyDry(checked) {
-  DRY_FIXED = true;
-  $('#dryRun').checked = checked;
-  syncDryUI();
-  DRY_FIXED = false;
-}
+/* ⛔ 这里原来有一整套「只演练」开关（`DRY_ON` / `DRY_FIXED` / `syncDryUI()` /
+   `setDry()` / `applyDry()`，三处同时表意：轨道颜色 + 开/关文字 + 状态条）。
+   2026-10-11 红领巾：「一般用不上」⇒ 整条链一起拆了（`dry_run` 配置项、
+   设置字段、`/api/run` 入参、回执里的「演练（未落盘）」分支）。
+
+   ⭐ 「先看再动」没有消失 —— 它换成了**「预览差异」按钮**（走 `/api/preview`）：
+      零请求、一个文件都不写、**没有持久状态**，所以不会出现下面那个坑：
+      「忘了关 ⇒ 定时任务每轮都只演练、还报跑成功」。
+   ⛔ 别再把它做成持久开关。 */
 
 /* ⛔ 这里原来有 `MODE_DESC` / `setMode()` / 四个模式按钮的绑定 ——
    2026-10-08 全部删掉：只有一条路，没有「模式」这个概念了。
@@ -852,21 +904,18 @@ function renderPrev(t) {
 $$('#prevSeg button').forEach(b => b.onclick = () => renderPrev(b.dataset.t));
 
 async function run() {
-  // ⚠️ **不传 `dry_run`** —— 让它跟随配置（那个开关是持久设置，已经存进
-  //    config.json 了）。传一次性覆盖的话，网页开关和实际执行会**两套口径**，
-  //    「我明明关掉了怎么还是演练」这种问题迟早出现。
-  // ⛔ 不再传 `mode` —— 只有一条路（后端 `RunIn` 上也没这个字段了）
-  const body = { force_delete: false };
-  if (!DRY_ON) {
-    if (!confirm('「只演练」是关的 —— 会真的写文件、并可能删除本地 strm。继续？')) return;
-  }
+  // ⛔ 不传 `mode`（只有一条路）、不传 `dry_run`（2026-10-11 已删）。
+  // ⚠️ 原来这里靠「只演练开着就不拦」当安全阀；演练删掉后，这道 confirm 就是
+  //    **动手前最后一道明示**（真正的保险仍在后端：删除要过 10 分钟二次确认 + 比例闸门，
+  //    而且只删 `.strm`、只删落在输出目录里的）。⛔ 别顺手把它也删了。
+  if (!confirm('会真的写文件，并可能删除本地 strm（删除有二次确认兜底）。\n'
+               + '想先看一眼点「预览差异」——那一步零请求、一个文件都不动。\n继续？')) return;
   try {
-    await api('/api/run', { method: 'POST', body: JSON.stringify(body) });
+    await api('/api/run', { method: 'POST', body: JSON.stringify({ force_delete: false }) });
     LOGSEQ = 0; $('#log').innerHTML = '';
     poll();
   } catch (e) { toast('失败：' + e.message); }
 }
-let DRY_ON = true;
 async function stop() {
   try { await api('/api/run/stop', { method: 'POST' }); toast('已请求停止'); } catch (e) { toast(e.message); }
 }
@@ -908,6 +957,7 @@ function poll() {
       $('#runBar').classList.add('hidden'); $('#btnRun').disabled = false;
       if (s.error) toast(s.error.slice(0, 60)); else if (s.finished) toast('本轮结束');
       loadState();
+      loadHist();       // 本轮刚写出一份新回执 ⇒ 记录列表立刻跟上
     }
   }, 900);
 }
@@ -958,9 +1008,9 @@ function noTreeHint() {
       这一段要靠<b>目录树</b>才列得出你的目录 —— 而现在还没有树。<br>
       树不是你手动导的，是<b>工具跑一轮时自己导</b>的（落在 <span class="mono">data/tree/</span>，只留最近 5 份）。</div></div>
     <div class="actions">
-      <button class="btn pri sm" onclick="goPage('run')">去「同步」页跑一轮 →</button>
+      <button class="btn pri sm" onclick="goPage('sync')">去「同步」页跑一轮 →</button>
       <span class="muted" style="font-size:11.5px">
-        「只演练」开着就行 —— 它只导树、算差异，一个文件都不写</span>
+        它会自己导一份目录树 —— 你什么都不用手动导</span>
     </div>`;
 }
 
@@ -1170,14 +1220,14 @@ function renderSetup(d) {
     //    配对告警会跟着一起消失（它正是挂在本步说明里的）。
     { n: 3, ok: treeOk && !prefix_warn_from_state, lock: !treeOk, t: '同步范围',
       go: treeOk ? '去选 →' : '去跑一轮 →',
-      page: treeOk ? 'set' : 'run', anchor: 'scopeCard',
+      page: treeOk ? 'set' : 'sync', anchor: 'scopeCard',
       hint: prefix_warn_from_state ? prefix_warn_from_state
         : (!treeOk ? '要先跑一轮拿到目录树，这里才列得出你的目录'
                    : `已保存：${scopeSaved}`) },
     { n: 4, ok: ranBefore, lock: !ranBefore, t: '跑第一轮（在「同步」页）', go: '去跑 →',
-      page: 'run', anchor: '',
+      page: 'sync', anchor: '',
       hint: ranBefore ? '已跑过'
-                      : '建议「只演练」开着先跑一遍：会导树、会算差异，但一个文件都不写' },
+                      : '先点「预览差异」看一眼它会做什么 —— 那一步零请求、一个文件都不动' },
   ];
   const todo = steps.filter(s => !s.ok).length;
   if (todo === 0) { $('#setupCard').innerHTML = ''; updateBadges(); return; }
@@ -1588,36 +1638,46 @@ async function delAcct(id, name) {
   } catch (e) { toast('失败：' + e.message); }
 }
 
-/* ---------------- 记录 ---------------- */
+/* ---------------- 运行记录 ----------------
+   ⚠️ 整块**默认折叠**（一进来就摆 60 行列表太吵），点标题右边的按钮展开。
+       折叠**只隐藏 `#histBody`** —— `#histList` 一直在 DOM 里，
+       所以「跑完一轮自动刷新列表」不需要先展开。 */
+function toggleHist() {
+  const b = $('#histBody'), btn = $('#btnHist');
+  const hid = b.classList.toggle('hidden');
+  btn.textContent = hid ? '展开' : '收起';
+  if (!hid) loadHist();
+}
+
 async function loadHist() {
   try {
     const d = await api('/api/runs');
+    HIST_LOADED = true;
     if (!d.items.length) { $('#histList').innerHTML = '<div class="row muted">还没有记录</div>'; return; }
     $('#histList').innerHTML = d.items.map(r => `
-      <div class="row" onclick="openHist('${r.stem}')" style="cursor:pointer">
-        <span class="badge ${r.dry_run ? 'upd' : 'add'}">${r.dry_run ? '演练' : '执行'}</span>
+      <div class="row" onclick="openHist('${esc(r.stem)}')" style="cursor:pointer">
+        <span class="badge add">执行</span>
         <span class="p">${esc(r.started)}</span>
-        <span class="u">写 ${n(r.written)} · 删 ${n(r.deleted)} · 用时 ${esc(r.elapsed || '—')}</span>
+        <span class="u">写 ${n(r.written)} · 删 ${n(r.deleted)}${r.subs_enabled
+          ? ` · 字幕 ${n(r.subs_downloaded)}` : ''} · 用时 ${esc(r.elapsed || '—')}</span>
       </div>`).join('');
   } catch (e) { $('#histList').innerHTML = `<div class="row muted">${esc(e.message)}</div>`; }
 }
+
+/* 点某一行 ⇒ **填进上面那一个结果区**（⛔ 不另开一块详情）
+   ⚠️ 老回执没有 `diff` 明细、也没有 `tree_origin` —— `showResult()` 都按缺省处理，
+      不会因为翻到旧的那一轮就炸掉。 */
 async function openHist(stem) {
   try {
     const d = await api('/api/runs/' + encodeURIComponent(stem));
-    $('#histDetail').classList.remove('hidden');
-    $('#histTitle').textContent = stem;
-    $('#histBody').textContent = d.markdown || JSON.stringify(d.json, null, 1);
-    if (d.detail) $('#histBody').textContent += '\n\n' + d.detail;
+    const res = d.json || {};
+    showResult({ res, det: {}, finished: res.finished || '', isLatest: false });
+    $('#resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { toast(e.message); }
 }
 
 /* ---------------- 启动 ---------------- */
 (async function boot() {
-  try {
-    const s = await api('/api/state');
-    DRY_ON = !!s.dry_run;
-    applyDry(DRY_ON);          // ⚠️ 三种表意（轨道/文字/状态条）与真实值对齐
-  } catch (e) {}
   loadState();
   // 若已在跑，自动接上
   try {
@@ -1625,7 +1685,8 @@ async function openHist(stem) {
     if (r.running) poll();
   } catch (e) {}
   setInterval(() => {
-    if ($('#p-home').classList.contains('on') && !TIMER) loadState();
+    // 只剩两个页签了 ⇒ 同步页在台上才轮询（⛔ 原来的 `#p-home` 已随合并改名）
+    if ($('#p-sync').classList.contains('on') && !TIMER) loadState();
   }, 8000);
 })();
 </script>

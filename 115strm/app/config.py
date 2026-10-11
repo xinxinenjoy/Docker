@@ -226,7 +226,7 @@ class Config:
     #   一句话：`.strm` 里只有一行地址，**播放器根本不知道网盘上还有字幕这个文件**
     #   ⇒ 字幕必须**真下载到本地**、落在 strm 旁边、名字还得按播放器认的规则起。
     #
-    #   ⚠️ 出厂**关**（安全侧，与本项目 `dry_run` 同一种态度）：
+    #   ⚠️ 出厂**关**（安全侧 —— 与「会写文件」的功能同一个态度）：
     #      这是**会去下载几百个文件**的功能，先让人看清代价再开。
     #   ⚠️ 它**只搬网盘上已有的字幕** —— 网盘上没有的片子，工具无能为力。
     subtitle_enable: bool = field(default_factory=lambda: _flag("SUBTITLE_ENABLE", False))
@@ -281,9 +281,13 @@ class Config:
     fail_limit: int = field(default_factory=lambda: _int("FAIL_LIMIT", 8))
     fail_cooldown: float = field(default_factory=lambda: _float("FAIL_COOLDOWN", 900.0))
 
-    # ---------------------------------------------------------------- 安全阀
-    # ⛔ 出厂 1 = 只出方案、一个文件都不写。看过报告确认后再关。
-    dry_run: bool = field(default_factory=lambda: _flag("DRY_RUN", True))
+    # ---------------------------------------------------------------- 其它
+    # ⚠️ 这里原来有个 `dry_run`（只演练、一个文件都不写）—— **2026-10-11 删掉了**
+    #    （红领巾：一般用不上）。理由：它是个**持久开关**，忘了关就是「定时任务
+    #    每轮都只演练、一个文件都不写，表面上还跑成功了」，而这是本项目最忌讳的
+    #    「看起来成功的失败」。
+    #    ⇒ 「先看再动」改由「同步」页的**差异预览**承担：零请求、一个文件都不动、
+    #      不需要任何持久状态，也不会忘。
     log_dir: Path = field(default_factory=lambda: Path(_env("LOG_DIR") or "."))
     # 🔒 内部旋钮（**不出现在网页上**）：日志级别，用环境变量 `LOG_LEVEL` 调。
     log_level: str = field(default_factory=lambda: (_env("LOG_LEVEL") or "INFO").upper())

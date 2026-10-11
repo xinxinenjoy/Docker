@@ -54,7 +54,7 @@ TREE = """|——根目录
 def cfg(tmp: Path, **kw) -> Config:
     base = dict(
         data_dir=tmp / "data", output_dir=tmp / "out",
-        strm_prefix=PREFIX, url_encode=False, dry_run=False,
+        strm_prefix=PREFIX, url_encode=False,
         remote_root="影音", include_dirs="电影,电视剧", video_ext="mp4,mkv",
         delete_defer_minutes=10.0, delete_ratio_guard=0.3,
     )
@@ -288,13 +288,20 @@ class TestSubtitlesRun(unittest.TestCase):
             self.assertEqual(res.subs_downloaded, 3)
             self.assertEqual(res.written, 4, "strm 照旧全写完 —— 字幕失败**不许**影响它")
 
-    def test_演练只算不下(self):
+    def test_开关没开只报数不下(self):
+        """出厂是**关**的 ⇒ 只报「本来能下多少」，一个请求都不发。
+
+        ⚠️ 这条原来是「演练只算不下」—— `dry_run` 2026-10-11 删掉后，
+           它守的那件事由开关这条线继续守着（`subtitle_enable` 出厂 False）。
+           判据仍是**零请求**：`fetch_bytes` 一次都不许被调用。
+        """
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, cfg(tmp, subtitle_enable=True, dry_run=True))
+            s = Syncer(None, cfg(tmp, subtitle_enable=False))
             with mock.patch("app.subtitle.fetch_bytes") as fetch:
                 res = run_sync(s)
             fetch.assert_not_called()
+            self.assertFalse(res.subs_enabled)
             self.assertEqual(res.subs_downloaded, 0)
             self.assertEqual(res.subs_planned, 4)
 
