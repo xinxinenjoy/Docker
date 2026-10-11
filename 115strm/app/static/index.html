@@ -697,13 +697,19 @@ function exList(res) {
 /* 配不上的字幕 —— **按目录分组**。
    🔴 2026-10-11 红领巾：「直接显示文件我根本就不知道需要处理的文件在哪」
    ⇒ 先给**目录**（这才知道去哪儿处理），文件挂在它下面。
-   ⚠️ 老回执里没有 `dir` 键 ⇒ 归到「(同步根)」，别让整块炸掉。 */
+   ⚠️ **老回执没有 `dir` 键**（1.5 及以前只存了「视频 / 字幕 / 判定」）⇒ 绝不能当成
+      「都在同步根下」（那是**说谎**，他一眼就会信）：`undefined` 与空串要分开 ——
+      空串是**真·同步根下的文件**，`undefined` 是**这条回执压根没存目录**。 */
 function umGroups(res) {
   const um = res.subs_unmatched || [];
   if (!um.length) return '';
   const more = res.subs_unmatched_more || 0;
   const by = {};
-  um.forEach(x => { const d = x.dir || '(同步根)'; (by[d] = by[d] || []).push(x); });
+  um.forEach(x => {
+    const d = (x.dir === undefined) ? '(这条回执没存目录 —— 下一轮跑完就有了)'
+                                    : (x.dir || '(同步根)');
+    (by[d] = by[d] || []).push(x);
+  });
   const dirs = Object.keys(by).sort();
   return `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
       <b>有 ${n(um.length + more)} 个字幕跟视频名对不上</b> —— 只列出来、<b>没有下载</b>
