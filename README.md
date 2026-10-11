@@ -16,7 +16,7 @@
 |:---|:---|
 | [`115offline`](https://hub.docker.com/r/xinxinenjoy/115offline) | 115 网盘离线下载推送工具：手机网页粘贴磁力，一键推给 115 |
 | [`115organize`](https://hub.docker.com/r/xinxinenjoy/115organize) | 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控 |
-| [`115strm`](https://hub.docker.com/r/xinxinenjoy/115strm) | 115 网盘结构镜像成本地 strm 树，给 Emby/Jellyfin/Kodi/Infuse/爆米花 扫，播放走 Alist 302 直连 CDN（⚠️ VidHub 不支持 strm） |
+| [`115strm`](https://hub.docker.com/r/xinxinenjoy/115strm) | 115 网盘结构镜像成本地 strm 树，给 Emby/Jellyfin/Kodi/Infuse/爆米花/VidHub 扫，播放走 Alist 302 直连 CDN（生成的 strm 末尾不带换行） |
 | [`atv-tv-power`](https://hub.docker.com/r/xinxinenjoy/atv-tv-power) | Apple TV 开关机联动（Home Assistant / 推送通知） |
 
 镜像全名为 `xinxinenjoy/<项目名>`，源码在仓库内同名目录下。

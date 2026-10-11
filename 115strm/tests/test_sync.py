@@ -56,6 +56,23 @@ class TestWrite(unittest.TestCase):
             self.assertEqual(p.read_text(encoding="utf-8").strip(),
                              "https://example.test/d/a/b.mkv")
 
+    def test_末尾不加换行(self):
+        """🔴 2026-10-11：strm 内容必须是**裸 URL**，末尾不留 `\\n`。
+
+        起因：VidHub 会把结尾的换行当成 URL 的一部分 ⇒ 「文件在、却播不了」
+        （红领巾实测删掉换行即正常；VidHub 官方称下个版本修复）。
+        其余播放器（Infuse / Emby / Jellyfin）本就会 trim ⇒ 去掉无影响。
+
+        ⚠️ 断言用**字节级**比对 —— 上面那条 `test_新增会落盘` 是 `.strip()` 比对的，
+           对末尾空白**不敏感**，挡不住这个回归，所以这里单独钉死。
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = Syncer(None, make_cfg(tmp))
+            s.run(remote_files=[f("a.mkv")], remote_dirs=[], source="tree")
+            p = tmp / "out" / "a.mkv.strm"
+            self.assertEqual(p.read_bytes(), b"https://example.test/d/a.mkv")
+
     def test_内容未变不重写(self):
         """⚠️ 重写会刷新 mtime ⇒ 媒体库每次都当新文件重扫。必须跳过。"""
         with tempfile.TemporaryDirectory() as td:

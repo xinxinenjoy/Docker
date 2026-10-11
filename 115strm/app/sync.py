@@ -494,7 +494,13 @@ class Syncer:
                 parent.mkdir(parents=True, exist_ok=True)
                 made.add(str(parent))
             tmp = target.with_suffix(target.suffix + ".tmp")
-            tmp.write_text(f.url + "\n", encoding="utf-8")
+            # 🔴 2026-10-11：**末尾不加换行**（原为 `f.url + "\n"`）。
+            #    起因：VidHub 会把结尾的 `\n` 当成 URL 的一部分 ⇒ 「文件在、却播不了」；
+            #    实测删掉换行即恢复正常（VidHub 官方说下个版本会修，但我们先自己规避）。
+            #    其余播放器（Infuse / Emby / Jellyfin）本就会 trim 首尾空白 ⇒ 去掉无影响。
+            #    ⚠️ 读取侧 `read_existing()` 用的是 `.strip()`（见本文件 :216）⇒ 去掉换行
+            #       **不改变比对口径**，不会把内容没变的文件误判成「要重写」。
+            tmp.write_text(f.url, encoding="utf-8")
             os.replace(tmp, target)          # 原子写：别让媒体库读到半个文件
             res_holder.written += 1
         res_holder.dirs_made = len(made)
