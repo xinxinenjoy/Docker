@@ -59,15 +59,54 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
         L.append(f"> {res.get('guard_reason', '')}")
         L.append("")
 
+    # ---- 外挂字幕（2026-10-11 新增；口径见 app/subtitle.py）----
+    # ⚠️ 只在**有内容可说**时才出这一节 —— 没开这功能的那一轮，回执不该多出一堆 0。
+    if res.get("subs_enabled") or res.get("subs_planned"):
+        L.append("## 二、外挂字幕")
+        L.append("")
+        if not res.get("subs_enabled"):
+            L.append("> 这功能**没开**（设置 › 字幕 › 下载外挂字幕到本地）。以下是「开了会怎样」。")
+            L.append("")
+        L.append(_table([
+            ("网盘上能配上、该下到本地", f"{res.get('subs_planned', 0):,}"),
+            ("**本轮下载**", f"**{res.get('subs_downloaded', 0):,}**"),
+            ("本地已有（跳过，零请求）", f"{res.get('subs_skipped', 0):,}"),
+            ("下载失败", f"{res.get('subs_failed', 0):,}"),
+            ("按设置跳过（.sup 等）", f"{res.get('subs_skipped_ext', 0):,}"),
+            ("删除本地字幕", f"{res.get('subs_deleted', 0):,}"),
+            ("挂起待确认", f"{res.get('subs_pending_delete', 0):,}"),
+        ], ("项", "数量")))
+        L.append("")
+        if res.get("subs_guard_tripped"):
+            L.append(f"> ⚠️ 字幕的异常闸门触发了 —— 本轮没删本地字幕："
+                     f"{res.get('subs_guard_reason', '')}")
+            L.append("")
+        for note in (res.get("subs_notes") or [])[:10]:
+            L.append(f"> · {note}")
+        if res.get("subs_notes"):
+            L.append("")
+        um = res.get("subs_unmatched") or []
+        if um:
+            L.append("### 配不上的字幕（**没有下载**，要的话人工改名）")
+            L.append("")
+            L.append(_table(
+                [(r.get("video") or "(找不到对应视频)", r.get("sub", ""), r.get("kind", ""))
+                 for r in um[:50]], ("同目录的视频", "字幕", "判定")))
+            more = res.get("subs_unmatched_more") or 0
+            if more:
+                L.append("")
+                L.append(f"（还有 {more} 条，见 json 回执）")
+            L.append("")
+
     if res.get("errors"):
-        L.append("## 二、错误")
+        L.append("## 三、错误")
         L.append("")
         L.append(_table([(e.get("kind", ""), e.get("msg", "")[:200]) for e in res["errors"][:50]],
                         ("类型", "说明")))
         L.append("")
 
     if cfg_all:
-        L.append("## 三、这轮用的口径")
+        L.append("## 四、这轮用的口径")
         L.append("")
         L.append(_table([
             ("strm 前缀", f"`{cfg_all.get('strm_prefix', '')}`"),
@@ -76,6 +115,9 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
             ("扩展名", cfg_all.get("video_ext", "")),
             ("删除等待", f"{cfg_all.get('delete_defer_minutes', 0)} 分钟"),
             ("异常阈值", f"{cfg_all.get('delete_ratio_guard', 0):.0%}"),
+            ("外挂字幕", ("开" if _truthy(cfg_all.get("subtitle_enable")) else "关")
+                       + (f" · 跳过 .sup" if _truthy(cfg_all.get("subtitle_skip_sup")) else "")),
+            ("认的字幕扩展名", cfg_all.get("subtitle_ext", "")),
         ], ("项", "值")))
         L.append("")
 
@@ -100,6 +142,14 @@ def render_diff_txt(res: dict) -> str:
             if v:
                 L.append(f"  {k}: 还有 {v} 条未列出")
     return "\n".join(L)
+
+
+def _truthy(v) -> bool:
+    """配置快照里的真假值 —— `cfg.all()` 里大部分是字符串（`"True"`/`"1"`），
+    但也可能是原生 bool，两种都要认。"""
+    if isinstance(v, bool):
+        return v
+    return str(v or "").strip().lower() in ("1", "true", "yes", "on", "y")
 
 
 def _source_cn(s: str) -> str:

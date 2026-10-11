@@ -111,7 +111,7 @@ class TestWeb(unittest.TestCase):
         d = self.client.get("/api/state").json()
         self.assertIn("steps", d)
         self.assertEqual([s["key"] for s in d["steps"]],
-                         ["export", "parse", "diff", "write", "tidy"])
+                         ["export", "parse", "diff", "write", "tidy", "subs"])
         for s in d["steps"]:
             self.assertTrue(s["title"].strip() and s["help"].strip(),
                             f'{s["key"]} 缺标题或说明')

@@ -64,6 +64,12 @@ SYNC_STEPS: tuple[tuple[str, str, str], ...] = (
      "新增的补上、内容变了的重写；判为「盘上没了」的走二次确认才删，异常比例直接不删"),
     ("tidy", "收尾",
      "删掉本轮不再需要的空目录；写出回执"),
+    # 🔴 2026-10-11 加。⚠️ **必须放最后** —— 前面几个阶段的位置被按索引取用
+    #    （`run_once` 里的 `SYNC_STEPS[0]` / `[2]`），插在中间会把阶段提示指错。
+    ("subs", "下载外挂字幕（可选，出厂关）",
+     "把网盘上**已有的**外挂字幕真下载到 strm 旁边。`.strm` 里只有一行地址，"
+     "播放器不知道网盘上还有字幕这个文件，所以必须落到本地它才看得见。"
+     "首次会下一批，之后每轮只检查「文件在不在」⇒ 零请求。网盘上没有的字幕，这步无能为力"),
 )
 
 # 目录树留几份（一份几 MB，留太多白占盘）。⚠️ 与 `pick_tree_file` 的口径必须一致。
@@ -110,8 +116,14 @@ def save_tree(cfg: Config, raw: bytes) -> Path:
     return p
 
 
-def tree_source(cfg: Config, v: V115 | None, log: Callable) -> tuple[list[str], list[Any], str]:
+def tree_source(cfg: Config, v: V115 | None, log: Callable,
+                syncer: Syncer | None = None) -> tuple[list[str], list[Any], str]:
     """拿一份目录树 → `(目录列表, 文件列表, 来源说明)`。
+
+    ⭐ `syncer`：传进来就用**同一个** Syncer 实例去走树 —— 它会把配对出来的**外挂字幕**
+       攒在实例上（`tree_subs`），供紧接着的 `run()` 用。
+       ⛔ 不共用实例的话，字幕会在走树那一步被算完、然后随实例一起丢掉
+          （`walk_from_tree` 的返回值刻意没动 —— 它有二十多处调用方按二元组解包）。
 
     ⭐ **主路径**：让 115 自己导 —— 要的是「此刻最新」。
     ⚠️ **容错**：导出这条路失败时，退回 `tree/` 里**已有的那份**（零请求）。
@@ -121,7 +133,7 @@ def tree_source(cfg: Config, v: V115 | None, log: Callable) -> tuple[list[str], 
     """
     def parse(path: Path) -> tuple[list[str], list[Any]]:
         tree = treefile.parse_file(path)
-        return Syncer(None, cfg, log).walk_from_tree(tree)
+        return (syncer or Syncer(None, cfg, log)).walk_from_tree(tree)
 
     errors: list[str] = []
     if v is not None:
@@ -178,11 +190,11 @@ def run_once(cfg: Config, log: Callable, *,
     log("info", f"账号来源：{getattr(cfg, 'cookie_source', '(未知)')}")
     v = V115(build_client(cookie), cfg, throttle, log)
 
-    syncer = Syncer(v, cfg, log)
+    syncer = Syncer(v, cfg, log, on_stage=stage)
 
     # ---------------------------------------------------------- ② 导树 → 解析
     stage(SYNC_STEPS[0][1])
-    dirs, files, origin = tree_source(cfg, v, log)
+    dirs, files, origin = tree_source(cfg, v, log, syncer)
     detail["tree_origin"] = origin
 
     # ---------------------------------------------------------- ③ 对照本地 + 落盘

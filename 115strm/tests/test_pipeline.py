@@ -54,7 +54,10 @@ class TestSyncSteps(unittest.TestCase):
 
     def test_步骤键与顺序(self):
         keys = [k for k, _t, _h in SYNC_STEPS]
-        self.assertEqual(keys, ["export", "parse", "diff", "write", "tidy"])
+        # ⚠️ `subs`（外挂字幕，2026-10-11 加）**必须在最后** ——
+        #    `run_once` 里是按索引取用的（`SYNC_STEPS[0]` = 导树、`[2]` = 对照），
+        #    插到中间会把进度提示指错阶段。
+        self.assertEqual(keys, ["export", "parse", "diff", "write", "tidy", "subs"])
 
     def test_每步都有标题和说明(self):
         for k, title, help_ in SYNC_STEPS:

@@ -16,6 +16,7 @@ from dataclasses import fields as df_fields
 from pathlib import Path
 
 from . import settings
+from .subtitle import SUB_EXT_DEFAULT, parse_exts
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
@@ -218,6 +219,25 @@ class Config:
     # 🔒 内部旋钮（**不出现在网页上**，只能用环境变量改）：路径要不要逐段 URL 编码。
     #    实测两种都能播，编码后更稳（代理不会二次误解）；留着是为了测试能比对明文路径。
     url_encode: bool = field(default_factory=lambda: _flag("URL_ENCODE", True))
+
+    # ---------------------------------------------------------------- 外挂字幕
+    # 🔴 2026-10-11 新增。定位与口径见 `app/subtitle.py` 顶部。
+    #
+    #   一句话：`.strm` 里只有一行地址，**播放器根本不知道网盘上还有字幕这个文件**
+    #   ⇒ 字幕必须**真下载到本地**、落在 strm 旁边、名字还得按播放器认的规则起。
+    #
+    #   ⚠️ 出厂**关**（安全侧，与本项目 `dry_run` 同一种态度）：
+    #      这是**会去下载几百个文件**的功能，先让人看清代价再开。
+    #   ⚠️ 它**只搬网盘上已有的字幕** —— 网盘上没有的片子，工具无能为力。
+    subtitle_enable: bool = field(default_factory=lambda: _flag("SUBTITLE_ENABLE", False))
+    # 认哪些扩展名算字幕（小写、逗号分隔）
+    subtitle_ext: str = field(default_factory=lambda: _env("SUBTITLE_EXT") or SUB_EXT_DEFAULT)
+    # ⚠️ `.sup` 是**蓝光图形字幕**，单文件能到 **53 MB**（实测：本盘电影库那一个就 53 MB）。
+    #    电视剧一季几十集时体积是几十 GB 级 ⇒ **默认跳过**，在回执里报出被跳过的条数，
+    #    要的话在设置里关掉这个开关。
+    subtitle_skip_sup: bool = field(default_factory=lambda: _flag("SUBTITLE_SKIP_SUP", True))
+    # 下载并发（字幕是 CDN 直链下载，不走 115 的那套节流；并发小一点即可）
+    subtitle_workers: int = field(default_factory=lambda: _int("SUBTITLE_WORKERS", 4))
     # ---------------------------------------------------------------- 同步策略
     # ⭐ **只有一条路**（2026-10-08 红领巾定）：
     #
@@ -280,6 +300,16 @@ class Config:
     @property
     def exts(self) -> frozenset[str]:
         return frozenset(e.strip().lower().lstrip(".") for e in self.video_ext.split(",") if e.strip())
+
+    @property
+    def sub_exts(self) -> frozenset[str]:
+        """认哪些扩展名算字幕。"""
+        return parse_exts(self.subtitle_ext)
+
+    @property
+    def sub_skip_exts(self) -> frozenset[str]:
+        """这一轮**不下载**的字幕扩展名（`.sup` 图形字幕体积大，默认跳过）。"""
+        return frozenset({"sup"}) if self.subtitle_skip_sup else frozenset()
 
     @property
     def prefix_ready(self) -> bool:

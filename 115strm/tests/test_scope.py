@@ -23,12 +23,12 @@ from app.treefile import parse_text
 REAL_TREE = """|——根目录
 | |-影音
 | | |-电影
-| | | |-功夫女足（2026）
-| | | | |-功夫女足.Kung.Fu.Soccer.2026.mkv
-| | | |-阿凡达 (系列)
-| | | | |-阿凡达2：水之道（2022）
+| | | |-示例影片一（2026）
+| | | | |-Example.Movie.2026.mkv
+| | | |-示例系列
+| | | | |-示例影片二（2022）
 | | |-电视剧
-| | | |-灵魂摆渡·十年（2026）
+| | | |-某某剧（2026）
 | | | | |-S01E01.mkv
 | | | | |-S01E02.mkv
 | | |-短剧
@@ -91,7 +91,7 @@ class TestWalkFromTree(unittest.TestCase):
     def test_基准是同步根_不重复层级(self):
         """🔴 核心回归：相对路径**不含同步根那一层**，但**含白名单那一层**。
 
-        为什么含白名单层：本地目录是 `/out/电影/功夫女足（2026）/x.strm` ——
+        为什么含白名单层：本地目录是 `/out/电影/示例影片一（2026）/x.strm` ——
         从本地到 alist 看到的结构是「同步根之下的层级」，正好对上
         `prefix(…/媒体/影音) + rel(电影/…)`。少一层会拼错 URL。
         """
@@ -101,7 +101,7 @@ class TestWalkFromTree(unittest.TestCase):
             s = Syncer(None, cfg(tmp, include_dirs="电影"))
             dirs, files = s.walk_from_tree(tree)
             rels = [f.rel for f in files]
-            self.assertIn("电影/功夫女足（2026）/功夫女足.Kung.Fu.Soccer.2026.mkv", rels)
+            self.assertIn("电影/示例影片一（2026）/Example.Movie.2026.mkv", rels)
             for r in rels + dirs:
                 self.assertFalse(r.startswith("影音/"), f"重复了同步根那一层：{r}")
                 self.assertFalse(r.startswith("根目录/"), f"带上了树根：{r}")
@@ -114,7 +114,7 @@ class TestWalkFromTree(unittest.TestCase):
             _dirs, files = s.walk_from_tree(tree)
             self.assertEqual(
                 files[0].url,
-                PREFIX + "/电影/功夫女足（2026）/功夫女足.Kung.Fu.Soccer.2026.mkv")
+                PREFIX + "/电影/示例影片一（2026）/Example.Movie.2026.mkv")
 
     def test_白名单只走指定子树(self):
         with tempfile.TemporaryDirectory() as td:
@@ -159,8 +159,8 @@ class TestWalkFromTree(unittest.TestCase):
     def test_只有含视频的目录才会被列出(self):
         """🔴 2026-10-08 二轮定调：「没有具体文件的目录直接抛弃不生成」。
 
-        `电影/功夫女足（2026）` 下面有 mkv ⇒ 建；
-        `电影/阿凡达 (系列)` 整棵子树一个视频都没有（它下面只有一个被截断的条目）
+        `电影/示例影片一（2026）` 下面有 mkv ⇒ 建；
+        `电影/示例系列` 整棵子树一个视频都没有（它下面只有一个被截断的条目）
         ⇒ **不建** —— 免得媒体库里点进去一片空白。
         """
         with tempfile.TemporaryDirectory() as td:
@@ -168,8 +168,8 @@ class TestWalkFromTree(unittest.TestCase):
             tree = parse_text(REAL_TREE)
             s = Syncer(None, cfg(tmp, include_dirs="电影"))
             dirs, _files = s.walk_from_tree(tree)
-            self.assertIn("电影/功夫女足（2026）", dirs)
-            self.assertNotIn("电影/阿凡达 (系列)", dirs)
+            self.assertIn("电影/示例影片一（2026）", dirs)
+            self.assertNotIn("电影/示例系列", dirs)
             self.assertEqual(s.tree_notes.get("skipped_dirs"), 1)
 
     def test_非媒体扩展名不生成(self):
@@ -191,15 +191,15 @@ class TestWalkFromTree(unittest.TestCase):
             self.assertEqual(files, [])
 
     def test_深层白名单(self):
-        """白名单支持多级路径（如 `电影/功夫女足（2026）`）。"""
+        """白名单支持多级路径（如 `电影/示例影片一（2026）`）。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             tree = parse_text(REAL_TREE)
-            s = Syncer(None, cfg(tmp, include_dirs="电影/功夫女足（2026）"))
+            s = Syncer(None, cfg(tmp, include_dirs="电影/示例影片一（2026）"))
             _d, files = s.walk_from_tree(tree)
             self.assertEqual(len(files), 1)
-            self.assertIn("功夫女足", files[0].rel)
-            self.assertNotIn("阿凡达", files[0].rel)
+            self.assertIn("示例影片一", files[0].rel)
+            self.assertNotIn("示例影片二", files[0].rel)
 
     # ------------------------------------------- 无扩展名条目 = 疑似「被截断的子树」
     def test_无扩展名叶子不建任何东西_只报截断(self):
@@ -217,9 +217,9 @@ class TestWalkFromTree(unittest.TestCase):
             s = Syncer(None, cfg(tmp, include_dirs="电影"))
             dirs, files = s.walk_from_tree(tree)
             joined = "\n".join(dirs + [f.rel for f in files])
-            self.assertNotIn("阿凡达2：水之道（2022）", joined)
+            self.assertNotIn("示例影片二（2022）", joined)
             self.assertEqual(s.tree_notes.get("extensionless"), 1)
-            self.assertIn("阿凡达2：水之道（2022）",
+            self.assertIn("示例影片二（2022）",
                           s.tree_notes.get("extensionless_sample", [])[0])
 
     def test_树统计能数出疑似截断(self):
@@ -325,13 +325,13 @@ class TestTreeHelpers(unittest.TestCase):
         t = parse_text(REAL_TREE)
         items = t.list_level("影音/电影")
         paths = [i["path"] for i in items]
-        self.assertIn("影音/电影/功夫女足（2026）", paths)
+        self.assertIn("影音/电影/示例影片一（2026）", paths)
 
     def test_subtree_stats(self):
         t = parse_text(REAL_TREE)
         st = t.subtree_stats("影音/电视剧")
         self.assertEqual(st["files"], 2)               # S01E01/S01E02
-        self.assertEqual(st["dirs"], 1)                # 只有「灵魂摆渡·十年（2026）」
+        self.assertEqual(st["dirs"], 1)                # 只有「某某剧（2026）」
 
     def test_subtree_stats_电影子集(self):
         t = parse_text(REAL_TREE)

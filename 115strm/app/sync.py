@@ -59,13 +59,16 @@ from __future__ import annotations
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
+from . import subtitle as subtitle_mod
 from .config import Config
 from .namer import DiffResult, StrmBuilder, StrmFile, is_video, local_path_of, safe_name
+from .subtitle import SubFile, is_subtitle, plan_dir
 from .throttle import Throttle
 from .v115 import V115, V115Error, Node
 
@@ -74,6 +77,11 @@ __all__ = ["Syncer", "SyncResult", "Pending"]
 # 本地账本：记「上一轮看到的网盘结构」的指纹，用来判断要不要重算
 STATE_NAME = "sync-state.json"
 PENDING_NAME = "pending-delete.json"
+# 🔴 外挂字幕的**台账**：`{本地相对路径: 写下它时的 sha1}`。
+#    ⚠️ 它**只用来决定「敢不敢删」**，绝不参与「要不要下载」（那个只看磁盘）。
+#       台账丢了/坏了 ⇒ 只是「不删」（安全侧），不会误删。
+SUBS_STATE_NAME = "subs-managed.json"
+SUBS_PENDING_NAME = "pending-delete-subs.json"
 
 
 def _safe_rel(rel: str) -> str:
@@ -137,6 +145,20 @@ class SyncResult:
     guard_reason: str = ""
     looks_like_move: bool = False          # 判定为「改名/移动」而非「异常」
     diff: dict = field(default_factory=dict)
+    # ---- 外挂字幕（2026-10-11 新增；口径见 app/subtitle.py）----
+    subs_enabled: bool = False             # 开关开了没（没开的话下面全是 0）
+    subs_planned: int = 0                  # 网盘上能配上、该下到本地的总数
+    subs_downloaded: int = 0               # 真的下载并写入的
+    subs_skipped: int = 0                  # 本地已有同名 ⇒ 跳过（**零请求**）
+    subs_failed: int = 0                   # 下载/写入失败（只记账，不阻断 strm 同步）
+    subs_skipped_ext: int = 0              # 被设置挡掉的（默认是 .sup 图形字幕）
+    subs_deleted: int = 0                  # 网盘上没了 ⇒ 删掉的本地字幕
+    subs_pending_delete: int = 0           # 挂起等二次确认的
+    subs_guard_tripped: bool = False
+    subs_guard_reason: str = ""
+    subs_unmatched: list = field(default_factory=list)   # 配不上的（只报不下）
+    subs_unmatched_more: int = 0
+    subs_notes: list = field(default_factory=list)       # 给人看的补充说明
 
     def as_dict(self) -> dict:
         d = dict(vars(self))
@@ -163,17 +185,34 @@ class Pending:
 class Syncer:
     """一轮同步的执行者。"""
 
-    def __init__(self, v: V115 | None, cfg: Config, log: Any = None):
+    def __init__(self, v: V115 | None, cfg: Config, log: Any = None,
+                 on_stage: Callable[[str], None] | None = None):
         self.v = v
         self.cfg = cfg
         self.log = log or (lambda *a, **k: None)
+        # 进度回调用（网页上的「这一步在做什么」）—— 不传就是个空动作
+        self.on_stage = on_stage
         self.out = Path(cfg.output_dir)
         self.builder = StrmBuilder.from_cfg(cfg)
         self.state_path = Path(cfg.data_dir) / STATE_NAME
         self.pending_path = Path(cfg.data_dir) / PENDING_NAME
+        self.subs_path = Path(cfg.data_dir) / SUBS_STATE_NAME
+        self.subs_pending_path = Path(cfg.data_dir) / SUBS_PENDING_NAME
         # 走目录树时攒下的一轮备注（跳过多少空目录、多少条目疑似被截断）
         # —— 给回执和日志用；`walk_from_tree` 填、调用方读。
         self.tree_notes: dict[str, Any] = {}
+        # 外挂字幕：`walk_from_tree` 顺手配对出来的（同样走「实例上攒、调用方读」这条路，
+        # ⚠️ 不改 `walk_from_tree` 的返回值 —— 它有二十多处调用方按二元组解包）。
+        self.tree_subs: list[SubFile] = []
+        self.tree_sub_unmatched: list[tuple[str, str, str]] = []
+        self.tree_sub_skipped: list[tuple[str, str]] = []
+
+    def stage(self, label: str) -> None:
+        if self.on_stage:
+            try:
+                self.on_stage(label)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ 本地现状
     def scan_local(self) -> dict[str, float]:
@@ -269,7 +308,7 @@ class Syncer:
            实测踩到过：
 
                prefix  = https://域名:5244/d/媒体/影音   ← 已经含了挂载路径
-               相对路径 = 电影/功夫女足（2026）/x.mkv      ← 必须**不含** `影音`
+               相对路径 = 电影/示例影片一（2026）/x.mkv      ← 必须**不含** `影音`
 
            若拿 `tree.root_path`（`根目录`）当基准，相对路径会变成
            `影音/电影/…`，拼出来是 `…/d/媒体/影音/影音/电影/…`
@@ -296,6 +335,12 @@ class Syncer:
         dirs: list[str] = []
         files: list[StrmFile] = []
         missing: list[str] = []          # 白名单里填了、但树里没有的路径
+        # ⚠️ 字幕结果是**每次走树重算**的 —— 必须在开头清空：
+        #    同一个 Syncer 实例走两遍树（测试、或将来复用实例）时，
+        #    不清空就会把上一轮的配对**累积**进来，症状是字幕数越跑越多。
+        self.tree_subs = []
+        self.tree_sub_unmatched = []
+        self.tree_sub_skipped = []
 
         # ① 找基准节点（相对树根的路径，如 `影音`）
         rel_root = (base or self.cfg.remote_root or "").strip("/")
@@ -322,16 +367,34 @@ class Syncer:
             starts.append((root_node, ""))
 
         # ③ 逐棵子树走
+        # 🔴 2026-10-11：顺手把**外挂字幕**也配对出来（零额外遍历、零请求）。
+        #    口径与理由见 `app/subtitle.py` 顶部；这里只负责「按目录收集 + 配对」。
+        sub_exts = self.cfg.sub_exts
+
         def walk(node_path: str, rel_prefix: str) -> None:
             for child in tree.children_dirs(node_path):
                 name = tree.entries[child].name
                 rel = f"{rel_prefix}/{name}" if rel_prefix else name
                 dirs.append(rel)
                 walk(child, rel)
+            vids: list[str] = []
+            subs_here: list[str] = []
             for fname in tree.files_of(node_path):
                 rel = f"{rel_prefix}/{fname}" if rel_prefix else fname
                 if is_video(fname, self.cfg.exts):
                     files.append(StrmFile(rel=rel, url=self.builder.url(rel)))
+                    vids.append(fname)
+                elif sub_exts and is_subtitle(fname, sub_exts):
+                    subs_here.append(fname)
+            # ⚠️ 只处理「同目录里**有视频**」的字幕：没视频就没 strm 可挂，配了也没用
+            if sub_exts and subs_here and vids:
+                matched, unmatched, skipped = plan_dir(
+                    rel_prefix, vids, subs_here,
+                    builder=self.builder, exts=sub_exts,
+                    skip_exts=self.cfg.sub_skip_exts)
+                self.tree_subs.extend(matched)
+                self.tree_sub_unmatched.extend(unmatched)
+                self.tree_sub_skipped.extend(skipped)
 
         for node, rel_prefix in starts:
             # ⚠️ 白名单命中的目录**本身不建**（它已经是同步根下的层级），只走它下面的
@@ -620,29 +683,34 @@ class Syncer:
         return n
 
     # ------------------------------------------------------------------ 挂起删除
-    def load_pending(self) -> Pending:
-        if not self.pending_path.exists():
+    # ⚠️ 这三个都收一个可选的 `path`：strm 与**字幕**各用一份挂起清单
+    #    （`pending-delete.json` / `pending-delete-subs.json`），互不覆盖。
+    def load_pending(self, path: Path | None = None) -> Pending:
+        p = Path(path) if path is not None else self.pending_path
+        if not p.exists():
             return Pending()
         try:
-            d = json.loads(self.pending_path.read_text(encoding="utf-8"))
+            d = json.loads(p.read_text(encoding="utf-8"))
             return Pending(paths=list(d.get("paths") or []),
                            first_seen=float(d.get("first_seen") or 0),
                            seen_times=int(d.get("seen_times") or 0))
         except Exception:
             return Pending()
 
-    def save_pending(self, p: Pending) -> None:
-        self.pending_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.pending_path.with_suffix(".json.tmp")
+    def save_pending(self, p: Pending, path: Path | None = None) -> None:
+        target = Path(path) if path is not None else self.pending_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({
             "paths": p.paths, "first_seen": p.first_seen, "seen_times": p.seen_times,
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, self.pending_path)
+        os.replace(tmp, target)
 
-    def clear_pending(self) -> None:
+    def clear_pending(self, path: Path | None = None) -> None:
+        target = Path(path) if path is not None else self.pending_path
         try:
-            self.pending_path.unlink()
+            target.unlink()
         except OSError:
             pass
 
@@ -690,6 +758,8 @@ class Syncer:
             #    ⚠️ 只看 `to_add`（新路径），不算 `to_update`（只是内容变）。
             res.looks_like_move = bool(
                 d.to_delete and len(d.to_add) > 0 and len(d.to_add) >= len(d.to_delete) * 0.5)
+            # ⭐ 演练时也把「字幕这一步会做什么」算出来 —— 他要**动手之前**就看到代价
+            self.run_subtitles(res, dry=True)
             res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             res.elapsed = _human(time.time() - t0)
             return res
@@ -730,6 +800,11 @@ class Syncer:
         elif not force_delete:
             # 这轮没发现删除 ⇒ 挂起清单作废（说明刚才是抖动，现在恢复了）
             self.clear_pending()
+
+        # ④ 外挂字幕 —— **独立阶段**：
+        #    自带开关、自己的并发与重试，**失败只记账、绝不往上抛**
+        #    ⇒ 字幕下不下来，都不影响上面那条 strm 主链路（仍然只有十几次请求）。
+        self.run_subtitles(res)
 
         res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         res.elapsed = _human(time.time() - t0)
@@ -822,6 +897,250 @@ class Syncer:
         self.clear_pending()
         self.log("info", f"二次确认通过（等了 {age:.0f} 分钟），删除 {n} 个本地 strm")
         return res
+
+    # ================================================================== 外挂字幕
+    # 🔴 2026-10-11 新增。**完整口径（含 VidHub 真机实测）见 `app/subtitle.py` 顶部。**
+    #
+    #   设计上刻意**与主流程解耦**，四条：
+    #     · 独立开关（`subtitle_enable`，出厂关）
+    #     · 独立并发 + 独立重试；下载走 alist → CDN 直链，**不占 115 的请求节流**
+    #     · **失败只记账、绝不往上抛** ⇒ 字幕下不下来，都不影响 strm 同步
+    #     · 增量 = 「本地已有同名就跳过」⇒ 首次之后每轮**零请求**，也不白刷 mtime
+
+    def load_subs_ledger(self) -> dict[str, str]:
+        """读字幕台账 → `{本地相对路径: 写下它时的 sha1}`。
+
+        ⛔ **它不参与「要不要下载」** —— 那个永远只看磁盘上文件在不在。
+           它只回答一个问题：**「这个文件能不能删」**。
+           台账丢了/坏了 ⇒ 退化成「不删」（安全侧），不会误删任何东西。
+        """
+        p = self.subs_path
+        if not p.exists():
+            return {}
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            items = d.get("items") if isinstance(d, dict) else None
+            if not isinstance(items, dict):
+                return {}
+            return {str(k): str(v) for k, v in items.items()}
+        except Exception:
+            return {}
+
+    def save_subs_ledger(self, items: dict[str, str]) -> None:
+        p = self.subs_path
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps({
+                "items": items,
+                "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, p)
+        except OSError as exc:
+            self.log("warning", f"字幕台账写入失败（不影响本轮）：{exc}")
+
+    def run_subtitles(self, res: SyncResult, *, dry: bool = False) -> None:
+        """跑字幕这一步。**怎么都不会抛异常出去**（除代码 bug 外，也由调用方兜底）。"""
+        res.subs_enabled = bool(self.cfg.subtitle_enable)
+        res.subs_planned = len(self.tree_subs)
+        res.subs_skipped_ext = len(self.tree_sub_skipped)
+
+        um = self.tree_sub_unmatched
+        res.subs_unmatched = [{"video": v, "sub": s, "kind": k} for v, s, k in um[:200]]
+        res.subs_unmatched_more = max(0, len(um) - 200)
+        if res.subs_skipped_ext:
+            res.subs_notes.append(
+                f"{res.subs_skipped_ext} 个 `.sup`（蓝光图形字幕）按设置跳过 —— "
+                f"单文件能到 50 MB 以上，电视剧整季是几十 GB 级；要的话在设置里关掉「跳过 .sup」")
+        if um:
+            res.subs_notes.append(
+                f"{len(um)} 个字幕跟同目录的视频名**对不上**（如视频是英文名、字幕是中文译名）"
+                f"⇒ 只列进回执、**不下载**：配错字幕比没字幕更糟")
+
+        planned: set[str] = set()
+        todo: list[SubFile] = []
+        for sf in self.tree_subs:
+            key = _safe_rel(sf.local_rel)
+            if key in planned:              # 理论上不会同键，兜一手（避免并发写同一个文件）
+                continue
+            planned.add(key)
+            if (self.out / key).exists():
+                res.subs_skipped += 1       # ⭐ 本地已有 ⇒ 跳过，**零请求**
+            else:
+                todo.append(sf)
+
+        if not self.cfg.subtitle_enable:
+            return                          # 开关没开：只报「本来能下多少」，不发任何请求
+
+        if dry:
+            gone, kept = self._scan_stale_subs(self.load_subs_ledger(), planned)
+            res.subs_pending_delete = len(gone)
+            for k in kept:
+                res.subs_notes.append(f"本地字幕 `{k}` 你自己换过（内容与下载时不同）⇒ 保留不删")
+            if todo:
+                res.subs_notes.append(f"演练：本轮**会下载 {len(todo)} 个字幕**"
+                                      f"（本地已有 {res.subs_skipped} 个，跳过）")
+            return
+
+        ledger_before = self.load_subs_ledger()
+        ledger = dict(ledger_before)
+
+        if todo:
+            self.stage("下载外挂字幕")
+            self.log("info", f"字幕：本地已有 {res.subs_skipped} 个（跳过、零请求）；"
+                             f"待下载 {len(todo)} 个 —— 走 CDN 直链，不占 115 的请求节流")
+            self._download_subs(todo, res, ledger)
+        elif res.subs_planned:
+            self.log("info", f"字幕：{res.subs_skipped} 个本地全都有 ⇒ 跳过，一个请求都不发")
+
+        # 台账收尾：本地已经不在的条目剔掉（文件被你删了 / 同步盘冲突件之类）
+        for key in list(ledger):
+            if not (self.out / key).is_file():
+                ledger.pop(key, None)
+
+        self._handle_subs_delete(ledger, planned, res,
+                                 ledger_size=max(len(ledger_before), len(ledger)))
+        if ledger != ledger_before:
+            self.save_subs_ledger(ledger)
+
+    def _download_subs(self, todo: list[SubFile], res: SyncResult,
+                       ledger: dict[str, str]) -> None:
+        """并发下载。⚠️ 单个失败**只记账**，绝不中断整批、更不往上抛。"""
+        workers = max(1, int(self.cfg.subtitle_workers))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(self._download_one, sf): sf for sf in todo}
+            for fut in as_completed(futs):
+                sf = futs[fut]
+                try:
+                    key, sha = fut.result()
+                except Exception as exc:                 # noqa: BLE001
+                    res.subs_failed += 1
+                    if res.subs_failed <= 10:
+                        self.log("warning", f"字幕下载失败：{sf.local_rel} —— "
+                                            f"{type(exc).__name__}: {exc}")
+                    continue
+                ledger[key] = sha
+                res.subs_downloaded += 1
+        if res.subs_failed:
+            self.log("warning", f"字幕：{res.subs_failed} 个下载失败（已记账，"
+                                f"**不影响 strm 同步**；下一轮会自动重试）")
+
+    def _download_one(self, sf: SubFile) -> tuple[str, str]:
+        """下一个字幕 → `(本地相对路径, 内容 sha1)`。"""
+        data = subtitle_mod.fetch_bytes(sf.url)
+        key = _safe_rel(sf.local_rel)
+        target = self.out / key
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, target)          # 原子写：别让播放器读到半个字幕
+        return key, subtitle_mod.sha1_of(data)
+
+    def _scan_stale_subs(self, ledger: dict[str, str],
+                         planned: set[str]) -> tuple[list[str], list[str]]:
+        """台账里**本地还在、这一轮却不再需要**的字幕 → `(可删, 你改过要保留的)`。
+
+        ⚠️ 「不再需要」= 网盘上已经没有对应的字幕了（这轮没被配对出来）。
+        🔴 第二道闸：**内容必须还是我们写下的那一份**（sha1 相同）才敢删 ——
+           你要是自己换了份更好的字幕放在同一个名字上，**一律保留**。
+        """
+        gone: list[str] = []
+        kept: list[str] = []
+        for key, sha in ledger.items():
+            if key in planned:
+                continue
+            p = self.out / key
+            if not p.is_file():
+                continue
+            try:
+                cur = subtitle_mod.sha1_of(p.read_bytes())
+            except OSError:
+                continue
+            if sha and cur != sha:
+                kept.append(key)
+            else:
+                gone.append(key)
+        return sorted(gone), sorted(kept)
+
+    def _handle_subs_delete(self, ledger: dict[str, str], planned: set[str],
+                            res: SyncResult, *, ledger_size: int) -> None:
+        """删本地字幕 —— 走和 strm **同一套**「异常比例闸门 + 延迟二次确认」。
+
+        ⚠️ 字幕比 strm 便宜得多（丢了大不了重下），但**删除这件事本身**在这套工具里
+           一律要过闸门 —— 口径统一，出问题时只需要盯一个地方。
+        """
+        gone, kept = self._scan_stale_subs(ledger, planned)
+        for k in kept:
+            res.subs_notes.append(f"本地字幕 `{k}` 你自己换过 ⇒ 保留不删")
+        if not gone:
+            self.clear_pending(self.subs_pending_path)
+            return
+
+        total = max(1, ledger_size)
+        ratio = len(gone) / total
+        if ratio > self.cfg.delete_ratio_guard:
+            res.subs_guard_tripped = True
+            res.subs_guard_reason = (
+                f"本轮有 {len(gone)} 个字幕在网盘上已无对应（台账共 {total} 个，"
+                f"{ratio:.1%}）超过阈值 {self.cfg.delete_ratio_guard:.0%}"
+                f" ⇒ 判定异常，本轮**不删**本地字幕。")
+            self.log("error", res.subs_guard_reason)
+            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1),
+                              self.subs_pending_path)
+            res.subs_pending_delete = len(gone)
+            return
+
+        p = self.load_pending(self.subs_pending_path)
+        if not p.first_seen:
+            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1),
+                              self.subs_pending_path)
+            res.subs_pending_delete = len(gone)
+            self.log("info", f"字幕：{len(gone)} 个本地字幕在网盘上已无对应 ⇒ **先挂起**，"
+                             f"等 {self.cfg.delete_defer_minutes:.0f} 分钟后二次确认")
+            return
+
+        age = p.age_minutes()
+        if age < self.cfg.delete_defer_minutes:
+            self.save_pending(Pending(paths=gone, first_seen=p.first_seen,
+                                      seen_times=p.seen_times + 1), self.subs_pending_path)
+            res.subs_pending_delete = len(gone)
+            self.log("info", f"字幕：挂起中（已等 {age:.1f}/"
+                             f"{self.cfg.delete_defer_minutes:.0f} 分钟），本轮仍不删")
+            return
+
+        n = self.remove_subs(gone)
+        res.subs_deleted = n
+        for k in gone:
+            ledger.pop(k, None)
+        self.clear_pending(self.subs_pending_path)
+        self.log("info", f"字幕：二次确认通过（等了 {age:.0f} 分钟），删除 {n} 个本地字幕")
+
+    def remove_subs(self, rels: Iterable[str]) -> int:
+        """删本地字幕 —— **双保险**，与 `remove()`（只删 `.strm`）同一套姿势：
+
+            ① 只删**字幕扩展名**的文件
+            ② 解析后必须真在 `output_dir` 里面（`out/../danger` 这种挡掉）
+        """
+        n = 0
+        root = self.out.resolve()
+        allowed = self.cfg.sub_exts
+        for rel in rels:
+            rel = str(rel).replace("\\", "/")
+            if not is_subtitle(rel.rsplit("/", 1)[-1], allowed):
+                continue
+            try:
+                p = (self.out / _safe_rel(rel)).resolve()
+            except (OSError, ValueError):
+                continue
+            if p != root and root not in p.parents:
+                self.log("warning", f"拒绝删除越界路径：{rel}")
+                continue
+            try:
+                p.unlink()
+                n += 1
+            except OSError as exc:
+                self.log("warning", f"删不掉字幕 {rel}：{exc}")
+        return n
 
     def _recheck(self, rels: list[str]) -> list[str]:
         """对候选删除再核一次 —— 能查网盘就查，查不了就用传入的清单。

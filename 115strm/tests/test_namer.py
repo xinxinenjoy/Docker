@@ -16,10 +16,10 @@ from app.namer import (DiffResult, StrmBuilder, StrmFile, is_video, local_path_o
 class TestUrlPath(unittest.TestCase):
     def test_逐段编码保留斜杠(self):
         # 🔴 关键：不能整体 quote()，否则 `/` 变 `%2F`，整个路径塌成一段
-        got = url_of_path("电影/功夫女足（2026）/a b.mkv", encode=True)
+        got = url_of_path("电影/示例影片一（2026）/a b.mkv", encode=True)
         self.assertEqual(
             got,
-            "%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/a%20b.mkv")
+            "%E7%94%B5%E5%BD%B1/%E7%A4%BA%E4%BE%8B%E5%BD%B1%E7%89%87%E4%B8%80%EF%BC%882026%EF%BC%89/a%20b.mkv")
         self.assertIn("/", got)                       # 分隔符必须保留
         self.assertNotIn("%2F", got.upper().replace("%2f", "%2F").replace("%2F", "%2F"))
         self.assertNotIn("%2F", got)
@@ -43,11 +43,11 @@ class TestStrmBuilder(unittest.TestCase):
         播放器用的库五花八门，赌不起 ⇒ 全编。
         """
         b = StrmBuilder(prefix="https://alist.example.com:5244/d/媒体/影音", encode=True)
-        u = b.url("电影/功夫女足（2026）/x.mkv")
+        u = b.url("电影/示例影片一（2026）/x.mkv")
         self.assertEqual(
             u,
             "https://alist.example.com:5244/d/%E5%AA%92%E4%BD%93/%E5%BD%B1%E9%9F%B3/"
-            "%E7%94%B5%E5%BD%B1/%E5%8A%9F%E5%A4%AB%E5%A5%B3%E8%B6%B3%EF%BC%882026%EF%BC%89/x.mkv")
+            "%E7%94%B5%E5%BD%B1/%E7%A4%BA%E4%BE%8B%E5%BD%B1%E7%89%87%E4%B8%80%EF%BC%882026%EF%BC%89/x.mkv")
         u.encode("ascii")                       # 必须能编 —— 编不了就会抛
         self.assertNotIn("影音", u)
 
@@ -131,7 +131,7 @@ class TestSafeName(unittest.TestCase):
 
     def test_中文括号不动(self):
         # ⚠️ 全角括号是合法字符，绝不能动（动了就和网盘对不上了）
-        self.assertEqual(safe_name("功夫女足（2026）"), "功夫女足（2026）")
+        self.assertEqual(safe_name("示例影片一（2026）"), "示例影片一（2026）")
 
 
 class TestIsVideo(unittest.TestCase):

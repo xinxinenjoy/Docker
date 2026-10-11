@@ -696,6 +696,20 @@ async function loadState() {
         <b>${n(res.dirs_skipped)}</b> 个「整棵子树都没有视频」没收 ·
         收掉 <b>${n(res.dirs_pruned)}</b> 个空目录
       </div>
+      ${(res.subs_planned || res.subs_enabled) ? `<div class="desc muted" style="margin-top:6px;line-height:1.7">
+        字幕：能配上 <b>${n(res.subs_planned)}</b> 个 ·
+        本轮下载 <b>${n(res.subs_downloaded)}</b> ·
+        本地已有跳过 <b>${n(res.subs_skipped)}</b>
+        ${res.subs_failed ? ` · <b style="color:#b91c1c">失败 ${n(res.subs_failed)}</b>` : ''}
+        ${res.subs_skipped_ext ? ` · .sup 跳过 <b>${n(res.subs_skipped_ext)}</b>` : ''}
+        ${res.subs_deleted ? ` · 删除 <b>${n(res.subs_deleted)}</b>` : ''}
+        ${res.subs_enabled ? '' : ' · <b>（这功能没开）</b>'}
+      </div>` : ''}
+      ${(res.subs_unmatched || []).length ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
+        <b>有 ${n((res.subs_unmatched || []).length + (res.subs_unmatched_more || 0))} 个字幕跟视频名对不上</b>
+        —— 只列出来、<b>没有下载</b>（配错字幕比没字幕更糟）。例如：
+        <span class="mono">${esc((res.subs_unmatched[0] || {}).sub || '')}</span>
+      </div></div>` : ''}
       ${res.extensionless ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
         <b>这份目录树里有 ${n(res.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
         这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
