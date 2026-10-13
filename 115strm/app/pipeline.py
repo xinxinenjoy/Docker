@@ -43,6 +43,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from . import notify as notify_mod
 from . import sync as sync_mod
 from . import treefile
 from .config import Config
@@ -226,4 +227,15 @@ def run_once(cfg: Config, log: Callable, *,
     #       节流 sleep 上还是慢在 115 响应上，看的人无从分辨。
     res.req_detail = dict(v.reqs.summary())
     res.req_detail["throttle"] = throttle.stats.as_dict()
+
+    # ---------------------------------------------------------- ④ 推送
+    # ⭐ 红领巾 2026-10-13：「每次运行都推送，有变动的报变动，无变动的报当前剧集、电影的数据」
+    # ⇒ 收尾**必发一条**（总开关关着时 `notify_run` 直接返回空，什么都不做）。
+    # ⛔ **旁路**：推送失败绝不改变本轮结果 —— 包一层 try，最坏只写一行日志。
+    #    理由：推送挂了却把一整轮同步判成失败，是「小毛病放大成事故」。
+    try:
+        notify_mod.notify_run(cfg, res, log)
+    except Exception as e:                      # noqa: BLE001
+        log("warn", f"推送出错（不影响本轮同步）：{type(e).__name__}: {e}")
+
     return Outcome(res=res, source="tree", detail=detail)

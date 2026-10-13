@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from . import accounts as accounts_mod
+from . import notify as notify_mod
 from . import pipeline as pipeline_mod
 from . import report as report_mod
 from . import settings as settings_mod
@@ -535,6 +536,32 @@ def reset_settings(body: ResetIn) -> dict:
     out = settings_mod.describe(cfg, Path(cfg.data_dir))
     out["removed"] = res["removed"]
     return out
+
+
+# --------------------------------------------------------------------------- 推送
+class PushTestIn(BaseModel):
+    """单渠道发送测试。`channel` 取 `bark` / `tg` / `webhook`。"""
+    channel: str = ""
+
+
+@app.post("/api/push/test", dependencies=[Depends(auth)])
+def push_test(body: PushTestIn) -> dict:
+    """发一条测试消息，把接口的原话回给网页。
+
+    ⚠️ **不看总开关、也不看渠道开关** —— 点了就是要发。
+       否则开关没开时「发送测试」永远失败，用户会以为是自己配错了。
+    ⚠️ 配置由前端**先保存再调**这里（见 `index.html::testPush`）——
+       不先保存的话，测的是**上一版**配置，而且失败原因完全看不出来。
+    ⚠️ 返回里带 `detail` 是**渠道接口的原话**（如 Telegram 的 400/401 含义），
+       别在这儿改写成人话再传 —— 排障时要的就是原文。
+    """
+    cfg = load()
+    title = "115 STRM · 测试推送"
+    content = ("这是一条测试消息。\n"
+               "收到它，说明这个渠道配对、通了。\n"
+               "正式推送会在每一轮同步跑完之后发一条。")
+    r = notify_mod.send_one(cfg, (body.channel or "").strip(), title, content)
+    return {"result": r.as_dict()}
 
 
 # --------------------------------------------------------------------------- 账号

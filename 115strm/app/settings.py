@@ -139,13 +139,103 @@ FIELDS: list[dict] = [
     _f("max_requests", "MAX_REQUESTS", "int", "节流", "单轮请求上限",
        "0 = 不限制。试跑时设小一点。", min=0, max=100000, advanced=True),
 
+    # ---------------------------------------------------------------- 推送
+    # 🔴 2026-10-13 新增。一句话定位：**一轮跑完，把结果发出去**。
+    #
+    #   口径（红领巾原话）：「**每次运行都推送**，有变动的报变动，**无变动的报当前剧集、
+    #   电影的数据**」⇒ 所以**没有**「按事件分开关」那一层，每轮必推一条，
+    #   正文按「有变动 / 无变动 / 出错」分三种（组装见 `app/notify.py::build_summary`）。
+    #
+    #   ⚠️ 字段名与调用形态**照搬青龙面板**（`/ql/data/scripts/sendNotify.js`）
+    #      —— 你在青龙里配好的值可以**直接抄过来**。三家渠道的原始定义（URL 结构 /
+    #      参数名 / 成功判据）逐条记在 `app/notify.py` 顶部。
+    #   ⚠️ 凭据字段**不设 `web_only`**：两边都认 —— 网页填、或把青龙的
+    #      `BARK_PUSH=…` / `TG_BOT_TOKEN=…` 直接写进 `.env` 也行（本项目一贯的
+    #      「环境变量 > config.json」，`source` 那一栏会显示成「环境变量」）。
+    #   ⚠️ 这些字段**不在「设置」页显示** —— 它们有自己的「推送」页签
+    #      （前端按分组名过滤，见 `index.html` 的 `PUSH_GROUP`）。
+    _f("push_enable", "PUSH_ENABLE", "bool", "推送", "跑完自动推送",
+       "每轮跑完发一条：**有变动报变动**，**没变动报当前「电影 / 电视剧」的部数**。"
+       "⛔ 默认关 —— 打开后**每一轮都会真发消息**，包括定时任务那些「什么都没变」的轮次。"),
+    # ---------------- Bark（iOS）----------------
+    _f("bark_enable", "BARK_ENABLE", "bool", "推送", "启用 Bark",
+       "推送参数取自青龙的 Bark 渠道，可以照抄。"),
+    _f("bark_push", "BARK_PUSH", "str", "推送", "BARK_PUSH",
+       "**地址或设备码都行**：填 `https://api.day.app/你的key`，"
+       "或者只填那串 key（工具会自己补上 `https://api.day.app/`）。",
+       placeholder="https://api.day.app/xxxxxxxx"),
+    _f("bark_group", "BARK_GROUP", "str", "推送", "BARK_GROUP（分组）",
+       "手机上按这个分组归类，方便和别的通知分开。", placeholder="115strm"),
+    _f("bark_sound", "BARK_SOUND", "str", "推送", "BARK_SOUND（提示音）",
+       "如 `birdsong`。留空用 Bark 默认。", advanced=True),
+    _f("bark_icon", "BARK_ICON", "str", "推送", "BARK_ICON（图标）",
+       "一条图片地址。留空用默认图标。", advanced=True),
+    _f("bark_level", "BARK_LEVEL", "str", "推送", "BARK_LEVEL（时效性）",
+       "`active` 立即亮屏 / `timeSensitive` 时效性 / `passive` 静默。留空用默认。",
+       advanced=True),
+    _f("bark_archive", "BARK_ARCHIVE", "str", "推送", "BARK_ARCHIVE（存档）",
+       "填 `1` / `true` 则这条通知会存进 Bark 历史。留空不存。", advanced=True),
+    _f("bark_url", "BARK_URL", "str", "推送", "BARK_URL（点击跳转）",
+       "点通知时跳去的地址，一般填你的面板地址。", advanced=True),
+    # ---------------- Telegram ----------------
+    _f("tg_enable", "TG_ENABLE", "bool", "推送", "启用 Telegram",
+       "推送参数取自青龙的 Telegram 渠道，可以照抄。"),
+    _f("tg_bot_token", "TG_BOT_TOKEN", "str", "推送", "TG_BOT_TOKEN",
+       "BotFather 给的 token，形如 `1407203283:AAG9rt-…`。",
+       placeholder="123456:ABC-DEF…"),
+    _f("tg_user_id", "TG_USER_ID", "str", "推送", "TG_USER_ID",
+       "收消息的人 / 群的 id（**先去给这个 bot 发一条消息**，否则它发不出来，会回 400）。",
+       placeholder="1434078534"),
+    _f("tg_api_host", "TG_API_HOST", "str", "推送", "TG_API_HOST（接口地址）",
+       "默认 `https://api.telegram.org`。要换成反代就改这里（不带尾斜杠）。",
+       advanced=True),
+    _f("tg_proxy_host", "TG_PROXY_HOST", "str", "推送", "TG 代理 host",
+       "要走代理时填。⚠️ 这三个字段**照青龙原样提供** —— 不填就一直直连。",
+       advanced=True),
+    _f("tg_proxy_port", "TG_PROXY_PORT", "str", "推送", "TG 代理 port", "",
+       advanced=True),
+    _f("tg_proxy_auth", "TG_PROXY_AUTH", "str", "推送", "TG 代理认证",
+       "形如 `user:pass@` —— **末尾的 `@` 要自己带上**（Chrome/青龙都这么拼）。",
+       advanced=True),
+    # ---------------- 自定义（Webhook）----------------
+    _f("webhook_enable", "WEBHOOK_ENABLE", "bool", "推送", "启用自定义通知",
+       "推给任意一个能收 HTTP 的地址。"),
+    _f("webhook_url", "WEBHOOK_URL", "str", "推送", "WEBHOOK_URL",
+       "请求地址。**里面要带 `$title` 占位**（工具会填上标题；正文用 `$content`）。",
+       placeholder="https://example.com/hook?title=$title"),
+    _f("webhook_method", "WEBHOOK_METHOD", "enum", "推送", "WEBHOOK_METHOD",
+       "留空 = 不发（这是青龙的行为，照搬）。",
+       options=[("", "(不发)"), ("POST", "POST"), ("GET", "GET"), ("PUT", "PUT")]),
+    _f("webhook_content_type", "WEBHOOK_CONTENT_TYPE", "enum", "推送",
+       "WEBHOOK_CONTENT_TYPE",
+       "决定 `WEBHOOK_BODY` 怎么解释。",
+       options=[("application/json", "JSON（默认）"),
+                ("application/x-www-form-urlencoded", "表单 urlencoded"),
+                ("multipart/form-data", "表单 multipart"),
+                ("text/plain", "纯文本（整段就是正文）")]),
+    _f("webhook_body", "WEBHOOK_BODY", "str", "推送", "WEBHOOK_BODY（请求体）",
+       "**每行一条 `键: 值`**（照青龙的模版格式）。里面可用 `$title` / `$content`。"
+       "选「纯文本」时这里整段就是正文。\n"
+       "例：\n"
+       "title: $title\n"
+       "content: $content",
+       multiline=True),
+    _f("webhook_headers", "WEBHOOK_HEADERS", "str", "推送", "WEBHOOK_HEADERS（请求头）",
+       "同样**每行一条 `键: 值`**（键会转小写）。\n"
+       "例：\n"
+       "Authorization: Bearer xxxxx",
+       multiline=True, advanced=True),
+
 ]
 
 # ⚠️ 顺序就是网页上「进阶参数」里的分组顺序 —— 改这里等于改界面。
 # 🔴 2026-10-08：「发现方式」**整组删掉**（原来是 use_life_events / life_auto_enable / tree_file）。
 #    事件流与「指定快照文件」都去掉了，这组没有成员了 ——
 #    **分组名也必须从这儿删**，不然界面上会留一个空标题。
-GROUPS = ["115 账号", "同步范围", "输出", "字幕", "自动化", "节流"]
+# ⚠️ 「推送」这一组**不在「设置」页显示**（它有自己的页签）—— 前端按分组名过滤，
+#    见 `index.html` 的 `PUSH_GROUP` 与 `renderPush()`。所以加在这里只是为了
+#    让 `save_json` 认得这些键，**不代表它会出现在设置页的表单里**。
+GROUPS = ["115 账号", "同步范围", "输出", "字幕", "自动化", "节流", "推送"]
 FIELD_BY_KEY = {f["key"]: f for f in FIELDS}
 
 # 「网页专属」字段的环境变量名 —— `config._env()` 见到它们**直接跳过 `os.environ`**。

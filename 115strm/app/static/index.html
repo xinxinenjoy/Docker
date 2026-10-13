@@ -373,6 +373,14 @@ nav button.on{color:var(--pri)}
 }
 .toast.on{opacity:1;bottom:86px}
 
+/* ---------- 多行字段（Webhook 的 BODY / HEADERS 是「每行一条 key: value」）---------- */
+.grid textarea{
+  width:100%;box-sizing:border-box;font-size:12.5px;line-height:1.55;padding:8px 10px;
+  border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--txt);
+  resize:vertical;font-family:ui-monospace,Consolas,"Courier New",monospace;
+}
+.grid textarea:focus{outline:none;border-color:#a5b4fc;box-shadow:0 0 0 3px rgba(99,102,241,.12)}
+
 /* ---------- 设置页：未保存提示条（改完忘了点保存是常态）---------- */
 .savebar{
   position:sticky;bottom:14px;z-index:8;display:none;align-items:center;gap:10px;
@@ -447,6 +455,12 @@ nav button.on{color:var(--pri)}
       <svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>同步</button>
     <button data-p="set">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.6-1H1.3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 7 4.6h.1A1.7 1.7 0 0 0 8.1 3V2.9a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>设置</button>
+    <!-- 🔴 2026-10-13 新增「推送」（红领巾：「需要再增加一个『推送』模块，用于配置推送的渠道」）。
+         独立成页、不并进设置页：推送是**低频且独立**的关切（渠道 + 测试按钮），
+         与「设置」那堆跑批参数不同源。⚠️ 这不是 10-11 那次「把同一条时间线拆碎」——
+         推送本来就不在「现状 → 这一轮 → 历史」那条线里。 -->
+    <button data-p="push">
+      <svg viewBox="0 0 24 24"><path d="M18 16.5v-5.5a6 6 0 1 0-12 0v5.5L4.4 19h15.2L18 16.5z"/><path d="M10 21.5h4"/></svg>推送</button>
   </nav>
 
   <main>
@@ -646,6 +660,27 @@ nav button.on{color:var(--pri)}
         <button class="btn pri" onclick="saveSettings()">保存</button>
       </div>
     </section>
+
+    <!-- ======================= 推送 =======================
+         内容（三个渠道的字段）由 `renderPush()` 用后端 `settings.py` 的「推送」组生成 ——
+         ⛔ 不在 HTML 里抄一份字段名，那样后端加/改字段时两边必然分叉。 -->
+    <section class="page" id="p-push">
+      <div class="card">
+        <div class="card-h">
+          <h2>推送</h2>
+          <span class="hint" id="pushHint"></span>
+        </div>
+        <div class="card-b">
+          <div id="pushNote"></div>
+          <div id="pushBody"></div>
+        </div>
+      </div>
+      <div class="savebar" id="pushSaveBar">
+        <span id="pushSaveMsg">有未保存的改动</span>
+        <button class="btn sm" onclick="loadSettings()">放弃</button>
+        <button class="btn pri" onclick="saveSettings()">保存</button>
+      </div>
+    </section>
   </main>
 </div>
 <div class="toast" id="toast"></div>
@@ -687,9 +722,10 @@ const n = v => (v == null ? '0' : Number(v).toLocaleString());
 function goPage(p) {
   $$('#nav button').forEach(x => x.classList.toggle('on', x.dataset.p === p));
   $$('.page').forEach(x => x.classList.toggle('on', x.id === 'p-' + p));
-  // ⚠️ 只有两个页签了（`sync` / `set`）。原来那个 `hist` 页并进了 `sync`，
-  //    所以这里**不再**有「切到记录页才 loadHist()」—— 运行记录随首屏一起加载。
+  // ⚠️ 页签 `sync` / `set` / `push`。`set` 与 `push` 吃的是**同一份** `/api/settings`
+  //    （推送字段只是同一个 `FIELDS` 表里的另一组），所以都走 `loadSettings()`。
   if (p === 'set') { loadScope(); loadSettings(); loadAcct(); }
+  if (p === 'push') { loadSettings(); }
   window.scrollTo(0, 0);
 }
 /* 清单里的「去 X →」：目标在本页就**只滚过去不重载** ——
@@ -1704,6 +1740,7 @@ async function loadSettings() {
     SETUP_MISSING = d.missing || [];
     renderSettings(d);
     renderSetup(d);
+    renderPush(d);
     setDirty(false);
   } catch (e) { $('#setBody').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
 }
@@ -1803,9 +1840,9 @@ function updateBadges() {
 
 function renderSettings(d) {
   const groups = {};
-  d.fields.filter(f => !f.advanced && !OWN_UI.has(f.key))
+  d.fields.filter(f => !f.advanced && !OWN_UI.has(f.key) && f.group !== PUSH_GROUP)
     .forEach(f => (groups[f.group] = groups[f.group] || []).push(f));
-  const adv = d.fields.filter(f => f.advanced && !OWN_UI.has(f.key));
+  const adv = d.fields.filter(f => f.advanced && !OWN_UI.has(f.key) && f.group !== PUSH_GROUP);
 
   // ---- 主表单：只放「必须你决定的」 ----
   let html = '';
@@ -1851,6 +1888,116 @@ function renderSettings(d) {
   });
 }
 
+/* ---------------- 推送 ----------------
+   「推送」组（后端 `settings.py` 里 group='推送' 的字段）**不进设置页**，它有自己这一页。
+   这里只做三件事：总开关 / 每个渠道折叠成一块 / 每块一个「发送测试」。
+   ⚠️ 字段名与调用形态**照搬青龙面板**（`/ql/data/scripts/sendNotify.js`）——
+      你在青龙里配好的值可以**直接抄过来**；各渠道的原始定义见 `app/notify.py` 顶部。
+   ⛔ 字段**不在这里硬编码** —— 全部来自后端，后端加字段这里自动跟着变。 */
+let PUSH_D = null;
+const PUSH_GROUP = '推送';
+// 渠道 → 开关字段 + 「必须填了才发得出去」的字段。
+// ⚠️ 这个 need 列表必须与后端 `notify._enabled()` 一致，否则界面说「已启用」而实际不发。
+const PUSH_CHANNELS = [
+  { k: 'bark', icon: '📱', name: 'Bark', sw: 'bark_enable', need: ['bark_push'] },
+  { k: 'tg', icon: '✈️', name: 'Telegram', sw: 'tg_enable', need: ['tg_bot_token', 'tg_user_id'] },
+  { k: 'webhook', icon: '🔗', name: '自定义通知', sw: 'webhook_enable',
+    need: ['webhook_url', 'webhook_method'] },
+];
+
+function renderPush(d) {
+  if (d) PUSH_D = d;
+  d = PUSH_D;
+  if (!d || !$('#pushBody')) return;
+  const by = {};
+  (d.fields || []).forEach(f => by[f.key] = f);
+  const val = k => String((by[k] || {}).value ?? '').trim();
+  const total = by.push_enable || {};
+  const on = !!total.value;
+  // 谁真的会发 —— 判据与后端 `notify._enabled()` 对齐（开关开着 + 必填项齐）
+  const live = PUSH_CHANNELS.filter(c => (by[c.sw] || {}).value && c.need.every(n => val(n)));
+
+  $('#pushHint').textContent = !on ? '总开关关着'
+    : live.length ? '跑完推给：' + live.map(c => c.name).join(' / ')
+    : '总开关开着，但还没有配全能用的渠道';
+  $('#pushNote').innerHTML = on ? '' : `<div class="note"><i>i</i><div>
+    总开关关着，跑完不会推送。打开后<b>每一轮都会发一条</b>：有变动报变动，
+    没变动报当前「电影 / 电视剧」的部数（包括定时任务那些什么都没变的轮次）。</div></div>`;
+
+  let html = `<div class="grp"><div class="grp-h">总开关</div>
+    <div class="grid">${fieldHtml(total)}</div></div>`;
+
+  for (const c of PUSH_CHANNELS) {
+    const missing = c.need.filter(n => !val(n));
+    const sum = !(by[c.sw] || {}).value ? '未启用'
+      : missing.length ? '缺 ' + missing.map(n => (by[n] || {}).label || n).join(' / ')
+      : '已启用';
+    html += secBox('push-' + c.k, {
+      icon: c.icon + ' ', title: c.name, sum,
+      tone: (by[c.sw] || {}).value && missing.length ? 'warn' : '',
+      body: `<div class="grid">${(d.fields || [])
+          .filter(f => f.key.startsWith(c.k + '_')).map(fieldHtml).join('')}</div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn sm" onclick="testPush('${c.k}')">发送测试</button>
+          <span class="muted" style="font-size:12px">测试不看总开关 —— 点了就发</span>
+        </div>
+        <div id="pushRes-${c.k}" style="margin-top:10px"></div>`,
+    });
+  }
+
+  const box = $('#pushBody');
+  // ⚠️ 内容没变就别动 DOM：重渲染会把正在填的输入框整个换掉 ⇒ 光标跳走、填了一半的丢失。
+  //    （结果区那块吃过的亏，这里是同一个道理。）
+  const fp = html.length + '|' + html.slice(0, 100);
+  if (box.dataset.fp !== fp) {
+    box.dataset.fp = fp;
+    box.innerHTML = html;
+  }
+
+  $$('#pushBody [data-k]').forEach(el => {
+    el.onchange = () => {
+      // 开关：点一下**当场**换药丸上的字（不然要等保存后才更新，看着像没反应）
+      const pill = el.type === 'checkbox' && el.parentElement
+        ? el.parentElement.querySelector('.state') : null;
+      if (pill) pill.textContent = el.checked ? '开' : '关';
+      setDirty(true);
+    };
+    el.oninput = () => setDirty(true);
+  });
+}
+
+/* 单渠道测试。⚠️ **先保存再测**：不保存的话后端读的还是旧配置，
+   用户刚填完地址点「发送测试」必然失败，而且完全看不出为什么。
+   ⛔ 结论区**每次写之前现查一次** `#pushRes-<ch>`，不许在开头抓一次引用攥到函数结束 ——
+      保存会调 `renderPush()` 重渲染整个 `#pushBody`（`saveSettings` 里那行），
+      旧的 box 当场脱离 DOM ⇒ 后面所有回显都写进了一个看不见的孤儿节点，
+      界面上只剩一片空白（2026-10-13 自测就是被这个绊了一跤：接口明明回了 200 和失败原因）。 */
+async function testPush(ch) {
+  const say = html => {
+    const box = $('#pushRes-' + ch);                // 现查，别缓存
+    if (box) box.innerHTML = html;
+  };
+  const busy = t => say(`<div class="muted" style="font-size:12.5px">${t}</div>`);
+  busy('保存配置并发送中…');
+  try {
+    await saveSettings(true);                       // 静默保存，不弹 toast
+  } catch (e) {
+    say(`<div class="note bad"><i>✕</i><div>没能先保存，测不了：${esc(e.message)}</div></div>`);
+    return;
+  }
+  busy('发送中…');                                  // 保存刚重渲染过，把这句补回去
+  try {
+    const d = await api('/api/push/test', {
+      method: 'POST', body: JSON.stringify({ channel: ch }),
+    });
+    const r = d.result || {};
+    say(`<div class="note ${r.ok ? '' : 'bad'}"><i>${r.ok ? '✓' : '✕'}</i><div>
+      <b>${esc(r.name || ch)}</b> ${r.ok ? '发送成功' : '发送失败'}：${esc(r.detail || '')}</div></div>`);
+  } catch (e) {
+    say(`<div class="note bad"><i>✕</i><div>${esc(e.message)}</div></div>`);
+  }
+}
+
 function fieldHtml(f) {
   const id = 'f_' + f.key, isEnv = f.source === '环境变量';
   const need = SETUP_MISSING.includes(f.key);
@@ -1877,7 +2024,7 @@ function fieldHtml(f) {
     return `<div class="field sw ${f.value ? 'on' : ''}">
       <div class="sw-txt">
         <div class="t">${esc(f.label)}${tag}${unit}</div>
-        ${f.help ? `<div class="d">${esc(f.help)}</div>` : ''}
+        ${f.help ? `<div class="d">${bold(f.help)}</div>` : ''}
         ${stale}
       </div>${ctl}</div>`;
   }
@@ -1885,7 +2032,7 @@ function fieldHtml(f) {
     <label for="${id}">${esc(f.label)}${tag}${unit}</label>${ctl}
     ${extra}
     ${stale}
-    ${f.help ? `<div class="desc">${esc(f.help)}</div>` : ''}
+    ${f.help ? `<div class="desc">${bold(f.help)}</div>` : ''}
   </div>`;
 }
 
@@ -1929,32 +2076,50 @@ function controlHtml(f, id) {
   if (f.type === 'account') {
     return `<select id="${id}" data-k="${f.key}"></select>`;
   }
+  // 多行文本（Webhook 的请求体 / 请求头就是**每行一条 `键: 值`**，单行框填不了）
+  if (f.multiline) {
+    return `<textarea id="${id}" data-k="${f.key}" rows="3"
+      placeholder="${esc(f.placeholder || '')}">${esc(f.value ?? '')}</textarea>`;
+  }
   return `<input type="text" id="${id}" data-k="${f.key}" value="${esc(f.value ?? '')}"
     placeholder="${esc(f.placeholder || '')}">`;
 }
 
 function setDirty(on) {
-  const bar = $('#saveBar');
-  if (!bar) return;
-  bar.classList.toggle('on', !!on);
+  // ⚠️ 两个页签各有自己的提示条 —— 只操一个的话，在推送页改完会**看不到任何「未保存」提示**。
+  ['#saveBar', '#pushSaveBar'].forEach(sel => {
+    const bar = $(sel);
+    if (bar) bar.classList.toggle('on', !!on);
+  });
 }
 
-async function saveSettings() {
+/** 收集当前页面上**所有**可改字段的值（设置页 + 播放地址卡 + 推送页）。 */
+function collectSettings() {
   const values = {};
-  $$('#setBody [data-k], #outBody [data-k]').forEach(el => {
+  $$('#setBody [data-k], #outBody [data-k], #pushBody [data-k]').forEach(el => {
     const k = el.dataset.k;
     const f = FIELDS.find(x => x.key === k);
     if (!f) return;
     if (f.type === 'bool') values[k] = !!el.checked;
     else if (el.value !== '') values[k] = el.value;
   });
+  return values;
+}
+
+/** `silent=true` 时不弹提示（给「保存完立刻测试」那条路用）。 */
+async function saveSettings(silent) {
+  const values = collectSettings();
   try {
     const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify({ values }) });
     FIELDS = d.fields; SETUP_MISSING = d.missing || [];
-    renderSettings(d); renderSetup(d); setDirty(false);
-    toast(d.rejected && d.rejected.length ? `已保存（${d.rejected.length} 项被拒）` : '已保存');
+    renderSettings(d); renderSetup(d); renderPush(d); setDirty(false);
+    if (!silent) toast(d.rejected && d.rejected.length ? `已保存（${d.rejected.length} 项被拒）` : '已保存');
     loadState();
-  } catch (e) { toast('保存失败：' + e.message); }
+    return d;
+  } catch (e) {
+    if (!silent) toast('保存失败：' + e.message);
+    throw e;
+  }
 }
 
 /* ---------------- 自检 ---------------- */
@@ -2218,7 +2383,8 @@ async function openHist(stem) {
     if (r.running) poll();
   } catch (e) {}
   setInterval(() => {
-    // 只剩两个页签了 ⇒ 同步页在台上才轮询（⛔ 原来的 `#p-home` 已随合并改名）
+    // 只有「同步」页在台上才轮询 —— 设置 / 推送页不需要跟着刷，
+    // 而且推送到「发送测试」时后端连着动配置，刷了只会白搭一次重渲染。
     if ($('#p-sync').classList.contains('on') && !TIMER) loadState();
   }, 8000);
 })();

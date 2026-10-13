@@ -238,6 +238,48 @@ class Config:
     subtitle_skip_sup: bool = field(default_factory=lambda: _flag("SUBTITLE_SKIP_SUP", True))
     # 下载并发（字幕是 CDN 直链下载，不走 115 的那套节流；并发小一点即可）
     subtitle_workers: int = field(default_factory=lambda: _int("SUBTITLE_WORKERS", 4))
+
+    # ---------------------------------------------------------------- 推送
+    # 🔴 2026-10-13 新增。一句话：**一轮跑完，把结果发出去**。
+    #
+    #    口径（红领巾）：「每次运行都推送，有变动的报变动，无变动的报当前剧集、电影的数据」
+    #    ⇒ 每轮必推一条，正文按「有变动 / 无变动 / 出错」分三种（`notify.build_summary`）。
+    #
+    #    ⚠️ 字段名与调用形态**照搬青龙面板**（`/ql/data/scripts/sendNotify.js`）——
+    #       你在青龙里配好的值可以**直接抄过来**，逐条口径见 `app/notify.py` 顶部那张表。
+    #    ⚠️ 凭据字段**不设 `web_only`** ⇒ 环境变量也能覆盖（`BARK_PUSH=` / `TG_BOT_TOKEN=`…），
+    #       跟青龙的用法一致：你在青龙里怎么配的，这里原样能用。
+    #    ⚠️ 与 `subtitle_enable` 同一个态度：**出厂关** —— 这是「会真往你手机发消息」的功能，
+    #       先让人主动打开。
+    push_enable: bool = field(default_factory=lambda: _flag("PUSH_ENABLE", False))
+    # ---- Bark（iOS）----
+    bark_enable: bool = field(default_factory=lambda: _flag("BARK_ENABLE", False))
+    # 地址或设备码（不以 http 开头时由 `notify.py` 补 `https://api.day.app/`）—— 照青龙。
+    bark_push: str = field(default_factory=lambda: _env("BARK_PUSH"))
+    bark_group: str = field(default_factory=lambda: _env("BARK_GROUP"))
+    bark_sound: str = field(default_factory=lambda: _env("BARK_SOUND"))
+    bark_icon: str = field(default_factory=lambda: _env("BARK_ICON"))
+    bark_level: str = field(default_factory=lambda: _env("BARK_LEVEL"))
+    bark_archive: str = field(default_factory=lambda: _env("BARK_ARCHIVE"))
+    bark_url: str = field(default_factory=lambda: _env("BARK_URL"))
+    # ---- Telegram ----
+    tg_enable: bool = field(default_factory=lambda: _flag("TG_ENABLE", False))
+    tg_bot_token: str = field(default_factory=lambda: _env("TG_BOT_TOKEN"))
+    tg_user_id: str = field(default_factory=lambda: _env("TG_USER_ID"))
+    # 接口地址（要换反代就改这里）；代理三件套照青龙原样提供，不填就直连。
+    tg_api_host: str = field(default_factory=lambda: _env("TG_API_HOST", "https://api.telegram.org"))
+    tg_proxy_host: str = field(default_factory=lambda: _env("TG_PROXY_HOST"))
+    tg_proxy_port: str = field(default_factory=lambda: _env("TG_PROXY_PORT"))
+    tg_proxy_auth: str = field(default_factory=lambda: _env("TG_PROXY_AUTH"))
+    # ---- 自定义（Webhook）----
+    webhook_enable: bool = field(default_factory=lambda: _flag("WEBHOOK_ENABLE", False))
+    webhook_url: str = field(default_factory=lambda: _env("WEBHOOK_URL"))
+    webhook_method: str = field(default_factory=lambda: _env("WEBHOOK_METHOD"))
+    webhook_content_type: str = field(
+        default_factory=lambda: _env("WEBHOOK_CONTENT_TYPE", "application/json"))
+    webhook_body: str = field(default_factory=lambda: _env("WEBHOOK_BODY"))
+    webhook_headers: str = field(default_factory=lambda: _env("WEBHOOK_HEADERS"))
+
     # ---------------------------------------------------------------- 同步策略
     # ⭐ **只有一条路**（2026-10-08 红领巾定）：
     #
