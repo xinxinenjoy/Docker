@@ -21,12 +21,14 @@ def _cfg(**kw) -> SimpleNamespace:
     """造一份配置 —— 字段名与 `config.Config` 一致（推送那一段）。"""
     base = dict(
         push_enable=False, output_dir="",
-        bark_enable=False, bark_push="", bark_group="", bark_sound="",
+        # ⭐ 发送渠道是**单选**（`""` = 关闭）—— 2026-10-13 起取代原来的三个 `*_enable` 开关。
+        push_channel="",
+        bark_push="", bark_group="", bark_sound="",
         bark_icon="", bark_level="", bark_archive="", bark_url="",
-        tg_enable=False, tg_bot_token="", tg_user_id="",
+        tg_bot_token="", tg_user_id="",
         tg_api_host="https://api.telegram.org",
         tg_proxy_host="", tg_proxy_port="", tg_proxy_auth="",
-        webhook_enable=False, webhook_url="", webhook_method="",
+        webhook_url="", webhook_method="",
         webhook_content_type="application/json", webhook_body="", webhook_headers="",
     )
     base.update(kw)
@@ -241,36 +243,73 @@ class TestWebhook(unittest.TestCase):
 
 
 class TestChannels(unittest.TestCase):
+    """⭐ 2026-10-13 起 `channels()` 是**单选** —— `push_channel` 选哪个就只有哪个会发。
+
+    红领巾：「选择关闭的时候就不启用，选择哪一个就启用哪个」
+    ⇒ 原来的 `bark_enable` / `tg_enable` / `webhook_enable` 三个开关整组删掉。
+    """
+
     def test_总开关关着什么都不发(self):
-        self.assertEqual(notify.channels(_cfg(bark_enable=True, bark_push="k")), [])
+        self.assertEqual(notify.channels(_cfg(push_channel="bark", bark_push="k")), [])
 
-    def test_开关开了但必填项没齐也不算(self):
-        self.assertEqual(notify.channels(_cfg(push_enable=True, bark_enable=True)), [])
+    def test_渠道选关闭就不发(self):
+        self.assertEqual(notify.channels(_cfg(push_enable=True, push_channel="")), [])
 
-    def test_配齐才算启用(self):
+    def test_只发选中的那一个_别的就算配齐了也不发(self):
+        cfg = _cfg(push_enable=True, push_channel="bark", bark_push="k",
+                   tg_bot_token="t", tg_user_id="1",
+                   webhook_url="http://x", webhook_method="POST")
+        self.assertEqual(notify.channels(cfg), ["bark"])   # ⛔ 不是三个都发
+
+    def test_选中的必填项没齐也不算(self):
+        self.assertEqual(notify.channels(_cfg(push_enable=True, push_channel="bark")), [])
         self.assertEqual(
-            notify.channels(_cfg(push_enable=True, bark_enable=True, bark_push="k")), ["bark"])
+            notify.channels(_cfg(push_enable=True, push_channel="tg", tg_bot_token="t")), [])
         self.assertEqual(
-            notify.channels(_cfg(push_enable=True, tg_enable=True,
-                                 tg_bot_token="t", tg_user_id="1")), ["tg"])
+            notify.channels(_cfg(push_enable=True, push_channel="webhook",
+                                 webhook_url="http://x")), [])      # 缺 method
+
+    def test_每个渠道选中的样子(self):
+        # ⚠️ 这三个 `need` 必须与前端 `PUSH_CHANNELS[].need` 一一对应（两边对不上就会
+        #    「界面说已配好、后端压根不发」）。
+        cases = {
+            "bark": dict(bark_push="k"),
+            "tg": dict(tg_bot_token="t", tg_user_id="1"),
+            "webhook": dict(webhook_url="http://x", webhook_method="POST"),
+        }
+        for ch, kw in cases.items():
+            with self.subTest(ch=ch):
+                self.assertEqual(
+                    notify.channels(_cfg(push_enable=True, push_channel=ch, **kw)), [ch])
+
+    def test_认不出来的渠道名当关闭(self):
         self.assertEqual(
-            notify.channels(_cfg(push_enable=True, webhook_enable=True,
-                                 webhook_url="http://x", webhook_method="POST")), ["webhook"])
+            notify.channels(_cfg(push_enable=True, push_channel="飞书", bark_push="k")), [])
+
+    def test_大小写与首尾空白不影响(self):
+        self.assertEqual(
+            notify.channels(_cfg(push_enable=True, push_channel=" Bark ", bark_push="k")),
+            ["bark"])
 
 
 class TestSendAll(unittest.TestCase):
     def test_单渠道抛异常不影响别的(self):
-        """推送是旁路 —— 一个渠道炸了不能连累其它渠道，更不能往上抛。"""
-        cfg = _cfg(push_enable=True, bark_enable=True, bark_push="k",
-                   webhook_enable=True, webhook_url="http://x",
-                   webhook_method="POST", webhook_body="title: $title")
+        """推送是旁路 —— 一个渠道炸了不能连累别的，更不能往上抛。
+
+        ⚠️ `channels()` 现在是**单选**（一次只发一个），所以这里直接把渠道列表塞进去 ——
+           验的是 `send_all` **自己**的健壮性：将来万一又支持多渠道，它必须还是扛得住。
+        """
+        cfg = _cfg(push_enable=True, bark_push="k",
+                   webhook_url="http://x", webhook_method="POST",
+                   webhook_body="title: $title")
 
         def boom(c, t, x):
             raise RuntimeError("炸了")
 
-        with mock.patch.dict(notify._SENDERS, {"bark": boom}):
-            with mock.patch.object(notify, "_http", return_value=(200, "ok", "")):
-                res = notify.send_all(cfg, "t", "c")
+        with mock.patch.object(notify, "channels", return_value=["bark", "webhook"]):
+            with mock.patch.dict(notify._SENDERS, {"bark": boom}):
+                with mock.patch.object(notify, "_http", return_value=(200, "ok", "")):
+                    res = notify.send_all(cfg, "t", "c")
         by = {r.channel: r for r in res}
         self.assertFalse(by["bark"].ok)
         self.assertIn("炸了", by["bark"].detail)

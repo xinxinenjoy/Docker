@@ -297,17 +297,26 @@ _SENDERS = {"bark": send_bark, "tg": send_tg, "webhook": send_webhook}
 
 # --------------------------------------------------------------------------- 调度
 def _enabled(cfg, ch: str) -> bool:
+    """这个渠道**真的会发**吗？
+
+    ⭐ 2026-10-13 起是**单选**：先看它是不是「发送渠道」里选中的那一个
+       （红领巾：「选择关闭的时候就不启用，选择哪一个就启用哪个」），再看必填项齐不齐。
+    ⚠️ 前端 `index.html` 的 `PUSH_CHANNELS[].need` 必须与下面这几条一一对应 ——
+       对不上就会出现「界面说已配好、后端压根不发」这种最难查的形态。
+    """
+    if ch not in CHANNELS or _g(cfg, "push_channel").lower() != ch:
+        return False
     if ch == "bark":
-        return _on(cfg, "bark_enable") and bool(_g(cfg, "bark_push"))
+        return bool(_g(cfg, "bark_push"))
     if ch == "tg":
-        return _on(cfg, "tg_enable") and bool(_g(cfg, "tg_bot_token")) and bool(_g(cfg, "tg_user_id"))
+        return bool(_g(cfg, "tg_bot_token")) and bool(_g(cfg, "tg_user_id"))
     if ch == "webhook":
-        return _on(cfg, "webhook_enable") and bool(_g(cfg, "webhook_url")) and bool(_g(cfg, "webhook_method"))
+        return bool(_g(cfg, "webhook_url")) and bool(_g(cfg, "webhook_method"))
     return False
 
 
 def channels(cfg) -> list[str]:
-    """当前**真的会发**的渠道（开关开着、且必填项齐）。"""
+    """当前**真的会发**的渠道 —— 总开关开着 + 被选中 + 必填项齐。**最多一个**。"""
     if not _on(cfg, "push_enable"):
         return []
     return [c for c in CHANNELS if _enabled(cfg, c)]

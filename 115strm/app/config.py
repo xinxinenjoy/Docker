@@ -252,8 +252,12 @@ class Config:
     #    ⚠️ 与 `subtitle_enable` 同一个态度：**出厂关** —— 这是「会真往你手机发消息」的功能，
     #       先让人主动打开。
     push_enable: bool = field(default_factory=lambda: _flag("PUSH_ENABLE", False))
+    # ⭐ 发送渠道：**单选**（`""` = 关闭，不推）。2026-10-13 由「三个 `*_enable` 开关」
+    #    收成这一个下拉 —— 红领巾：「选择关闭的时候就不启用，选择哪一个就启用哪个」。
+    #    ⚠️ 判据在 `notify._enabled()`：**选中** + 该渠道必填项齐，才算真的会发。
+    #    ⚠️ 只删了开关，渠道参数一个没动 ⇒ 切走再切回来，之前填的值还在。
+    push_channel: str = field(default_factory=lambda: _env("PUSH_CHANNEL"))
     # ---- Bark（iOS）----
-    bark_enable: bool = field(default_factory=lambda: _flag("BARK_ENABLE", False))
     # 地址或设备码（不以 http 开头时由 `notify.py` 补 `https://api.day.app/`）—— 照青龙。
     bark_push: str = field(default_factory=lambda: _env("BARK_PUSH"))
     bark_group: str = field(default_factory=lambda: _env("BARK_GROUP"))
@@ -263,7 +267,6 @@ class Config:
     bark_archive: str = field(default_factory=lambda: _env("BARK_ARCHIVE"))
     bark_url: str = field(default_factory=lambda: _env("BARK_URL"))
     # ---- Telegram ----
-    tg_enable: bool = field(default_factory=lambda: _flag("TG_ENABLE", False))
     tg_bot_token: str = field(default_factory=lambda: _env("TG_BOT_TOKEN"))
     tg_user_id: str = field(default_factory=lambda: _env("TG_USER_ID"))
     # 接口地址（要换反代就改这里）；代理三件套照青龙原样提供，不填就直连。
@@ -272,7 +275,6 @@ class Config:
     tg_proxy_port: str = field(default_factory=lambda: _env("TG_PROXY_PORT"))
     tg_proxy_auth: str = field(default_factory=lambda: _env("TG_PROXY_AUTH"))
     # ---- 自定义（Webhook）----
-    webhook_enable: bool = field(default_factory=lambda: _flag("WEBHOOK_ENABLE", False))
     webhook_url: str = field(default_factory=lambda: _env("WEBHOOK_URL"))
     webhook_method: str = field(default_factory=lambda: _env("WEBHOOK_METHOD"))
     webhook_content_type: str = field(

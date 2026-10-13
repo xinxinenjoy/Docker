@@ -103,7 +103,14 @@ details.adv>summary{cursor:pointer;font-size:12.5px;font-weight:560;color:var(--
 details.adv>summary::-webkit-details-marker{display:none}
 details.adv>summary:before{content:"▸";font-size:11px;transition:.15s}
 details.adv[open]>summary:before{transform:rotate(90deg)}
-.field label{display:block;font-size:12.5px;font-weight:560;margin-bottom:5px}
+/* ⛔ **这条选择器绝对不能写成裸的 `.field label`** —— 2026-10-13 的坑就在这儿：
+   `.switch` 本身也是个 `<label>`，而 `.field label`（特异性 0,1,1）**压过** `.switch`（0,1,0）
+   ⇒ 开关的 `display:inline-flex` 被这里的 `display:block` 顶掉，`.track` 退化成行内元素、
+   **宽度算成 0**，灰轨道根本画不出来；只剩 `::after` 那个白色圆点悬在「关」药丸上，
+   看着就是个白圈（红领巾实拍报「开关显示异常」，且**全项目每个开关都中招**）。
+   ⚠️ 以后只要在 `.field` 里再加任何基于 `<label>` 的组件，**必须一并排除在下面那条之外**。
+   回归防线在 `tools/ui-shot-live.mjs`：「开关几何」那段会真去量 `.track` 的宽高。 */
+.field label:not(.switch){display:block;font-size:12.5px;font-weight:560;margin-bottom:5px}
 .field .desc{font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.45}
 .field input[type=text],.field input[type=number],.field select{
   width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;
@@ -662,8 +669,9 @@ nav button.on{color:var(--pri)}
     </section>
 
     <!-- ======================= 推送 =======================
-         内容（三个渠道的字段）由 `renderPush()` 用后端 `settings.py` 的「推送」组生成 ——
-         ⛔ 不在 HTML 里抄一份字段名，那样后端加/改字段时两边必然分叉。 -->
+         内容（总开关 + 发送渠道下拉 + 选中渠道的参数）由 `renderPush()` 用后端
+         `settings.py` 的「推送」组生成 —— ⛔ 不在 HTML 里抄一份字段名，
+         那样后端加/改字段时两边必然分叉。 -->
     <section class="page" id="p-push">
       <div class="card">
         <div class="card-h">
@@ -1890,20 +1898,39 @@ function renderSettings(d) {
 
 /* ---------------- 推送 ----------------
    「推送」组（后端 `settings.py` 里 group='推送' 的字段）**不进设置页**，它有自己这一页。
-   这里只做三件事：总开关 / 每个渠道折叠成一块 / 每块一个「发送测试」。
+   自上而下三块：**总开关**（要不要在每轮跑完时发）→ **发送渠道**（下拉单选，发给谁）
+   → **选中那个渠道的参数** + 一个「发送测试」。
+   ⭐ 2026-10-13 红领巾：「不要这样都显示出来，而是和青龙那样下拉列表选择，选择关闭的时候
+      就不启用，选择哪一个就启用哪个，配置对应的参数，并添加一个"测试"按钮，最后保存生效。」
+      ⇒ 原来三个渠道各占一个折叠块（**全列出来**，一屏看不过来），改成只渲染选中的那一个。
+      ⚠️ 别退回「全列出来」：渠道一多，页面全是没配的字段，找不着重点。
    ⚠️ 字段名与调用形态**照搬青龙面板**（`/ql/data/scripts/sendNotify.js`）——
       你在青龙里配好的值可以**直接抄过来**；各渠道的原始定义见 `app/notify.py` 顶部。
    ⛔ 字段**不在这里硬编码** —— 全部来自后端，后端加字段这里自动跟着变。 */
 let PUSH_D = null;
 const PUSH_GROUP = '推送';
-// 渠道 → 开关字段 + 「必须填了才发得出去」的字段。
-// ⚠️ 这个 need 列表必须与后端 `notify._enabled()` 一致，否则界面说「已启用」而实际不发。
+const PUSH_CH = 'push_channel';        // 「发送渠道」那个下拉的字段名
+// 渠道 → 图标 / 名字 / 「必须填了才发得出去」的字段。
+// ⚠️ 这个 need 列表必须与后端 `notify._enabled()` 一致，否则界面说「已配好」而实际不发。
 const PUSH_CHANNELS = [
-  { k: 'bark', icon: '📱', name: 'Bark', sw: 'bark_enable', need: ['bark_push'] },
-  { k: 'tg', icon: '✈️', name: 'Telegram', sw: 'tg_enable', need: ['tg_bot_token', 'tg_user_id'] },
-  { k: 'webhook', icon: '🔗', name: '自定义通知', sw: 'webhook_enable',
+  { k: 'bark', icon: '📱', name: 'Bark', need: ['bark_push'] },
+  { k: 'tg', icon: '✈️', name: 'Telegram', need: ['tg_bot_token', 'tg_user_id'] },
+  { k: 'webhook', icon: '🔗', name: '自定义 Webhook',
     need: ['webhook_url', 'webhook_method'] },
 ];
+const PUSH_BY_K = Object.fromEntries(PUSH_CHANNELS.map(c => [c.k, c]));
+
+/** 把**界面上当前**的值收回 `PUSH_D`（只在内存里，不落盘）。
+    ⚠️ 专供「换发送渠道时重渲染」用：输入框是重渲染出来的，值平时只活在 DOM 里 ——
+       不先收回来，切一下渠道，另一个渠道刚填一半的地址就没了。 */
+function stashPush() {
+  if (!PUSH_D) return;
+  $$('#pushBody [data-k]').forEach(el => {
+    const f = (PUSH_D.fields || []).find(x => x.key === el.dataset.k);
+    if (!f) return;
+    f.value = f.type === 'bool' ? !!el.checked : el.value;
+  });
+}
 
 function renderPush(d) {
   if (d) PUSH_D = d;
@@ -1914,35 +1941,43 @@ function renderPush(d) {
   const val = k => String((by[k] || {}).value ?? '').trim();
   const total = by.push_enable || {};
   const on = !!total.value;
-  // 谁真的会发 —— 判据与后端 `notify._enabled()` 对齐（开关开着 + 必填项齐）
-  const live = PUSH_CHANNELS.filter(c => (by[c.sw] || {}).value && c.need.every(n => val(n)));
+  // 选中的那个渠道（空 / 认不出来的值 = 关闭）—— 判据与后端 `notify._enabled()` 对齐
+  const cur = PUSH_BY_K[val(PUSH_CH).toLowerCase()] || null;
+  const missing = cur ? cur.need.filter(n => !val(n)) : [];
 
   $('#pushHint').textContent = !on ? '总开关关着'
-    : live.length ? '跑完推给：' + live.map(c => c.name).join(' / ')
-    : '总开关开着，但还没有配全能用的渠道';
+    : !cur ? '渠道选的是「关闭」，不发'
+    : missing.length ? `${cur.name} 还差 ${missing.length} 项`
+    : `跑完推给：${cur.name}`;
   $('#pushNote').innerHTML = on ? '' : `<div class="note"><i>i</i><div>
     总开关关着，跑完不会推送。打开后<b>每一轮都会发一条</b>：有变动报变动，
     没变动报当前「电影 / 电视剧」的部数（包括定时任务那些什么都没变的轮次）。</div></div>`;
 
+  // 前两块固定：总开关 + 发送渠道（下拉单选）
+  // ⚠️ 「发送渠道」那块**故意不加 `.grp-h` 小标题** —— 字段自带的 label 就是这四个字，
+  //    再加一行标题会和它上下重叠着出现两遍（2026-10-13 实拍发现的）。
   let html = `<div class="grp"><div class="grp-h">总开关</div>
-    <div class="grid">${fieldHtml(total)}</div></div>`;
+      <div class="grid">${fieldHtml(total)}</div></div>
+    <div class="grp"><div class="grid">${by[PUSH_CH] ? fieldHtml(by[PUSH_CH]) : ''}</div></div>`;
 
-  for (const c of PUSH_CHANNELS) {
-    const missing = c.need.filter(n => !val(n));
-    const sum = !(by[c.sw] || {}).value ? '未启用'
-      : missing.length ? '缺 ' + missing.map(n => (by[n] || {}).label || n).join(' / ')
-      : '已启用';
-    html += secBox('push-' + c.k, {
-      icon: c.icon + ' ', title: c.name, sum,
-      tone: (by[c.sw] || {}).value && missing.length ? 'warn' : '',
-      body: `<div class="grid">${(d.fields || [])
-          .filter(f => f.key.startsWith(c.k + '_')).map(fieldHtml).join('')}</div>
-        <div class="actions" style="margin-top:12px">
-          <button class="btn sm" onclick="testPush('${c.k}')">发送测试</button>
-          <span class="muted" style="font-size:12px">测试不看总开关 —— 点了就发</span>
-        </div>
-        <div id="pushRes-${c.k}" style="margin-top:10px"></div>`,
-    });
+  // 第三块**只摆选中那个渠道的参数** —— 其余两个的字段压根不进 DOM
+  //（⚠️ 不在 DOM 里的字段不会被 `collectSettings()` 提交，而 `save_json` 是**合并**写入
+  //  ⇒ 它们**已保存**的值原封不动；只有「填了但没保存就切走」的才丢，属预期。）
+  if (cur) {
+    const fields = (d.fields || []).filter(f => f.key.startsWith(cur.k + '_'));
+    html += `<div class="grp"><div class="grp-h">${cur.icon} ${cur.name} 参数</div>
+      ${missing.length ? `<div class="note warn"><i>⚠</i><div>
+        还差 <b>${missing.map(n => esc((by[n] || {}).label || n)).join(' / ')}</b> —— 填好才发得出去。</div></div>` : ''}
+      <div class="grid">${fields.map(fieldHtml).join('')}</div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn sm pri" onclick="testPush('${cur.k}')">发送测试</button>
+        <span class="muted" style="font-size:12px">会先保存当前配置再发；不看开关，点了就发</span>
+      </div>
+      <div id="pushRes-${cur.k}" style="margin-top:10px"></div></div>`;
+  } else {
+    html += `<div class="note"><i>i</i><div>
+      发送渠道选的是<b>「关闭」</b>，跑完不推送。要发就选一个渠道 → 填好参数 →
+      点「发送测试」确认能收到 → 最后<b>保存</b>。</div></div>`;
   }
 
   const box = $('#pushBody');
@@ -1961,6 +1996,14 @@ function renderPush(d) {
         ? el.parentElement.querySelector('.state') : null;
       if (pill) pill.textContent = el.checked ? '开' : '关';
       setDirty(true);
+      // ⭐ 这两个是**结构性**控件，改了就立刻重渲染：
+      //    · 换「发送渠道」⇒ 下面那块参数换成新渠道的；
+      //    · 拨「总开关」  ⇒ 顶部提示与告示条跟着变 —— 不重渲染的话，打开后还写着
+      //      「总开关关着」，看着像点了没反应（2026-10-13 自测里发现的）。
+      //    ⚠️ 重渲染前**先收值**：输入框是重渲染出来的，值平时只活在 DOM 里。
+      if (el.dataset.k === PUSH_CH || el.dataset.k === 'push_enable') {
+        stashPush(); renderPush();
+      }
     };
     el.oninput = () => setDirty(true);
   });

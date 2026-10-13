@@ -157,9 +157,21 @@ FIELDS: list[dict] = [
     _f("push_enable", "PUSH_ENABLE", "bool", "推送", "跑完自动推送",
        "每轮跑完发一条：**有变动报变动**，**没变动报当前「电影 / 电视剧」的部数**。"
        "⛔ 默认关 —— 打开后**每一轮都会真发消息**，包括定时任务那些「什么都没变」的轮次。"),
+    # ⭐ 发送渠道：**单选下拉**。2026-10-13 红领巾定 ——
+    #    「和青龙那样下拉列表选择，选择关闭的时候就不启用，选择哪一个就启用哪个」
+    #    ⇒ 原来的 `bark_enable` / `tg_enable` / `webhook_enable` 三个开关**整组删掉**，
+    #      收成这一个下拉。
+    #    ⚠️ 删的是「开关」，**渠道自己的参数字段一个没动** —— 切走再切回来，
+    #       之前填的地址 / token 都还在（`settings.save_json()` 是**合并**写入，不是覆盖）。
+    #    ⚠️ 判据在后端 `notify._enabled()`：**选中** + 必填项齐 才算真的会发。
+    _f("push_channel", "PUSH_CHANNEL", "enum", "推送", "发送渠道",
+       "**选哪个就只发哪个**。选「关闭」= 不发（即使上面的总开关是开着的）。"
+       "其余渠道的参数会留着，切回去还在。",
+       options=[("", "关闭（不推送）"),
+                ("bark", "Bark（iOS）"),
+                ("tg", "Telegram"),
+                ("webhook", "自定义 Webhook")]),
     # ---------------- Bark（iOS）----------------
-    _f("bark_enable", "BARK_ENABLE", "bool", "推送", "启用 Bark",
-       "推送参数取自青龙的 Bark 渠道，可以照抄。"),
     _f("bark_push", "BARK_PUSH", "str", "推送", "BARK_PUSH",
        "**地址或设备码都行**：填 `https://api.day.app/你的key`，"
        "或者只填那串 key（工具会自己补上 `https://api.day.app/`）。",
@@ -178,8 +190,6 @@ FIELDS: list[dict] = [
     _f("bark_url", "BARK_URL", "str", "推送", "BARK_URL（点击跳转）",
        "点通知时跳去的地址，一般填你的面板地址。", advanced=True),
     # ---------------- Telegram ----------------
-    _f("tg_enable", "TG_ENABLE", "bool", "推送", "启用 Telegram",
-       "推送参数取自青龙的 Telegram 渠道，可以照抄。"),
     _f("tg_bot_token", "TG_BOT_TOKEN", "str", "推送", "TG_BOT_TOKEN",
        "BotFather 私聊发给你的那串 token（在 @BotFather 里发 `/mybots` 可以重看）。",
        placeholder="123456:ABC-DEF…"),
@@ -199,8 +209,6 @@ FIELDS: list[dict] = [
        "形如 `user:pass@` —— **末尾的 `@` 要自己带上**（Chrome/青龙都这么拼）。",
        advanced=True),
     # ---------------- 自定义（Webhook）----------------
-    _f("webhook_enable", "WEBHOOK_ENABLE", "bool", "推送", "启用自定义通知",
-       "推给任意一个能收 HTTP 的地址。"),
     _f("webhook_url", "WEBHOOK_URL", "str", "推送", "WEBHOOK_URL",
        "请求地址。**里面要带 `$title` 占位**（工具会填上标题；正文用 `$content`）。",
        placeholder="https://example.com/hook?title=$title"),
