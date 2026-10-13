@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import EXPORT_LAYER_LIMIT, Config
+from .reqlog import RequestLog
 from .throttle import Throttle
 
 __all__ = ["V115", "Node", "V115Error", "CookieMissing", "load_cookie",
@@ -218,22 +219,42 @@ class V115:
         self.calls = 0
         self._dir_ids: dict[str, str] = {}       # 相对路径 → 目录 id
         self._paths: dict[str, str] = {}         # 目录 id → 相对**网盘根**的路径（含自身名）
+        # ⭐ 请求流水 —— 网页上点「请求」数字展开的就是它（见 `app/reqlog.py`）。
+        self.reqs = RequestLog()
+        # 当前阶段名（由 `pipeline.run_once` 的 `stage()` 回填）——
+        # 具体 note 没给时用它兜底，保证每条流水都有一句人话，不会只剩个接口名。
+        self.stage = ""
 
     # ---------------------------------------------------------------- 请求出口
-    def _call(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        """**唯一**的请求出口。所有方法都必须走这里，保证节流不被绕过。"""
+    def _call(self, name: str, *args: Any, note: str = "", **kwargs: Any) -> Any:
+        """**唯一**的请求出口。所有方法都必须走这里，保证节流不被绕过。
+
+        ⭐ 2026-10-13 起，这里**同时**记一笔请求流水（接口 / 当时在干什么 / 各自耗时）。
+           ⚠️ `before_request()` 的耗时**单独量**（`wait_ms`）—— 节流 sleep 与请求本身
+              必须分开，否则「这一轮为什么慢」永远归因不到节流上。
+        """
+        t_wait = time.monotonic()
         self.throttle.before_request()
+        wait_ms = int((time.monotonic() - t_wait) * 1000)
         self.calls += 1
+        why = note or self.stage          # 具体说明优先，退回「当前阶段」
         fn = getattr(self.client, name)
+        t0 = time.monotonic()
         try:
             resp = fn(*args, **kwargs)
         except Exception as exc:
             self.throttle.fail(f"{name}: {exc}")
+            self.reqs.add(name, note=why, ms=int((time.monotonic() - t0) * 1000),
+                          wait_ms=wait_ms, ok=False, err=f"{type(exc).__name__}: {exc}")
             raise V115Error(f"{name} 失败：{exc}") from exc
+        ms = int((time.monotonic() - t0) * 1000)
         if isinstance(resp, dict) and resp.get("error"):
             self.throttle.fail(f"{name}: {_msg(resp)}")
+            self.reqs.add(name, note=why, ms=ms, wait_ms=wait_ms, ok=False,
+                          err=_msg(resp))
             raise V115Error(f"{name} 被 115 拒绝：{_msg(resp)}")
         self.throttle.ok()
+        self.reqs.add(name, note=why, ms=ms, wait_ms=wait_ms, ok=True)
         return resp
 
     # ---------------------------------------------------------------- 读
@@ -251,7 +272,8 @@ class V115:
             payload: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset, "show_dir": 1}
             if dirs_only:
                 payload["nf"] = 1        # 115 原生「只要目录」，文件根本不会被拉回来
-            data = self._call("fs_files", payload)
+            data = self._call("fs_files", payload,
+                              note=f"列目录找子目录（第 {pages + 1} 页）")
             if offset == 0:
                 # ⭐ 顺手记住这个目录的祖先链 —— 响应里本来就带（字段 `path`），
                 #    零额外请求。事件流要靠它把 cid 还原成路径。
@@ -297,7 +319,8 @@ class V115:
             if cur in self._dir_ids:
                 parent = self._dir_ids[cur]
                 continue
-            resp = self._call("fs_dir_getid", {"path": part, "cid": parent})
+            resp = self._call("fs_dir_getid", {"path": part, "cid": parent},
+                              note=f"解析路径：{cur}")
             cid = _dir_id(resp)
             if not cid:
                 # 兜底：从父目录列举里按名字找
@@ -322,7 +345,7 @@ class V115:
            而且删除是**异步**的 ⇒ 「列表里还在」不等于「没删掉」。
            要判真值就单查。
         """
-        resp = self._call("fs_file", {"fid": fid})
+        resp = self._call("fs_file", {"fid": fid}, note=f"单查一个文件/目录的信息（id {fid}）")
         if isinstance(resp, dict) and resp.get("data"):
             return resp["data"]
         return None
@@ -376,7 +399,8 @@ class V115:
             return self._paths[cid_s]
         try:
             resp = self._call("fs_files",
-                              {"cid": cid_s, "limit": 1, "offset": 0, "show_dir": 1})
+                              {"cid": cid_s, "limit": 1, "offset": 0, "show_dir": 1},
+                              note=f"反查目录路径（id {cid_s}）")
         except V115Error as exc:
             self.log("debug", f"解析目录路径失败 cid={cid_s}：{exc}")
             return None
@@ -435,7 +459,7 @@ class V115:
         payload: dict[str, Any] = {"file_ids": str(self.root_id()), "target": "U_1_0"}
         if 0 < layer_limit <= 25:
             payload["layer_limit"] = layer_limit
-        resp = self._call("fs_export_dir", payload)
+        resp = self._call("fs_export_dir", payload, note="提交「导出目录树」任务")
         eid = _export_id_of(resp)
         if not eid:
             raise V115Error(f"提交「导出目录树」任务失败，115 回了：{resp!r}")
@@ -443,8 +467,11 @@ class V115:
 
         info: dict = {}
         t0 = time.time()
+        tries = 0
         while True:
-            st = self._call("fs_export_dir_status", {"export_id": eid})
+            tries += 1
+            st = self._call("fs_export_dir_status", {"export_id": eid},
+                            note=f"等导出任务 #{eid} 跑完（第 {tries} 次查询）")
             data = (st or {}).get("data") if isinstance(st, dict) else None
             if isinstance(data, dict) and (data.get("pick_code") or data.get("file_id")):
                 info = data
@@ -472,13 +499,14 @@ class V115:
         #    转成 str 就全丢了，而**那正是 403 的根源**（2026-10-08 实测）。
         # ⚠️ 用 file_id 取链（上游 `export_dir_parse_iter` 的写法）；
         #    `download_url` 的参数本来就「id 或提取码都可以」，两个都有时优先 id。
-        url = self._call("download_url", fid or pick, app="web")
+        url = self._call("download_url", fid or pick, app="web",
+                         note="取导出件的下载地址")
         raw = self._read_export(url)
         self.log("info", f"已取回目录树（{len(raw):,} 字节）")
 
         if not keep and fid:
             try:
-                self._call("fs_delete", [fid])
+                self._call("fs_delete", [fid], note="删掉 115 上那份临时导出件")
                 self.log("info", "已顺手删掉 115 上那份临时导出件")
             except Exception as exc:
                 self.log("warning", f"删临时导出件失败（不影响结果）：{exc}")

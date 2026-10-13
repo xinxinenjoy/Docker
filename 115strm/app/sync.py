@@ -131,7 +131,18 @@ class SyncResult:
     """一轮同步的回执（就是网页上要显示的东西）。"""
     started: str = ""
     finished: str = ""
-    elapsed: str = ""
+    # 🔴 2026-10-13 「耗时」拆成三段 —— 原来只有一个 `elapsed`，口径藏在
+    #    `Syncer.run()` 里面（**不含导目录树**），而且 `_human()` 用 int() 截断
+    #    ⇒ 一轮「全部跳过」的同步实测只花 1 秒，网页上就显示成「0 秒」，
+    #       红领巾：「只显示 0 让我判断不准到底是运行出问题了，还是别的什么」。
+    #    现在：`elapsed` = 对账落盘段，`elapsed_tree` = 导树+解析段，
+    #         `elapsed_total` = 整轮（前两者之和，网页主位显示的就是它）。
+    elapsed: str = ""                      # 对账落盘段（人读）
+    elapsed_ms: int = 0                    # 同上，毫秒（留原始值，别只存字符串）
+    elapsed_tree: str = ""                 # 导目录树 + 解析段
+    elapsed_tree_ms: int = 0
+    elapsed_total: str = ""                # ⭐ 整轮（含导树）—— 网页「耗时」格显示这个
+    elapsed_total_ms: int = 0
     source: str = ""                       # 数据来源（现在恒为 tree）
     scanned_remote: int = 0                # 网盘上看到的条目数
     scanned_local: int = 0                 # 本地已有 .strm 数
@@ -149,6 +160,9 @@ class SyncResult:
     pending_delete: int = 0                # 挂起等二次确认的
     renamed: int = 0                       # 本地改过名、被认出来的（原样保留）
     requests: int = 0
+    # ⭐ 2026-10-13：不再只给一个「请求 60」的数字 —— 明细（按接口归并 + 逐次流水 +
+    #    节流等待统计）一并落进回执，网页点那个数字展开的就是它。见 `app/reqlog.py`。
+    req_detail: dict = field(default_factory=dict)
     errors: list[dict] = field(default_factory=list)
     guard_tripped: bool = False            # 异常比例触发
     guard_reason: str = ""
@@ -797,7 +811,8 @@ class Syncer:
         self.run_subtitles(res)
 
         res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        res.elapsed = _human(time.time() - t0)
+        res.elapsed_ms = int((time.time() - t0) * 1000)
+        res.elapsed = _human(res.elapsed_ms / 1000.0)
         return res
 
     def _handle_delete(self, gone: list[str], local: dict[str, float],
@@ -1182,10 +1197,22 @@ def _diff_payload(d) -> dict:
 
 
 def _human(seconds: float) -> str:
-    s = int(seconds)
-    if s < 60:
-        return f"{s} 秒"
-    m, sec = divmod(s, 60)
+    """秒 → 人读的时长。
+
+    🔴 2026-10-13 改精度 —— 原来是 `s = int(seconds)`，**不足 1 秒一律变成「0 秒」**。
+       红领巾实测撞上：一轮全部跳过的同步只花 1 秒，网页显示「0 秒」，
+       ⇒ 「这个 0 到底是跑完了还是根本没跑」，光看数字判断不了。
+
+    现在：<1 秒给毫秒、<10 秒给 0.1 秒、其余按秒/分/时递进。
+    ⛔ 别再退回 `int()` —— 「0 秒」和「0 毫秒」在语义上是两回事。
+    """
+    ms = int(round(seconds * 1000))
+    if ms < 1000:
+        return f"{ms} 毫秒"
+    if ms < 60_000:
+        s = ms / 1000.0
+        return f"{s:.1f} 秒" if s < 10 else f"{s:.0f} 秒"
+    m, sec = divmod(ms // 1000, 60)
     if m < 60:
         return f"{m} 分 {sec} 秒"
     h, m = divmod(m, 60)

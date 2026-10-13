@@ -33,6 +33,7 @@ from . import accounts as accounts_mod
 from . import pipeline as pipeline_mod
 from . import report as report_mod
 from . import settings as settings_mod
+from . import sync as sync_mod
 from . import treefile
 from .config import Config, load
 from .health import scope_warn
@@ -113,6 +114,9 @@ class Runner:
             "started": "", "finished": "",
             "result": None, "error": "", "stopping": False, "cancelled": False,
             "detail": {},
+            # ⭐ 运行中的「已用时」—— 实时算，让页面在跑的当下就能看出
+            #    「是在慢慢跑，还是卡死了」。只有 `running=True` 时才有意义。
+            "_started_ts": 0.0, "elapsed_running_ms": 0, "elapsed_running": "",
         }
 
     def _set_stage(self, label: str) -> None:
@@ -149,6 +153,7 @@ class Runner:
             self.status.update({
                 "running": True,
                 "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "_started_ts": time.time(),
             })
             self._thread = threading.Thread(
                 target=self._work, args=(cfg, force_delete), daemon=True)
@@ -253,6 +258,12 @@ class Runner:
         logs = self.log.since(after)
         with self._lock:
             st = dict(self.status)
+            # 运行中现算「已用时」—— 存的是起点，读的时候才做减法，
+            # 否则得靠定时器不停刷新，纯属自找麻烦。
+            ts = float(st.get("_started_ts") or 0)
+            if st.get("running") and ts:
+                st["elapsed_running_ms"] = int((time.time() - ts) * 1000)
+                st["elapsed_running"] = sync_mod._human(st["elapsed_running_ms"] / 1000.0)
         st["log_seq"] = logs["seq"]
         st["log"] = logs["items"]
         return st
@@ -931,7 +942,10 @@ def list_runs() -> dict:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             item.update({
-                "started": d.get("started", ""), "elapsed": d.get("elapsed", ""),
+                # ⚠️ 列表里那个「用时」要的是**整轮**（含导树）——
+                #    老回执没有 `elapsed_total` 这个键，退回它原来的 `elapsed`（对账段）。
+                "started": d.get("started", ""),
+                "elapsed": d.get("elapsed_total") or d.get("elapsed", ""),
                 "written": d.get("written", 0), "deleted": d.get("deleted", 0),
                 "source": d.get("source", ""), "requests": d.get("requests", 0),
                 # 字幕数也一起给 —— 「记录」列表那行要显示「字幕 451」。

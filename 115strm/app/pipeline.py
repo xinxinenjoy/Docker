@@ -37,11 +37,13 @@
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from . import sync as sync_mod
 from . import treefile
 from .config import Config
 from .sync import SyncResult, Syncer
@@ -174,15 +176,13 @@ def run_once(cfg: Config, log: Callable, *,
             "而且**要写到挂载路径的完整一层**（少一层 alist 会回 storage not found，"
             "状态码却还是 200）。填完可以点「自检 strm 前缀」验一下。")
 
+    # ⭐ 整轮计时**从函数第一行就开始**（含导目录树）——
+    #    ⛔ 别只靠 `Syncer.run()` 里那个 `elapsed`：它不含导树，而导树恰恰是
+    #       整轮里最慢的一段（实测十几秒）。只报对账段的后果见 `sync.SyncResult.elapsed` 的注释。
+    t_all = time.time()
+
     throttle = Throttle(cfg=cfg, sleeper=sleeper, log=log)
     detail: dict = {"tree_origin": ""}
-
-    def stage(label: str) -> None:
-        if on_stage:
-            try:
-                on_stage(label)
-            except Exception:
-                pass
 
     # ---------------------------------------------------------- ① 建客户端
     # 主路径就是导树 ⇒ 一定要 115 客户端。cookie 有问题在这一步就报清楚（别等到用的时候）
@@ -190,12 +190,23 @@ def run_once(cfg: Config, log: Callable, *,
     log("info", f"账号来源：{getattr(cfg, 'cookie_source', '(未知)')}")
     v = V115(build_client(cookie), cfg, throttle, log)
 
+    def stage(label: str) -> None:
+        # ⭐ 同时落到 `v.stage` —— 请求流水里每条都会带上它，
+        #    这样「这一步到底发了哪些请求」在明细里一眼对得上（见 `app/reqlog.py`）。
+        v.stage = label
+        if on_stage:
+            try:
+                on_stage(label)
+            except Exception:
+                pass
+
     syncer = Syncer(v, cfg, log, on_stage=stage)
 
     # ---------------------------------------------------------- ② 导树 → 解析
     stage(SYNC_STEPS[0][1])
     dirs, files, origin = tree_source(cfg, v, log, syncer)
     detail["tree_origin"] = origin
+    t_tree = time.time()
 
     # ---------------------------------------------------------- ③ 对照本地 + 落盘
     #    ⚠️ 这一步会**逐个读本地已存在的 strm 内容**去比对（`sync.Differ`）——
@@ -205,4 +216,14 @@ def run_once(cfg: Config, log: Callable, *,
                      force_delete=force_delete)
 
     res.requests = throttle.stats.requests
+    # ---- 耗时三段（对账段由 `Syncer.run()` 自己填，这里补另外两段）----
+    res.elapsed_tree_ms = int((t_tree - t_all) * 1000)
+    res.elapsed_tree = sync_mod._human(res.elapsed_tree_ms / 1000.0)
+    res.elapsed_total_ms = int((time.time() - t_all) * 1000)
+    res.elapsed_total = sync_mod._human(res.elapsed_total_ms / 1000.0)
+    # ---- 请求明细 + 节流账（网页点「请求」展开的就是这份）----
+    #    ⚠️ 节流统计**必须一起带上**：只给请求数的话，「这一轮慢」到底慢在
+    #       节流 sleep 上还是慢在 115 响应上，看的人无从分辨。
+    res.req_detail = dict(v.reqs.summary())
+    res.req_detail["throttle"] = throttle.stats.as_dict()
     return Outcome(res=res, source="tree", detail=detail)

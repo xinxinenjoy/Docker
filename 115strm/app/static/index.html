@@ -12,9 +12,20 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
+/* ---------- 字体：2026-10-13 重调 ----------
+   🔴 红领巾：「字体看着不清晰」。两条真病因，都是我这边的：
+     ① `-webkit-font-smoothing:antialiased` —— 这是**给 macOS 写的**，
+        Windows 上 Chrome 同属 Blink 也会吃它，副作用是中文笔画变细、发虚。
+        本机是 Windows ⇒ 直接去掉，回到系统默认渲染（更实、更清楚）。
+     ② 字体栈把 `-apple-system` / `Segoe UI` 排在中文前面 ——
+        Windows 上拉丁字形用 Segoe UI、中文再往下落，中英混排时**两套字形基线不齐**，
+        看着就是「一行字忽粗忽细」。⇒ 中文族提到最前（`Microsoft YaHei UI` 是
+        Win10+ 的界面版，比 `Microsoft YaHei` 更收敛、小字号更清楚）。
+   ⚠️ 别把 `-webkit-font-smoothing` 加回来 —— 它只在 macOS 上是对的。 */
 body{
-  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-  background:var(--bg); color:var(--txt); -webkit-font-smoothing:antialiased;
+  font:14.5px/1.6 "Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",
+       system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  background:var(--bg); color:var(--txt);
 }
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none}
@@ -44,8 +55,8 @@ main{flex:1;padding:16px;max-width:1080px;margin:0 auto;width:100%}
   display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:12px 16px;border-bottom:1px solid var(--line);
 }
-.card-h h2{margin:0;font-size:14px;font-weight:640;display:flex;align-items:center;gap:8px}
-.card-h .hint{font-size:12px;color:var(--dim)}
+.card-h h2{margin:0;font-size:14.5px;font-weight:640;display:flex;align-items:center;gap:8px}
+.card-h .hint{font-size:12.5px;color:var(--dim)}
 .card-b{padding:16px}
 
 /* ---------- 按钮 ---------- */
@@ -66,10 +77,13 @@ main{flex:1;padding:16px;max-width:1080px;margin:0 auto;width:100%}
 .btn.ico{padding:7px 9px}
 
 /* ---------- 统计格 ---------- */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px}
 .stat{background:#fafbfc;border:1px solid var(--line);border-radius:10px;padding:11px 12px}
-.stat .k{font-size:11.5px;color:var(--dim);margin-bottom:3px}
-.stat .v{font-size:20px;font-weight:660;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.stat .k{font-size:12.5px;color:var(--dim);margin-bottom:3px}
+.stat .v{font-size:21px;font-weight:660;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+/* 可点的统计格（「请求」那个数字）—— 提示它能展开明细，别让人猜 */
+.stat.click{cursor:pointer;transition:.14s}
+.stat.click:hover{border-color:#c9cdd8;background:#fff}
 .stat.pri .v{color:var(--pri)}
 .stat.warn .v{color:var(--warn)}
 .stat.bad .v{color:var(--bad)}
@@ -90,14 +104,14 @@ details.adv>summary::-webkit-details-marker{display:none}
 details.adv>summary:before{content:"▸";font-size:11px;transition:.15s}
 details.adv[open]>summary:before{transform:rotate(90deg)}
 .field label{display:block;font-size:12.5px;font-weight:560;margin-bottom:5px}
-.field .desc{font-size:11.5px;color:var(--dim);margin-top:4px;line-height:1.45}
+.field .desc{font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.45}
 .field input[type=text],.field input[type=number],.field select{
   width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;
 }
 .field input:focus,.field select:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px rgba(91,91,214,.1)}
 .field.env input,.field.env select{background:#fffbf0;border-color:#f0dcb4}
 .tag{
-  font-size:10.5px;padding:1px 7px;border-radius:5px;margin-left:6px;font-weight:560;
+  font-size:11px;padding:1px 7px;border-radius:5px;margin-left:6px;font-weight:560;
   background:#eef0f4;color:var(--dim);
 }
 .tag.env{background:#fef3c7;color:#92400e}
@@ -135,8 +149,8 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
   padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .field.sw.on{border-color:#c7d2fe;background:#f7f7ff}
 .field.sw .sw-txt{flex:1;min-width:0}
-.field.sw .sw-txt .t{font-size:13px;font-weight:620;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.field.sw .sw-txt .d{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.5}
+.field.sw .sw-txt .t{font-size:13.5px;font-weight:620;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.field.sw .sw-txt .d{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.5}
 
 /* ⛔ 这里原来有一整套 `.switchbox`（「只演练」那个醒目开关的三处表意：
    整块状态条 + 开/关文字 + 蓝/红配色）。`dry_run` 2026-10-11 删掉后
@@ -147,13 +161,13 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
 /* ---------- 动作区 ---------- */
 .actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
 .seg{display:inline-flex;background:#f1f2f6;border-radius:9px;padding:3px;gap:2px}
-.seg button{padding:7px 13px;border-radius:7px;font-size:12.5px;font-weight:560;color:var(--dim);transition:.14s}
+.seg button{padding:7px 13px;border-radius:7px;font-size:13px;font-weight:560;color:var(--dim);transition:.14s}
 .seg button.on{background:#fff;color:var(--txt);box-shadow:var(--shadow)}
 
 /* ---------- 日志 ---------- */
 .log{
   background:#1a1d24;color:#c9d1d9;border-radius:10px;padding:12px;
-  font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   max-height:340px;overflow-y:auto;
 }
 .log div{white-space:pre-wrap;word-break:break-all}
@@ -169,11 +183,11 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
 
 /* ---------- 列表 ---------- */
 .list{max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:9px}
-.row{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f2f3f6;font-size:12.5px}
+.row{display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f2f3f6;font-size:13px}
 .row:last-child{border-bottom:none}
 .row .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,monospace}
-.row .u{color:var(--dim);font-size:11.5px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.badge{font-size:10.5px;padding:1px 7px;border-radius:5px;font-weight:560;flex:0 0 auto}
+.row .u{color:var(--dim);font-size:12.5px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:560;flex:0 0 auto}
 .badge.add{background:#dcfce7;color:#166534}
 .badge.upd{background:#dbeafe;color:#1e40af}
 .badge.del{background:#fee2e2;color:#991b1b}
@@ -191,15 +205,15 @@ details.adv[open]>summary:before{transform:rotate(90deg)}
 .diff .it .l1{display:flex;gap:8px;align-items:baseline}
 .diff .it .p{flex:1;min-width:0;font-family:ui-monospace,monospace;font-size:12.5px;
   word-break:break-all;line-height:1.45}
-.diff .it .u{margin-top:3px;padding-left:26px;color:var(--dim);font-size:11px;
-  font-family:ui-monospace,monospace;word-break:break-all;line-height:1.45}
+.diff .it .u{margin-top:3px;padding-left:26px;color:var(--dim);font-size:12px;
+  font-family:ui-monospace,monospace;word-break:break-all;line-height:1.5}
 .diff .it .u b{color:#16a34a;font-weight:560}
 .diff .it.was .u b{color:#dc2626}
 
 /* ---------- 提示条 ---------- */
 .note{
   display:flex;gap:9px;align-items:flex-start;padding:11px 13px;border-radius:9px;
-  font-size:12.5px;line-height:1.5;margin-bottom:12px;
+  font-size:13px;line-height:1.6;margin-bottom:12px;
 }
 .note i{font-style:normal;flex:0 0 auto;font-size:14px;line-height:1.3}
 .note.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
@@ -213,7 +227,7 @@ nav{
   position:sticky;bottom:0;z-index:10;
 }
 nav button{
-  flex:1;padding:10px 4px;font-size:11.5px;color:var(--dim);
+  flex:1;padding:10px 4px;font-size:12.5px;color:var(--dim);
   display:flex;flex-direction:column;align-items:center;gap:3px;font-weight:560;
 }
 nav button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
@@ -238,10 +252,53 @@ nav button.on{color:var(--pri)}
 .steps li::before{counter-increment:st;content:counter(st);flex:0 0 20px;height:20px;
   border-radius:50%;background:#eef0ff;color:var(--pri);font-size:11px;font-weight:650;
   display:flex;align-items:center;justify-content:center;margin-top:1px}
-.steps .t{display:block;font-size:13px;font-weight:600}
-.steps .h{display:block;font-size:11.5px;color:var(--dim);line-height:1.55;margin-top:2px}
+.steps .t{display:block;font-size:13.5px;font-weight:600}
+.steps .h{display:block;font-size:12.5px;color:var(--dim);line-height:1.55;margin-top:2px}
 .right{margin-left:auto}
 .hidden{display:none!important}
+
+/* ---------- 结果区：分块 ----------
+   🔴 2026-10-13 新增。红领巾：「最好不止是这样描述出来，而是分块显示——
+      字幕、目录、视频、同步结果之类的、结构清晰一些」。
+
+   原来整块结果是**一次 innerHTML 平铺**：目录几行、字幕几行、两个黄框，
+   全都一个字号一个底色，读的人得自己找哪句跟哪句是一伙的。
+   现在每种信息各占一个 `.sec`：标题行（图标 + 名字 + 关键计数）+ 可折叠正文。
+   ⭐ 折叠状态由 `data-fold` 记在 DOM 上，重渲染时**按标题名找回**（见 `secHtml()`），
+      否则一刷新就把用户展开的那块又收回去 —— 那正是「老是重置」体感的一半。 */
+.sec{border:1px solid var(--line);border-radius:10px;margin-bottom:11px;
+  overflow:hidden;background:#fff}
+.sec:last-child{margin-bottom:0}
+.sec-h{display:flex;align-items:center;gap:9px;padding:10px 13px;background:#fafbfc;
+  border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
+.sec-h:hover{background:#f4f6f9}
+.sec-h .car{flex:0 0 auto;width:10px;font-size:11px;color:#9aa1ae;transition:transform .15s}
+.sec-h .tt{font-size:13.5px;font-weight:640;display:flex;align-items:center;gap:7px}
+.sec-h .sum{font-size:12.5px;color:var(--dim);font-weight:500}
+.sec-h .sp{margin-left:auto;font-size:12.5px;color:var(--dim);flex:0 0 auto}
+.sec-b{padding:13px}
+/* 折叠：把正文藏起来，标题下面的分隔线也去掉（否则看着像空盒子） */
+.sec.fold>.sec-h{border-bottom:none}
+.sec.fold>.sec-b{display:none}
+.sec.fold>.sec-h .car{transform:rotate(-90deg)}
+/* 标题行按语义上色 —— 一眼扫过去先认出「哪块是坏的」 */
+.sec.warn>.sec-h{background:#fffbeb}
+.sec.warn>.sec-h:hover{background:#fef6e0}
+.sec.bad>.sec-h{background:#fef2f2}
+.sec.bad>.sec-h:hover{background:#fdeaea}
+
+/* ---------- 小表（请求明细 / 耗时拆分）---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.tbl th{text-align:left;font-weight:620;color:var(--dim);padding:6px 9px;
+  border-bottom:1px solid var(--line);white-space:nowrap;font-size:12.5px}
+.tbl td{padding:6px 9px;border-bottom:1px solid #f2f3f6;vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl td.num,.tbl th.num{text-align:right;white-space:nowrap;
+  font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.tbl .mono{font-family:ui-monospace,monospace}
+.tbl tr.badness td{color:#b91c1c}
+/* 明细表滚动区：给它自己的滚动条，跟页面滚动互不干扰 */
+.reqbox{max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:9px}
 
 /* ---------- 目录选择器（同步范围）---------- */
 .crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12.5px;margin-bottom:11px}
@@ -269,8 +326,8 @@ nav button.on{color:var(--pri)}
 .pick .nm{flex:1;min-width:0;font-size:13px;cursor:pointer;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
 .pick .nm:hover{color:var(--pri);text-decoration:underline}
-.pick .meta{font-size:11.5px;color:var(--dim);flex:0 0 auto;font-variant-numeric:tabular-nums}
-.pick .go{font-size:11.5px;color:var(--pri);flex:0 0 auto;padding:2px 7px;border-radius:6px}
+.pick .meta{font-size:12.5px;color:var(--dim);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.pick .go{font-size:12.5px;color:var(--pri);flex:0 0 auto;padding:2px 7px;border-radius:6px}
 .pick .go:hover{background:#eef0ff}
 .pick.on{background:#f7f7ff}
 .toast{
@@ -312,14 +369,14 @@ nav button.on{color:var(--pri)}
 .setup .step.locked .tick{background:#e5e7eb;color:#8b93a1}
 .setup .step .body{flex:1;min-width:0}
 .setup .step .t{font-weight:620}
-.setup .step .h{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.5}
+.setup .step .h{font-size:12.5px;color:var(--dim);margin-top:2px;line-height:1.5}
 .setup .step .go{margin-left:auto;flex:0 0 auto}
 
 /* ---------- 设置页：卡片序号徽章 ----------
    序号 = 引导顺序（账号 → 播放地址 → 同步范围），颜色即状态：
    琥珀 = 还差你一步 / 绿勾 = 已完成 / 灰 = 还没轮到。 */
 .cno{flex:0 0 auto;width:21px;height:21px;border-radius:50%;display:inline-flex;
-  align-items:center;justify-content:center;font-size:11.5px;font-weight:700;
+  align-items:center;justify-content:center;font-size:12.5px;font-weight:700;
   background:#eef0ff;color:var(--pri)}
 .cno.todo{background:#fde68a;color:#92400e}
 .cno.done{background:#dcfce7;color:#15803d}
@@ -416,7 +473,7 @@ nav button.on{color:var(--pri)}
             <button data-t="renamed">已改名</button>
           </div>
           <div class="diff" id="prevList"></div>
-          <div class="muted" style="font-size:11.5px;margin-top:9px;word-break:break-all" id="prevMore"></div>
+          <div class="muted" style="font-size:12.5px;margin-top:9px;word-break:break-all" id="prevMore"></div>
         </div>
       </div>
 
@@ -435,7 +492,11 @@ nav button.on{color:var(--pri)}
 
       <div class="card">
         <div class="card-h"><h2>日志</h2><span class="hint" id="logHint"></span></div>
-        <div class="card-b"><div class="log" id="log"></div></div>
+        <!-- ⚠️ 占位句别删：日志只活在内存里（刷新就没了），空着一个黑条会让人以为坏了。
+             `run()` 开头会 `innerHTML = ''` 把它清掉，不影响正式输出。 -->
+        <div class="card-b"><div class="log" id="log">
+          <div class="muted" style="color:#6b7280">点「立即执行」后，这里会实时滚动显示每一步。</div>
+        </div></div>
       </div>
 
       <!-- 折叠着放最后 —— 默认不展开，避免一进来就见 60 行列表 -->
@@ -614,8 +675,11 @@ async function loadState() {
   // ⛔ **不再提示「没有本地目录树」** —— 工具每一轮都会自己导一份，
   //    本地暂时没有 txt 是**正常**的（旧版那条提示是给「本地目录树」模式用的，已删）。
   if (!s.output_exists) notes.push(['warn', '📁', `输出目录还不存在：<span class="mono">${s.output_dir}</span> —— 第一次同步会自动建。`]);
-  $('#homeNotes').innerHTML = notes.map(([c, i, t]) =>
+  // ⚠️ 内容没变就别动 DOM —— 这两个盒子一多一少会改变文档高度，
+  //    页面滚动位置跟着漂（见 `captureScroll` 的说明）。
+  const notesHtml = notes.map(([c, i, t]) =>
     `<div class="note ${c}"><i>${i}</i><div>${t}</div></div>`).join('');
+  if ($('#homeNotes').innerHTML !== notesHtml) $('#homeNotes').innerHTML = notesHtml;
   // 设置页的「首次配置」清单也吃这份状态（配对告警、账号就绪、跑没跑过）
   // ⚠️ `window.__state` 必须先落位 —— renderSetup 要读 `run` 判断「跑过第一轮没」。
   window.__state = s;
@@ -633,7 +697,7 @@ async function loadState() {
 
   // 「方式」**恒为一条**（旧版这里按模式显示三态，模式删掉后就没得选了）。
   // ⚠️ 不显示「本地目录树存在与否」—— 那是实现细节，用户不需要看。
-  $('#homeStats').innerHTML = [
+  const homeHtml = [
     ['同步根', s.scope && s.scope.remote_root ? s.scope.remote_root : '（树根）', ''],
     ['只处理', sc ? (sc.length > 2 ? `${sc.length} 个目录` : sc.join(' · ')) : '全部', sc ? 'pri' : ''],
     ['方式', '自己导目录树', 'ok'],
@@ -641,6 +705,7 @@ async function loadState() {
   ].map(([k, v, cls]) => `<div class="stat ${cls}">
     <div class="k">${k}</div>
     <div class="v" style="font-size:15px" title="${esc(String(v))}">${esc(String(v))}</div></div>`).join('');
+  if ($('#homeStats').innerHTML !== homeHtml) $('#homeStats').innerHTML = homeHtml;
 
   // 待确认删除
   const p = s.pending || {};
@@ -657,8 +722,12 @@ async function loadState() {
   }
 
   // 这一轮结果 —— 渲染器抽在 `showResult()` 里（「记录」点开走的也是它）
+  // ⛔ 正在翻历史某一轮时（`RES_IS_LATEST === false`）**不许**被这个函数顶回最近一轮：
+  //    它每 8 秒被 `setInterval` 调一次（见 `boot`），原来无条件重渲染 ⇒
+  //    你刚点开的那轮会在几秒内被换走 —— 这就是「老是重置」的主因之一。
+  //    （另一半主因是「内容没变也重建 DOM」，已在 `showResult` 用指纹挡掉。）
   const r = s.run || {};
-  if (r.result || r.finished) {
+  if ((r.result || r.finished) && RES_IS_LATEST) {
     showResult({ res: r.result || {}, det: r.detail || {}, finished: r.finished || '',
                  isLatest: true });
   }
@@ -675,6 +744,77 @@ async function loadState() {
       红领巾 2026-10-11：「我想让他点开之后显示都处理了哪些数据」⇒ 改成表格。 */
 let RES = null;          // 结果区当前那份回执（明细分段切换读它）
 let HIST_LOADED = false;
+// 🔴 现在看的是不是「最近一轮」。看历史时，后台那个 8 秒轮询**不许**把它顶掉 ——
+//    原来没有这个判断，`loadState()` 每次都无条件重渲染 ⇒ 正在读的那轮被换走。
+let RES_IS_LATEST = true;
+// 当前展示的回执指纹。内容一模一样就**不重渲染** —— 这是「滚动老是被顶回去」的正解：
+//    根因不是滚动位置丢了，是每 8 秒把整块 DOM 拆了重建。
+let RES_FP = '';
+// 每块的折叠状态（用户点过就以用户为准）。key = 块名（见 `secBox`）。
+const SEC_FOLD = {};
+// 每块的默认折叠态 —— 只有「请求与耗时」默认收起（流水长，平时不用看）。
+const SEC_DEFAULT = { req: true };
+// 明细列表当前选中的那一类（新增/更新/删除/已改名）—— 重渲染后要停在原地
+let RES_SEG_CUR = 'add';
+
+/* 毫秒 → 人读的时长。⚠️ 与后端 `sync._human()` 是**同一套口径**，两边都要保留小数，
+   否则会出现「后端 1.2 秒、前端 0 秒」这种自己跟自己打架的显示。 */
+function dur(ms) {
+  ms = Math.max(0, Math.round(Number(ms) || 0));
+  if (ms < 1000) return ms + ' 毫秒';
+  const s = ms / 1000;
+  if (s < 10) return s.toFixed(1) + ' 秒';
+  if (s < 60) return Math.round(s) + ' 秒';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' 分 ' + Math.round(s % 60) + ' 秒';
+  return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分';
+}
+
+/* 一块的 HTML。`k` 是块名（也是折叠状态的 key）。 */
+function secBox(k, o) {
+  const folded = (k in SEC_FOLD) ? SEC_FOLD[k] : !!SEC_DEFAULT[k];
+  return `<section class="sec ${o.tone || ''}${folded ? ' fold' : ''}" data-k="${k}">
+    <div class="sec-h" onclick="toggleSec('${k}')">
+      <span class="car">▾</span>
+      <span class="tt">${o.icon || ''}${esc(o.title)}</span>
+      ${o.sum ? `<span class="sum">${o.sum}</span>` : ''}
+      ${o.right ? `<span class="sp">${o.right}</span>` : ''}
+    </div>
+    <div class="sec-b"${o.id ? ` id="${o.id}"` : ''}>${o.body || ''}</div>
+  </section>`;
+}
+
+function toggleSec(k) {
+  const el = document.querySelector(`.sec[data-k="${k}"]`);
+  if (!el) return;
+  SEC_FOLD[k] = el.classList.toggle('fold');
+}
+
+/* 重渲染前后把「看的人停在哪儿」原样搬回去 —— 主要管两处：
+   ① 页面滚动：用结果卡标题做锚点（只记 scrollY 的话，上面提示条一多一少就偏）
+   ② 结果内部那几个自带滚动条的盒子（明细列表 / 请求流水）。 */
+function captureScroll() {
+  const snap = { y: window.scrollY, boxes: {} };
+  ['resList', 'reqAgg', 'reqFlow', 'log'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) snap.boxes[id] = el.scrollTop;
+  });
+  const card = document.getElementById('resultCard');
+  snap.anchor = card ? card.getBoundingClientRect().top : null;
+  return snap;
+}
+function restoreScroll(snap) {
+  if (!snap) return;
+  Object.keys(snap.boxes).forEach(id => {
+    const el = document.getElementById(id);
+    if (el && snap.boxes[id]) el.scrollTop = snap.boxes[id];
+  });
+  const card = document.getElementById('resultCard');
+  if (card && snap.anchor != null) {
+    const d = card.getBoundingClientRect().top - snap.anchor;
+    if (Math.abs(d) > 1) window.scrollBy(0, d);
+  }
+}
 
 // 明细里每种类型的短语——档 0 = 计数为 0 时也照样列（位置固定，好认）
 const RES_SEG = [
@@ -688,7 +828,7 @@ function exList(res) {
   const s = res.extensionless_sample || [];
   if (!s.length) return '';
   const rest = (res.extensionless || 0) - s.length;
-  return `<div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:11.5px;
+  return `<div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12.5px;
     line-height:1.75;word-break:break-all">${
       s.map(p => '· ' + esc(p)).join('<br>')}${
       rest > 0 ? `<br>· …另有 ${n(rest)} 个未列出` : ''}</div>`;
@@ -727,75 +867,312 @@ function umGroups(res) {
 
 function showResult({ res, det = {}, finished = '', isLatest = true }) {
   RES = res || {};
+  RES_IS_LATEST = !!isLatest;
   $('#resultTitle').textContent = isLatest ? '这一轮结果' : '那一轮结果';
   $('#lastAt').textContent = finished || RES.started || '';
   $('#resultBack').classList.toggle('hidden', !!isLatest);
 
-  // ⭐ 「目录树是从哪来的」要写出来 —— 否则他没法判断这一轮到底有没有真去打扰 115。
+  // ⛔ 内容一模一样 ⇒ **一个 DOM 都不碰**。
+  //    这是「滚动老是被顶回顶部」的真正解法（见 `RES_FP` 的注释）。
+  const fp = fpOf(RES, det, finished, isLatest);
+  if (fp === RES_FP) return;
+  RES_FP = fp;
+
+  const keep = captureScroll();
+  $('#lastRun').innerHTML = resultBody(RES, det);
+  restoreScroll(keep);
+  // ⚠️ 明细列表必须在 innerHTML 之后填 —— 它有自己的 seg 选中态，由 `renderResList` 记账
+  renderResList(RES_SEG_CUR);
+}
+
+/* 回执指纹 —— 只挑**会改变画面**的字段。
+   ⛔ 别拿整份 JSON 的字符串当指纹：`subs_unmatched` 之类的长数组会让比对变慢，
+      而且任意一个无关字段变动都会触发整块重渲染，等于把刚修好的毛病又装回去。 */
+function fpOf(res, det, finished, isLatest) {
+  const c = (res.diff && res.diff.counts) || {};
+  return [isLatest ? 1 : 0, finished, res.started, res.finished,
+          res.written, res.deleted, res.pending_delete, res.requests,
+          res.elapsed, res.elapsed_total, res.elapsed_tree,
+          res.scanned_remote, res.scanned_local, res.unchanged, res.renamed,
+          res.dirs_made, res.dirs_skipped, res.dirs_pruned, res.extensionless,
+          res.subs_downloaded, res.subs_planned, res.subs_skipped, res.subs_failed,
+          res.subs_unmatched_more, res.guard_tripped, res.looks_like_move,
+          (res.errors || []).length,
+          c.add, c.update, c.delete, c.renamed,
+          det.tree_origin || res.tree_origin || ''].join('|');
+}
+
+/* ⭐ 结果区正文 = 六个块。顺序按「先看结论、再看细节」排：
+     概览 → 要注意的 → 目录 → 视频 strm → 字幕 → 请求与耗时
+   ⛔ 别退回「一大坨 innerHTML」—— 那样「这段和那段是不是一回事」又得靠读的人自己猜。 */
+function resultBody(res, det) {
+  return [
+    secOverview(res, det),
+    secAlerts(res),
+    secDirs(res, det),
+    secMedia(res),
+    (res.subs_planned || res.subs_enabled) ? secSubs(res) : '',
+    secReq(res),
+  ].join('');
+}
+
+/* 跳到某一块并展开（「请求」那个统计格点一下就落到明细上）。 */
+function jumpSec(k) {
+  const el = document.querySelector(`.sec[data-k="${k}"]`);
+  if (!el) return;
+  if (el.classList.contains('fold')) { el.classList.remove('fold'); SEC_FOLD[k] = false; }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* ---------- ① 概览 ---------- */
+function secOverview(res, det) {
+  // ⭐ 「目录树是从哪来的」必须写出来 —— 否则他没法判断这一轮到底有没有真去打扰 115。
   //    更要紧的是区分「刚导的新树」与「退回用本机旧树」：退回 = 导树失败后的降级，
   //    不显眼就等于让人以为一切正常。
   //    ⚠️ `det.tree_origin` 只有「刚跑完那一轮」在内存里有；翻旧记录要读回执里的
   //       `res.tree_origin`（2026-10-11 起才落盘，更老的回执没这个键 ⇒ 这行会省掉）。
-  const origin = String(det.tree_origin || RES.tree_origin || '');
+  const origin = String(det.tree_origin || res.tree_origin || '');
   const fellBack = origin.indexOf('本地') >= 0;
-  const cx = (RES.diff && RES.diff.counts) || {};
-  const hasList = !!(RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
-
-  $('#lastRun').innerHTML = `
+  const total = res.elapsed_total || res.elapsed || '';
+  const body = `
     <div class="stats">
-      <div class="stat pri"><div class="k">写入</div><div class="v">${n(RES.written)}</div></div>
-      <div class="stat bad"><div class="k">删除</div><div class="v">${n(RES.deleted)}</div></div>
-      <div class="stat warn"><div class="k">挂起</div><div class="v">${n(RES.pending_delete)}</div></div>
-      <div class="stat"><div class="k">请求</div><div class="v">${n(RES.requests)}</div></div>
+      <div class="stat pri"><div class="k">写入 strm</div><div class="v">${n(res.written)}</div></div>
+      <div class="stat bad"><div class="k">删除 strm</div><div class="v">${n(res.deleted)}</div></div>
+      <div class="stat warn"><div class="k">挂起待确认</div><div class="v">${n(res.pending_delete)}</div></div>
+      <div class="stat click" onclick="jumpSec('req')" title="点开看这 ${n(res.requests)} 次请求具体做了什么">
+        <div class="k">115 请求 ▾</div><div class="v">${n(res.requests)}</div></div>
+      <div class="stat"><div class="k">整轮耗时</div>
+        <div class="v" style="font-size:16px">${esc(total || '—')}</div></div>
       <div class="stat ${fellBack ? 'warn' : ''}"><div class="k">目录树</div>
-        <div class="v" style="font-size:13px">${
+        <div class="v" style="font-size:13.5px">${
           origin ? (fellBack ? '本机旧树 ⚠' : '刚导的新树') : '—'}</div></div>
-      <div class="stat"><div class="k">耗时</div><div class="v" style="font-size:14px">${esc(RES.elapsed || '—')}</div></div>
     </div>
-    <div class="desc muted" style="margin-top:10px;line-height:1.7">
-      ${origin ? `目录树：${esc(origin)}<br>` : ''}
-      网盘条目 <b>${n(RES.scanned_remote)}</b> · 本地已有 strm <b>${n(RES.scanned_local)}</b> ·
-      内容没变跳过 <b>${n(RES.unchanged)}</b><br>
-      目录：建了 <b>${n(RES.dirs_made)}</b> 个 ·
-      <b>${n(RES.dirs_skipped)}</b> 个「整棵子树都没有视频」没收 ·
-      收掉 <b>${n(RES.dirs_pruned)}</b> 个空目录
+    <div class="muted" style="margin-top:11px;line-height:1.8">
+      网盘条目 <b>${n(res.scanned_remote)}</b> ·
+      本地已有 strm <b>${n(res.scanned_local)}</b> ·
+      内容没变跳过 <b>${n(res.unchanged)}</b>
+      ${res.renamed ? ` · 本地改过名保留 <b>${n(res.renamed)}</b>` : ''}
     </div>
-    ${(RES.subs_planned || RES.subs_enabled) ? `<div class="desc muted" style="margin-top:6px;line-height:1.7">
-      字幕：能配上 <b>${n(RES.subs_planned)}</b> 个 ·
-      本轮下载 <b>${n(RES.subs_downloaded)}</b> ·
-      本地已有跳过 <b>${n(RES.subs_skipped)}</b>
-      ${RES.subs_failed ? ` · <b style="color:#b91c1c">失败 ${n(RES.subs_failed)}</b>` : ''}
-      ${RES.subs_skipped_ext ? ` · .sup 跳过 <b>${n(RES.subs_skipped_ext)}</b>` : ''}
-      ${RES.subs_deleted ? ` · 删除 <b>${n(RES.subs_deleted)}</b>` : ''}
-      ${RES.subs_enabled ? '' : ' · <b>（这功能没开）</b>'}
-    </div>` : ''}
-    ${RES.looks_like_move ? `<div class="note info" style="margin-top:12px"><i>🔀</i><div>
-      本轮判定为<b>改名 / 移动</b>（消失的条数 ≈ 新增的条数），不是异常。</div></div>` : ''}
-    ${RES.guard_tripped ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>${esc(RES.guard_reason)}</div></div>` : ''}
-    ${RES.extensionless ? `<div class="note warn" style="margin-top:12px"><i>⚠</i><div>
-      <b>这份目录树里有 ${n(RES.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
-      这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
-      ${RES.source === 'tree' && origin && origin.indexOf('自动导出') < 0
-        ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
-        : '<br>工具自己导时已按 115 的上限 25 层导。'}
-      ${exList(RES)}
-    </div></div>` : ''}
-    ${umGroups(RES)}
-
-    <div style="margin-top:16px">
-      <div class="seg" id="resSeg" style="margin-bottom:11px">
-        ${RES_SEG.map(([t, lab], i) => `<button data-t="${t}"${i ? '' : ' class="on"'}
-          onclick="renderResList('${t}')">${lab} <span class="muted">${n(cx[t] != null ? cx[t] : 0)}</span></button>`).join('')}
-      </div>
-      <div class="diff" id="resList"></div>
-      <div class="muted" style="font-size:11.5px;margin-top:9px;word-break:break-all" id="resMore"></div>
-    </div>`;
-  renderResList('add', hasList);
+    ${res.pending_delete ? `<div class="muted" style="margin-top:4px">
+      ⏳ 有 <b>${n(res.pending_delete)}</b> 个 strm 挂着等二次确认 ——
+      处理入口在最上面那张「待确认删除」卡（这一轮<b>没有</b>真删）。</div>` : ''}
+    ${origin ? `<div class="muted" style="margin-top:4px">目录树来源：${esc(origin)}</div>` : ''}
+    ${res.elapsed_tree ? `<div class="muted" style="margin-top:4px">
+      耗时拆开：导目录树 <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>
+      （主位显示的是两者之和）</div>` : ''}`;
+  return secBox('ov', {
+    icon: '📊 ', title: '概览',
+    sum: `写 ${n(res.written)} · 删 ${n(res.deleted)} · 请求 ${n(res.requests)}`,
+    body,
+  });
 }
 
-/* 明细列表。`hasList=false` ⇒ 这份回执是旧版本跑的（只存了计数、没存明细）。 */
+/* ---------- ② 要注意的（有内容才出现） ---------- */
+function secAlerts(res) {
+  const items = [];
+  if (res.guard_tripped) items.push(['bad', '⚠',
+    `<b>异常闸门已触发 —— 本轮没有删除</b>：${esc(res.guard_reason || '')}`]);
+  if (res.looks_like_move) items.push(['info', '🔀',
+    '本轮判定为<b>改名 / 移动</b>（消失的条数 ≈ 新增的条数），不是异常。']);
+  if (res.subs_guard_tripped) items.push(['warn', '⚠',
+    `字幕的异常闸门触发了 —— 本轮没删本地字幕：${esc(res.subs_guard_reason || '')}`]);
+  if ((res.errors || []).length) {
+    items.push(['bad', '⛔', `有 <b>${n(res.errors.length)}</b> 条错误：<br>` +
+      res.errors.slice(0, 8).map(e =>
+        `· ${esc(e.kind || '')}：${esc(String(e.msg || '').slice(0, 200))}`).join('<br>')]);
+  }
+  if (!items.length) return '';
+  const worst = items.some(x => x[0] === 'bad') ? 'bad' : 'warn';
+  return secBox('alert', {
+    icon: '⚠️ ', title: '要注意的', tone: worst, sum: `${items.length} 条`,
+    body: items.map(([c, i, t], k) =>
+      `<div class="note ${c}"${k === items.length - 1 ? ' style="margin-bottom:0"' : ''}>
+        <i>${i}</i><div>${t}</div></div>`).join(''),
+  });
+}
+
+/* ---------- ③ 目录 ---------- */
+function secDirs(res, det) {
+  const origin = String(det.tree_origin || res.tree_origin || '');
+  let body = `<div class="stats">
+      <div class="stat"><div class="k">新建目录</div><div class="v">${n(res.dirs_made)}</div></div>
+      <div class="stat"><div class="k">整树无视频 · 没收</div><div class="v">${n(res.dirs_skipped)}</div></div>
+      <div class="stat"><div class="k">收掉空目录</div><div class="v">${n(res.dirs_pruned)}</div></div>
+    </div>`;
+  if (res.extensionless) {
+    body += `<div class="note warn" style="margin:12px 0 0"><i>⚠</i><div>
+      <b>这份目录树里有 ${n(res.extensionless)} 个条目既没有子项、也没有扩展名</b> ——
+      这几乎只能是<b>导出时层级选少了</b>（子树被截断），不是空目录。工具已把它们全部忽略。
+      ${res.source === 'tree' && origin && origin.indexOf('自动导出') < 0
+        ? '<br>你这份是<b>手动导</b>的 ⇒ 重新导一次，把层级拉到最大即可。'
+        : '<br>工具自己导时已按 115 的上限 25 层导。'}
+      ${exList(res)}
+    </div></div>`;
+  }
+  return secBox('dir', {
+    icon: '📁 ', title: '目录',
+    sum: `建 ${n(res.dirs_made)} · 跳 ${n(res.dirs_skipped)} · 收 ${n(res.dirs_pruned)}`,
+    tone: res.extensionless ? 'warn' : '',
+    right: origin ? '点标题展开/收起' : '',
+    body,
+  });
+}
+
+/* ---------- ④ 视频 strm（分段 + 明细）---------- */
+function secMedia(res) {
+  const cx = (res.diff && res.diff.counts) || {};
+  const del = cx.delete || 0;
+  const pend = res.pending_delete || 0;
+  // 🔴 2026-10-13 实测撞出来的歧义：概览说「删除 0」、这块说「删 154」——
+  //    两处都对（**判定要删** 154 个，但按二次确认机制 **实际一个都没删**），
+  //    可摆在一起读就是「自相矛盾」。分块之后这种跨块的矛盾**更容易被看见**，
+  //    所以这里必须把「判定」和「已删」拆开说，并且指出去哪儿处理。
+  let note = '';
+  if (pend) {
+    note = `<div class="note warn" style="margin-bottom:11px"><i>⏳</i><div>
+      判定要删 <b>${n(del)}</b> 个 strm，本轮<b>实际一个都没删</b> ——
+      它们挂在上面那张「<b>待确认删除</b>」卡里等二次确认
+      （先挂起、等够时间再扫一次确认，才真删）。
+      要立刻处理就回上面点「确认删除」。</div></div>`;
+  } else if (del && res.deleted) {
+    note = `<div class="note ok" style="margin-bottom:11px"><i>✅</i><div>
+      已删除 <b>${n(res.deleted)}</b> 个本地 strm（网盘上确实没了）。</div></div>`;
+  }
+  const body = note + `
+    <div class="seg" id="resSeg" style="margin-bottom:11px">
+      ${RES_SEG.map(([t, lab], i) => `<button data-t="${t}"${i ? '' : ' class="on"'}
+        onclick="renderResList('${t}')">${lab}
+        <span class="muted">${n(cx[t] != null ? cx[t] : 0)}</span></button>`).join('')}
+    </div>
+    <div class="diff" id="resList"></div>
+    <div class="muted" style="font-size:12.5px;margin-top:9px;word-break:break-all" id="resMore"></div>`;
+  return secBox('media', {
+    icon: '🎬 ', title: '视频 strm',
+    sum: `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
+         (pend ? `（挂起 ${n(pend)}）` : '') + ` · 留 ${n(cx.renamed || 0)}`,
+    body,
+  });
+}
+
+/* ---------- ⑤ 字幕 ---------- */
+function secSubs(res) {
+  const stat = [
+    ['能配上', n(res.subs_planned)],
+    ['本轮下载', n(res.subs_downloaded)],
+    ['本地已有跳过', n(res.subs_skipped)],
+  ];
+  if (res.subs_skipped_ext) stat.push(['按设置跳过', n(res.subs_skipped_ext)]);
+  if (res.subs_deleted) stat.push(['删除本地', n(res.subs_deleted)]);
+  if (res.subs_pending_delete) stat.push(['挂起待确认', n(res.subs_pending_delete)]);
+  if (res.subs_failed) stat.push(['失败', n(res.subs_failed)]);
+  let body = `<div class="stats">${stat.map(([k, v], i) =>
+    `<div class="stat${k === '失败' && res.subs_failed ? ' bad' : ''}">
+      <div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>`;
+  if (!res.subs_enabled) {
+    body += `<div class="note info" style="margin:12px 0 0"><i>ℹ</i><div>
+      这功能<b>没开</b>（设置 › 字幕 › 下载外挂字幕到本地）。上面是「开了会怎样」。</div></div>`;
+  }
+  if ((res.subs_notes || []).length) {
+    body += (res.subs_notes.slice(0, 10).map(t =>
+      `<div class="muted" style="margin-top:6px">· ${esc(t)}</div>`).join(''));
+  }
+  body += umGroups(res);
+  return secBox('subs', {
+    icon: '💬 ', title: '字幕',
+    sum: `能配 ${n(res.subs_planned)} · 下 ${n(res.subs_downloaded)} · 跳 ${n(res.subs_skipped)}` +
+         (res.subs_failed ? ` · 败 ${n(res.subs_failed)}` : ''),
+    tone: (res.subs_unmatched || []).length ? 'warn' : '',
+    body,
+  });
+}
+
+/* ---------- ⑥ 请求与耗时（默认收起）----------
+   ⭐ 2026-10-13 新增。红领巾：「我想看看它都具体操作了什么」——
+      以前只给一个「请求 60」，而 60 次**轮询导出状态**（正常）和
+      60 次**逐层扫目录**（接口选错）在数字上长得一模一样。 */
+/* 归并行的「说明」去掉「（第 N 次查询）」这类**实例细节** ——
+   那是下面流水列该说的话；归并这一层要回答的是「这个接口是干嘛的」。
+   （实测撞到：归并首行显示成「等导出任务 #… 跑完（第 1 次查询）」，
+     而它明明统计了 3 次 —— 看着别扭。） */
+function stripSeq(s) { return String(s || '').replace(/（第 \d+ 次[^）]*）/g, ''); }
+
+function secReq(res) {
+  const rd = res.req_detail || {};
+  const by = rd.by_name || [];
+  const items = rd.items || [];
+  const th = rd.throttle || {};
+
+  if (!rd.total) {
+    return secBox('req', {
+      icon: '⏱ ', title: '请求与耗时', sum: `请求 ${n(res.requests)}`,
+      body: `<div class="muted">这份回执没存请求明细（是加这个功能之前的版本跑的）。
+        下一轮跑完就有了。</div>`,
+    });
+  }
+
+  const head = `<div class="stats" style="margin-bottom:13px">
+      <div class="stat"><div class="k">请求总数</div><div class="v">${n(rd.total)}</div></div>
+      <div class="stat"><div class="k">其中 · 接口耗时</div>
+        <div class="v" style="font-size:16px">${esc(dur(rd.request_ms))}</div></div>
+      <div class="stat"><div class="k">其中 · 节流等待</div>
+        <div class="v" style="font-size:16px">${esc(dur(rd.wait_ms))}</div></div>
+      <div class="stat ${rd.failed ? 'bad' : 'ok'}"><div class="k">失败</div>
+        <div class="v">${n(rd.failed)}</div></div>
+    </div>
+    <div class="muted" style="margin-bottom:13px;line-height:1.8">
+      整轮 <b>${esc(res.elapsed_total || res.elapsed || '—')}</b>
+      ${res.elapsed_tree ? `＝ 导目录树 <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>` : ''}
+      ${th.sleeps != null ? `<br>节流：随机间隔睡 <b>${n(th.sleeps)}</b> 次（累计 ${esc(dur((th.slept_seconds || 0) * 1000))}）·
+        长休 <b>${n(th.rests)}</b> 次 · 冷却 <b>${n(th.cooldowns)}</b> 次` : ''}
+    </div>`;
+
+  const agg = `<div class="muted" style="margin-bottom:7px">按接口归并（次数多的在前）
+      —— 「哪个接口被反复调」通常就是「这一轮到底在干嘛」的答案：</div>
+    <div class="reqbox" id="reqAgg" style="margin-bottom:15px">
+      <table class="tbl">
+        <thead><tr><th>接口</th><th class="num">次数</th><th class="num">接口耗时</th>
+          <th class="num">节流等待</th><th class="num">失败</th></tr></thead>
+        <tbody>${by.map(r => `<tr${r.failed ? ' class="badness"' : ''}>
+          <td class="mono">${esc(r.name)}<div class="muted" style="font-size:12px;margin-top:2px">
+            ${esc(stripSeq(r.note))}</div></td>
+          <td class="num">${n(r.count)}</td>
+          <td class="num">${esc(dur(r.ms))}</td>
+          <td class="num">${esc(dur(r.wait_ms))}</td>
+          <td class="num">${r.failed ? n(r.failed) : '—'}</td></tr>`).join('')}</tbody>
+      </table></div>`;
+
+  const flow = `<div class="muted" style="margin-bottom:7px">逐次流水
+      —— 按发生顺序，看得出每一步在干什么：</div>
+    <div class="reqbox" id="reqFlow">
+      <table class="tbl">
+        <thead><tr><th class="num">#</th><th>时刻</th><th>接口</th><th>在干什么</th>
+          <th class="num">耗时</th><th class="num">等待</th></tr></thead>
+        <tbody>${items.map(x => `<tr${x.ok ? '' : ' class="badness"'}>
+          <td class="num">${x.seq}</td>
+          <td class="num">${esc(x.at)}</td>
+          <td class="mono">${esc(x.name)}</td>
+          <td>${esc(x.note || '')}${x.err ? `<div style="color:#b91c1c">${esc(x.err)}</div>` : ''}</td>
+          <td class="num">${esc(dur(x.ms))}</td>
+          <td class="num">${esc(dur(x.wait_ms))}</td></tr>`).join('')}</tbody>
+      </table></div>
+    ${rd.dropped ? `<div class="muted" style="margin-top:8px">
+      流水只列了前 ${n(rd.shown)} 条，另有 <b>${n(rd.dropped)}</b> 条未列
+      （上面的归并统计是完整的）。</div>` : ''}`;
+
+  return secBox('req', {
+    icon: '⏱ ', title: '请求与耗时',
+    sum: `${n(rd.total)} 次 · 接口 ${esc(dur(rd.request_ms))} · 等待 ${esc(dur(rd.wait_ms))}`,
+    right: '点标题展开/收起',
+    body: head + agg + flow,
+  });
+}
+
+/* 明细列表。`hasList=false` ⇒ 这份回执是旧版本跑的（只存了计数、没存明细）。
+   ⚠️ 选中的那一类记在 `RES_SEG_CUR` —— 重渲染（换一轮 / 轮询命中）之后还停在
+      「删除」这类上，不会跳回「新增」。 */
 function renderResList(t, hasList) {
-  if (t === undefined) t = 'add';
+  if (t === undefined) t = RES_SEG_CUR || 'add';
+  RES_SEG_CUR = t;
   if (hasList === undefined) {
     hasList = !!(RES && RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
   }
@@ -821,7 +1198,7 @@ function renderResList(t, hasList) {
     $('#resList').innerHTML = items.map(rel => `<div class="it">
       <div class="l1"><span class="badge ${t === 'add' ? 'add' : (t === 'delete' ? 'del' : 'upd')}">${lab}</span><span class="p">${esc(rel)}</span></div>
       <div class="u">${t === 'add' ? '本地没有 → 新建这个 strm'
-        : (t === 'delete' ? '本地有、网盘上没了 → 删除这个 strm'
+        : (t === 'delete' ? '本地有、网盘上没了 → 判定删除（挂着的话先等二次确认才真删）'
                           : '文件还在、内容变了 → 重写这个 strm')}</div></div>`).join('');
   }
   $('#resMore').innerHTML = more ? `…还有 ${n(more)} 条未列出（回执 JSON 里有前 ${n(500)} 条）` : '';
@@ -978,7 +1355,10 @@ function poll() {
     $('#log').innerHTML += (s.log || []).map(l =>
       `<div class="${l.level}"><span class="t">${l.t}</span>${esc(l.msg)}</div>`).join('');
     LOGSEQ = s.log_seq;
-    const el = $('#log'); el.scrollTop = el.scrollHeight;
+    // ⚠️ 只有「本来就在最底下」才自动跟到底 —— 否则你往上翻着看，
+    //    新来一行就把你拽回去（那也是一种「滚动被重置」）。
+    const el = $('#log');
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) el.scrollTop = el.scrollHeight;
     $('#logHint').textContent = s.running ? '运行中' : (s.finished || '');
 
     $('#btnRun').disabled = s.running;
@@ -987,10 +1367,17 @@ function poll() {
 
     if (s.running || s.written || s.deleted || s.error) {
       $('#runStats').style.display = '';
-      $('#runStats').innerHTML = [
-        ['写入', s.written, 'pri'], ['删除', s.deleted, 'bad'],
-        ['挂起', s.pending_delete, 'warn'], ['请求', s.requests, ''],
-      ].map(([k, v, cls]) => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v">${n(v)}</div></div>`).join('');
+      // ⭐ 运行中也要有「已用时」—— 红领巾 2026-10-13：
+      //    「耗时只显示 0 让我判断不准到底是运行出问题了，还是别的什么」。
+      //    跑的时候看着秒数在涨，就知道它还活着；卡住不动一眼能看出来。
+      const cells = [
+        ['写入', n(s.written), 'pri'], ['删除', n(s.deleted), 'bad'],
+        ['挂起', n(s.pending_delete), 'warn'], ['请求', n(s.requests), ''],
+      ];
+      if (s.running) cells.push(['已用时', s.elapsed_running || '—', '']);
+      $('#runStats').innerHTML = cells.map(([k, v, cls]) =>
+        `<div class="stat ${cls}"><div class="k">${k}</div>
+          <div class="v" style="font-size:${k === '已用时' ? '16px' : '21px'}">${v}</div></div>`).join('');
     }
     if (s.error) $('#log').innerHTML += `<div class="error">${esc(s.error)}</div>`;
     if (!s.running) {
@@ -1050,7 +1437,7 @@ function noTreeHint() {
       树不是你手动导的，是<b>工具跑一轮时自己导</b>的（落在 <span class="mono">data/tree/</span>，只留最近 5 份）。</div></div>
     <div class="actions">
       <button class="btn pri sm" onclick="goPage('sync')">去「同步」页跑一轮 →</button>
-      <span class="muted" style="font-size:11.5px">
+      <span class="muted" style="font-size:12.5px">
         它会自己导一份目录树 —— 你什么都不用手动导</span>
     </div>`;
 }
@@ -1122,7 +1509,7 @@ function renderScope(d) {
       <button class="btn sm" onclick="loadScope('${esc(SCOPE.remote_root)}')">回到顶层</button>
       <button class="btn sm" onclick="togglePick('${esc(relToRoot(d.node.path) || '')}', true)">勾选当前目录</button>
       <button class="btn sm" onclick="clearPick()">清空（全部处理）</button>
-      <span class="muted" style="font-size:11.5px">
+      <span class="muted" style="font-size:12.5px">
         本层整棵子树：${d.node.subtree.dirs} 目录 · ${d.node.subtree.files} 文件
       </span>
     </div>
@@ -1198,7 +1585,7 @@ function renderScopeEstimate(d) {
       <div class="stat"><div class="k">网盘条目</div><div class="v">${n(e.remote_files)}</div></div>
       <div class="stat"><div class="k">本地已有</div><div class="v">${n(e.local_strm)}</div></div>
     </div>
-    ${(e.sample && e.sample.length) ? `<div style="margin-top:9px;font-size:11.5px;word-break:break-all">
+    ${(e.sample && e.sample.length) ? `<div style="margin-top:9px;font-size:12.5px;word-break:break-all">
       strm 内容样例：<span class="mono">${esc(decodeSafe(e.sample[0].url))}</span></div>` : ''}
   </div></div>`;
 }
@@ -1483,7 +1870,7 @@ async function checkPrefix() {
     box.innerHTML = `<div class="note ${cls}"><i>${icon}</i><div>
       <div style="font-weight:560">${esc(d.message)}</div>
       ${d.tip ? `<div style="margin-top:5px">${esc(d.tip)}</div>` : ''}
-      <div style="margin-top:7px;font-size:11.5px;opacity:.75;word-break:break-all">
+      <div style="margin-top:7px;font-size:12.5px;opacity:.75;word-break:break-all">
         试的地址：<span class="mono">${esc(decodeSafe(d.url))}</span><br>
         HTTP ${d.status}${d.location ? ' → <span class="mono">' + esc(decodeSafe(d.location)) + '</span>' : ''}
       </div>
@@ -1695,13 +2082,18 @@ async function loadHist() {
     const d = await api('/api/runs');
     HIST_LOADED = true;
     if (!d.items.length) { $('#histList').innerHTML = '<div class="row muted">还没有记录</div>'; return; }
-    $('#histList').innerHTML = d.items.map(r => `
+    // ⚠️ 这个列表自带滚动条（`.list` 有 max-height）。每次跑完都会重载它，
+    //    不还原 scrollTop 的话，你翻到第 30 条看，一轮结束就被弹回第 1 条。
+    const box = $('#histList');
+    const keep = box.scrollTop;
+    box.innerHTML = d.items.map(r => `
       <div class="row" onclick="openHist('${esc(r.stem)}')" style="cursor:pointer">
         <span class="badge add">执行</span>
         <span class="p">${esc(r.started)}</span>
         <span class="u">写 ${n(r.written)} · 删 ${n(r.deleted)}${r.subs_enabled
-          ? ` · 字幕 ${n(r.subs_downloaded)}` : ''} · 用时 ${esc(r.elapsed || '—')}</span>
+          ? ` · 字幕 ${n(r.subs_downloaded)}` : ''} · 请求 ${n(r.requests)} · 用时 ${esc(r.elapsed || '—')}</span>
       </div>`).join('');
+    if (keep) box.scrollTop = keep;
   } catch (e) { $('#histList').innerHTML = `<div class="row muted">${esc(e.message)}</div>`; }
 }
 

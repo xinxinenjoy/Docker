@@ -26,13 +26,23 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
     # ⚠️ 原来这里还有个「· 演练（未落盘）」的后缀 —— 2026-10-11 随 `dry_run` 一起撤了。
     L.append("# 115strm 同步回执")
     L.append("")
-    L.append(_table([
+    # ⚠️ 「耗时」给**整轮**（含导目录树）—— 老回执只有对账段的 `elapsed`，
+    #    退回它但要写明，别让两个口径混着看不出区别（2026-10-13 前的回执就是那种）。
+    total = res.get("elapsed_total") or res.get("elapsed", "")
+    rows = [
         ("开始", res.get("started", "")),
         ("结束", res.get("finished", "")),
-        ("耗时", res.get("elapsed", "")),
+        ("耗时（整轮）", total),
+    ]
+    if res.get("elapsed_tree"):
+        rows.append(("　其中：导目录树", res.get("elapsed_tree", "")))
+    if res.get("elapsed"):
+        rows.append(("　其中：对账落盘", res.get("elapsed", "")))
+    rows += [
         ("发现方式", _source_cn(res.get("source", ""))),
         ("115 请求数", f"{res.get('requests', 0):,}"),
-    ], ("项", "值")))
+    ]
+    L.append(_table(rows, ("项", "值")))
     L.append("")
 
     L.append("## 一、这一轮做了什么")
