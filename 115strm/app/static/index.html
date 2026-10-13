@@ -266,26 +266,62 @@ nav button.on{color:var(--pri)}
    现在每种信息各占一个 `.sec`：标题行（图标 + 名字 + 关键计数）+ 可折叠正文。
    ⭐ 折叠状态由 `data-fold` 记在 DOM 上，重渲染时**按标题名找回**（见 `secHtml()`），
       否则一刷新就把用户展开的那块又收回去 —— 那正是「老是重置」体感的一半。 */
+/* 🔴 2026-10-13 二改。红领巾：「这几个条目的折叠、鼠标效果太不明显了，根本分不清
+   是不是展开了，以及有没有内容也不清楚。」
+   一改（同日早些）只做到「**能**折」，但**折与不折长得几乎一样**：旧写法仅在折叠时把
+   `▾` 转 -90°、去掉标题底边线 —— 而那个 `▾` 只有 11px、颜色 `#9aa1ae` 是浅灰，
+   站在半米外根本分不出哪块开着。⇒ 判据改成**三条一眼可验证的差异**：
+     ① 左侧 3px 立条：展开 = 主色实心，折叠 = 熄灭（最显眼的一条）
+     ② 标题底色：展开 = 白，折叠 = 灰（warn/bad 的语义底色保留，只压深一档）
+     ③ 右侧**常驻**状态签：折叠 = 「展开」，展开 = 「收起」
+        ⛔ 不再像旧写法那样只在个别块上挂一句「点标题展开/收起」——
+           一块有一块没有，反而让人怀疑没挂字的那块是不是不能点。
+   另补「有没有内容」：空块整行压灰、状态签写「空」（见 `.sec.empty`）。 */
 .sec{border:1px solid var(--line);border-radius:10px;margin-bottom:11px;
   overflow:hidden;background:#fff}
 .sec:last-child{margin-bottom:0}
-.sec-h{display:flex;align-items:center;gap:9px;padding:10px 13px;background:#fafbfc;
-  border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
-.sec-h:hover{background:#f4f6f9}
-.sec-h .car{flex:0 0 auto;width:10px;font-size:11px;color:#9aa1ae;transition:transform .15s}
+.sec-h{position:relative;display:flex;align-items:center;gap:9px;
+  padding:10px 13px 10px 16px;background:#fff;border-bottom:1px solid var(--line);
+  cursor:pointer;user-select:none;transition:background .12s}
+/* ① 左侧立条 —— 折叠态熄灭，这是「开没开」最远也看得见的那条 */
+.sec-h::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--pri);transition:background .12s}
+.sec-h:hover{background:#f2f5ff}
+.sec-h:active{background:#e9eefe}
+.sec-h .car{flex:0 0 auto;width:16px;height:16px;color:#5b6472;
+  display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.sec-h .car svg{width:13px;height:13px;display:block}
+.sec-h:hover .car{color:var(--pri)}
 .sec-h .tt{font-size:13.5px;font-weight:640;display:flex;align-items:center;gap:7px}
 .sec-h .sum{font-size:12.5px;color:var(--dim);font-weight:500}
-.sec-h .sp{margin-left:auto;font-size:12.5px;color:var(--dim);flex:0 0 auto}
+/* ③ 常驻状态签（旧写法是「有就显示、没有就不显示」，那正是混乱的来源） */
+.sec-h .sp{margin-left:auto;flex:0 0 auto;font-size:12px;color:var(--dim);
+  border:1px solid var(--line);border-radius:999px;padding:1px 9px;
+  transition:color .12s,border-color .12s}
+.sec-h:hover .sp{color:var(--pri);border-color:var(--pri)}
 .sec-b{padding:13px}
-/* 折叠：把正文藏起来，标题下面的分隔线也去掉（否则看着像空盒子） */
-.sec.fold>.sec-h{border-bottom:none}
+/* ② 折叠态：三条差异同时生效 —— 立条熄灭、标题变灰、正文收起、箭头朝右 */
+.sec.fold>.sec-h{background:#f2f4f7;border-bottom-color:transparent}
+.sec.fold>.sec-h::before{background:transparent}
+.sec.fold>.sec-h:hover{background:#eaeef4}
 .sec.fold>.sec-b{display:none}
 .sec.fold>.sec-h .car{transform:rotate(-90deg)}
-/* 标题行按语义上色 —— 一眼扫过去先认出「哪块是坏的」 */
+/* 标题行按语义上色 —— 一眼扫过去先认出「哪块是坏的」。
+   ⚠️ 这几条**必须排在折叠规则之后**：否则 `.sec.warn>.sec-h` 会把折叠态的灰底盖掉，
+      又变回「折了跟没折一样」。`.fold` 变体单独给一档更深的色，语义和状态都不丢。 */
 .sec.warn>.sec-h{background:#fffbeb}
-.sec.warn>.sec-h:hover{background:#fef6e0}
+.sec.warn>.sec-h:hover{background:#fdf3d8}
+.sec.warn>.sec-h::before{background:#d97706}
+.sec.warn.fold>.sec-h{background:#fdf6e3}
 .sec.bad>.sec-h{background:#fef2f2}
-.sec.bad>.sec-h:hover{background:#fdeaea}
+.sec.bad>.sec-h:hover{background:#fbe4e4}
+.sec.bad>.sec-h::before{background:#dc2626}
+.sec.bad.fold>.sec-h{background:#fbe9e9}
+/* 空块：整行压灰（立条熄灭）+ 状态签「空」⇒「有没有内容」不用点开就知道 */
+.sec.empty>.sec-h .tt,.sec.empty>.sec-h .sum{color:#9aa1ae}
+.sec.empty>.sec-h .car{color:#b6bcc6}
+.sec.empty>.sec-h::before{background:transparent}
+.sec.empty>.sec-h:hover .sp{color:var(--dim);border-color:var(--line)}
 
 /* ---------- 小表（请求明细 / 耗时拆分）---------- */
 .tbl{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
@@ -450,7 +486,24 @@ nav button.on{color:var(--pri)}
           <span class="hint">工具自己导目录树，你不用手动导</span>
         </div>
         <div class="card-b">
-          <ol class="steps" id="stepList"></ol>
+          <!-- ⭐ **六步说明默认收着**（2026-10-13 二改）。
+               红领巾：「主页这一部分占据的篇幅太长了，做成一个鼠标放上去会弹出来的提示，
+               或者默认折叠，点击查看的那种」。
+               选**默认折叠**而不是悬浮提示：本页面有移动端底部 tab 布局，悬浮在触屏上用不了；
+               而且折叠是本页已成立的模式（「运行记录」卡就是这么做的），不必另发明一套。
+               ⚠️ 按钮（预览差异 / 立即执行 / 停止）**留在折叠外面** —— 它们是这一屏的主操作，
+                  收进去等于把主操作藏了。
+               ⚠️ 六步的**文案**仍来自后端 `pipeline.SYNC_STEPS`，这里只管样子。 -->
+          <div class="sec fold" id="stepBox" data-k="steps">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="false"
+                 onclick="toggleSec('steps')" onkeydown="secKey(event,'steps')">
+              <span class="car"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <span class="tt">这一轮会做什么</span>
+              <span class="sum" id="stepSum"></span>
+              <span class="sp">展开</span>
+            </div>
+            <div class="sec-b"><ol class="steps" id="stepList"></ol></div>
+          </div>
           <div id="runGuard" style="margin-top:13px"></div>
           <div class="actions" style="margin-top:13px">
             <button class="btn" onclick="preview()">预览差异</button>
@@ -770,15 +823,25 @@ function dur(ms) {
   return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分';
 }
 
-/* 一块的 HTML。`k` 是块名（也是折叠状态的 key）。 */
+/* 折叠箭头 —— 用 **SVG** 而不是「▾」字符。
+   🔴 旧写法是 `<span class="car">▾</span>` + `font-size:11px; color:#9aa1ae`：
+      字符的粗细/大小随字体族走，实测在 Windows 上细到几乎看不见 —— 这正是
+      红领巾那句「根本分不清是不是展开了」的直接原因。
+   ⚠️ 路径画的是**朝下**的钩（展开态），折叠态靠 CSS `rotate(-90deg)` 转成朝右。 */
+const CARET = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+
+/* 一块的 HTML。`k` 是块名（也是折叠状态的 key）。
+   `o.empty` = 这块**本轮没内容** ⇒ 整行压灰 + 状态签写「空」（别让人点开才发现是空的）。 */
 function secBox(k, o) {
   const folded = (k in SEC_FOLD) ? SEC_FOLD[k] : !!SEC_DEFAULT[k];
-  return `<section class="sec ${o.tone || ''}${folded ? ' fold' : ''}" data-k="${k}">
-    <div class="sec-h" onclick="toggleSec('${k}')">
-      <span class="car">▾</span>
+  const empty = !!o.empty;
+  return `<section class="sec ${o.tone || ''}${empty ? ' empty' : ''}${folded ? ' fold' : ''}" data-k="${k}">
+    <div class="sec-h" role="button" tabindex="0" aria-expanded="${folded ? 'false' : 'true'}"
+         onclick="toggleSec('${k}')" onkeydown="secKey(event,'${k}')">
+      <span class="car">${CARET}</span>
       <span class="tt">${o.icon || ''}${esc(o.title)}</span>
       ${o.sum ? `<span class="sum">${o.sum}</span>` : ''}
-      ${o.right ? `<span class="sp">${o.right}</span>` : ''}
+      <span class="sp">${empty ? '空' : (folded ? '展开' : '收起')}</span>
     </div>
     <div class="sec-b"${o.id ? ` id="${o.id}"` : ''}>${o.body || ''}</div>
   </section>`;
@@ -787,7 +850,21 @@ function secBox(k, o) {
 function toggleSec(k) {
   const el = document.querySelector(`.sec[data-k="${k}"]`);
   if (!el) return;
-  SEC_FOLD[k] = el.classList.toggle('fold');
+  const fold = el.classList.toggle('fold');
+  SEC_FOLD[k] = fold;
+  // ⚠️ 状态签与 aria 必须跟着改 —— 只改 class 的话，右边界面上还写着上一次的「展开/收起」，
+  //    那就又回到「看不出开没开」了（折叠态是被 CSS 藏在 `.sec-b` 里的，肉眼看不到反例）。
+  const h = el.querySelector('.sec-h');
+  if (h) h.setAttribute('aria-expanded', fold ? 'false' : 'true');
+  const sp = el.querySelector('.sp');
+  if (sp && !el.classList.contains('empty')) sp.textContent = fold ? '展开' : '收起';
+}
+
+/* 标题行支持键盘（Enter / 空格）—— 它是 `role="button"`，不给键盘通路是半个按钮。 */
+function secKey(ev, k) {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  ev.preventDefault();
+  toggleSec(k);
 }
 
 /* 重渲染前后把「看的人停在哪儿」原样搬回去 —— 主要管两处：
@@ -916,11 +993,13 @@ function resultBody(res, det) {
   ].join('');
 }
 
-/* 跳到某一块并展开（「请求」那个统计格点一下就落到明细上）。 */
+/* 跳到某一块并展开（「请求」那个统计格点一下就落到明细上）。
+   ⚠️ 展开**复用 `toggleSec`**，⛔ 别在这儿另抄一份「去掉 fold 类」——
+     抄一份就会漏掉状态签/aria 的同步，又变回「看着像没展开」。 */
 function jumpSec(k) {
   const el = document.querySelector(`.sec[data-k="${k}"]`);
   if (!el) return;
-  if (el.classList.contains('fold')) { el.classList.remove('fold'); SEC_FOLD[k] = false; }
+  if (el.classList.contains('fold')) toggleSec(k);
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1009,11 +1088,16 @@ function secDirs(res, det) {
       ${exList(res)}
     </div></div>`;
   }
+  // 「有没有内容」= 这一轮目录相关的动作**全为 0**。
+  // ⚠️ `extensionless` 也算内容 —— 它是一条**要人看的告警**，漏掉就会出现
+  //    「状态签写着「空」、点开却有一条红字」的自相矛盾。
+  const empty = !(res.dirs_made || res.dirs_skipped || res.dirs_pruned || res.extensionless);
   return secBox('dir', {
     icon: '📁 ', title: '目录',
-    sum: `建 ${n(res.dirs_made)} · 跳 ${n(res.dirs_skipped)} · 收 ${n(res.dirs_pruned)}`,
+    sum: empty ? '本轮没有目录变动'
+      : `建 ${n(res.dirs_made)} · 跳 ${n(res.dirs_skipped)} · 收 ${n(res.dirs_pruned)}`,
     tone: res.extensionless ? 'warn' : '',
-    right: origin ? '点标题展开/收起' : '',
+    empty,
     body,
   });
 }
@@ -1046,10 +1130,15 @@ function secMedia(res) {
     </div>
     <div class="diff" id="resList"></div>
     <div class="muted" style="font-size:12.5px;margin-top:9px;word-break:break-all" id="resMore"></div>`;
+  // ⚠️ 「挂起」也算内容：`del` 是**判定要删**的条数，pending 是实际挂起的。
+  //    两者都为 0 才是真的「本轮没有 strm 变动」。
+  const empty = !(cx.add || cx.update || del || cx.renamed);
   return secBox('media', {
     icon: '🎬 ', title: '视频 strm',
-    sum: `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
-         (pend ? `（挂起 ${n(pend)}）` : '') + ` · 留 ${n(cx.renamed || 0)}`,
+    sum: empty ? '本轮没有 strm 变动'
+      : `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
+        (pend ? `（挂起 ${n(pend)}）` : '') + ` · 留 ${n(cx.renamed || 0)}`,
+    empty,
     body,
   });
 }
@@ -1077,11 +1166,16 @@ function secSubs(res) {
       `<div class="muted" style="margin-top:6px">· ${esc(t)}</div>`).join(''));
   }
   body += umGroups(res);
+  // ⚠️ `subs_unmatched` 也算内容 —— 那是「配不上的字幕」，要人看（且 tone 会变 warn）。
+  const empty = !(res.subs_planned || res.subs_downloaded || res.subs_skipped ||
+                  res.subs_failed || (res.subs_unmatched || []).length);
   return secBox('subs', {
     icon: '💬 ', title: '字幕',
-    sum: `能配 ${n(res.subs_planned)} · 下 ${n(res.subs_downloaded)} · 跳 ${n(res.subs_skipped)}` +
-         (res.subs_failed ? ` · 败 ${n(res.subs_failed)}` : ''),
+    sum: empty ? '本轮没有字幕要处理'
+      : `能配 ${n(res.subs_planned)} · 下 ${n(res.subs_downloaded)} · 跳 ${n(res.subs_skipped)}` +
+        (res.subs_failed ? ` · 败 ${n(res.subs_failed)}` : ''),
     tone: (res.subs_unmatched || []).length ? 'warn' : '',
+    empty,
     body,
   });
 }
@@ -1104,7 +1198,7 @@ function secReq(res) {
 
   if (!rd.total) {
     return secBox('req', {
-      icon: '⏱ ', title: '请求与耗时', sum: `请求 ${n(res.requests)}`,
+      icon: '⏱ ', title: '请求与耗时', sum: `请求 ${n(res.requests)}`, empty: true,
       body: `<div class="muted">这份回执没存请求明细（是加这个功能之前的版本跑的）。
         下一轮跑完就有了。</div>`,
     });
@@ -1162,7 +1256,6 @@ function secReq(res) {
   return secBox('req', {
     icon: '⏱ ', title: '请求与耗时',
     sum: `${n(rd.total)} 次 · 接口 ${esc(dur(rd.request_ms))} · 等待 ${esc(dur(rd.wait_ms))}`,
-    right: '点标题展开/收起',
     body: head + agg + flow,
   });
 }
@@ -1219,9 +1312,16 @@ function showLatest() {
 function renderSteps(steps) {
   const box = $('#stepList');
   if (!box || !Array.isArray(steps)) return;
-  box.innerHTML = steps.map(s => `<li><div>
+  const html = steps.map(s => `<li><div>
     <span class="t">${bold(s.title)}</span>
     <span class="h">${bold(s.help)}</span></div></li>`).join('');
+  // ⚠️ 本函数被 8 秒轮询**每轮都调**。内容没变就别重写 —— 重写会重建 DOM 节点，
+  //    把读者选中的文字冲掉（与结果区 `RES_FP` 指纹是同一个教训，只是这里更简单）。
+  if (box.dataset.fp !== html) { box.innerHTML = html; box.dataset.fp = html; }
+  // 折叠态下也要能看出「里面有几条」。⚠️ 只报**条数**，不做内容摘要 ——
+  // 摘要等于把 SYNC_STEPS 的文案再抄一遍，后端改一次这里就漂了（本项目吃过分叉的亏）。
+  const sum = $('#stepSum');
+  if (sum) sum.textContent = `${steps.length} 步`;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 /* 先转义再认 `**加粗**` —— 后端的 SYNC_STEPS 文案里用了它，直接 esc 会把星号原样显示出来。
