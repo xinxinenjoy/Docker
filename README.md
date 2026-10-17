@@ -15,7 +15,6 @@
 | 镜像 | 说明 |
 |:---|:---|
 | [`115offline`](https://hub.docker.com/r/xinxinenjoy/115offline) | 115 网盘离线下载推送工具：手机网页粘贴磁力，一键推给 115 |
-| [`115organize`](https://hub.docker.com/r/xinxinenjoy/115organize) | 115 网盘慢速整理：番号按系列归位、影视规范命名、自动清广告，全程节流防风控 |
 | [`115strm`](https://hub.docker.com/r/xinxinenjoy/115strm) | 115 网盘结构镜像成本地 strm 树，给 Emby/Jellyfin/Kodi/Infuse/爆米花/VidHub 扫，播放走 Alist 302 直连 CDN（生成的 strm 末尾不带换行） |
 | [`atv-tv-power`](https://hub.docker.com/r/xinxinenjoy/atv-tv-power) | Apple TV 开关机联动（Home Assistant / 推送通知） |
 
@@ -47,7 +46,6 @@ docker run -d --name 115offline \
 各项目的环境变量与完整步骤见对应目录下的说明：
 
 - [`115offline/README.md`](115offline/README.md)
-- [`115organize/README.md`](115organize/README.md)
 - [`115strm/README.md`](115strm/README.md)
 - [`atv-tv-power/README.md`](atv-tv-power/README.md)
 
@@ -58,7 +56,6 @@ docker run -d --name 115offline \
 | Workflow | 触发路径 |
 |:---|:---|
 | [`115offline.yml`](.github/workflows/115offline.yml) | `115offline/**` |
-| [`115organize.yml`](.github/workflows/115organize.yml) | `115organize/**` |
 | [`115strm.yml`](.github/workflows/115strm.yml) | `115strm/**` |
 | [`atv-tv-power.yml`](.github/workflows/atv-tv-power.yml) | `atv-tv-power/**` |
 
@@ -66,14 +63,14 @@ docker run -d --name 115offline \
 
 > 构建依赖仓库 secret `DOCKERHUB_TOKEN`（Docker Hub Access Token，权限 **Read & Write**）。
 >
-> ⚠️ `115organize.yml` / `115strm.yml` 比另两个多一个 `test` job：**先跑离线单测，过了才构建**
-> （`115organize` 196 个 / `115strm` 296 个）。这两个项目的风险不在编译不过，而在**规则判错**
-> （垃圾判错 = 正片被搬走；路径口径判错 = 整库播不了；删除判定写错 = 本地 strm 被误删）——
+> ⚠️ `115strm.yml` 比另两个多一个 `test` job：**先跑离线单测，过了才构建**（`115strm` 296 个用例）。
+> 该项目的风险不在编译不过，而在**规则判错**
+> （路径口径判错 = 整库播不了；删除判定写错 = 本地 strm 被误删）——
 > 这类错误只有用例能拦。
 
 ## 维护者流程
 
-1. 改 `115offline/` / `115organize/` / `115strm/` / `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
+1. 改 `115offline/` / `115strm/` / `atv-tv-power/` 下的任何文件 → 推 `main`，对应 workflow 自动构建并推送 Docker Hub。
 2. **镜像推送成功后，必须同步更新 Docker Hub 仓库页的说明。**
    Hub 页面是别人看到的第一眼 —— 镜像更新了、说明还停在旧版，等于误导。
    **同步的是各目录下的 `DOCKERHUB.md`**（Hub 的 Overview 与短描述都从它来），
