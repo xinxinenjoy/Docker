@@ -40,8 +40,12 @@ from p115client import P115Client, check_response
 # 链接 / 暗号解析是纯标准库逻辑，单独放在 links.py，便于脱离框架做回归测试。
 # normalize_hash / fix_magnet 在这里再导出一次，保持既有引用不失效。
 from links import MAX_BATCH, fix_magnet, normalize_hash, parse_links  # noqa: F401
+# 联网核对片名（按需单条）—— 纯标准库 HTTP，不依赖 115，见该文件顶部说明。
+import lookup
+
 from namer import (
     clean_file,
+    dir_name,
     ensure_ext,
     is_episode_file,
     looks_like_ad,
@@ -1253,6 +1257,117 @@ def suggest_names(body: SuggestIn) -> dict:
             "ad_hint": looks_like_ad(name),
         })
     return {"ok": True, "items": out, "paren": paren}
+
+
+# ----------------------------------------------------------------- 联网核对（按需、单条）
+LOOKUP_CACHE_FILE = DATA_DIR / "lookup_cache.json"
+LOOKUP_TTL = 7 * 86400          # 同词 7 天内不再打豆瓣（它有频率限制）
+
+
+class LookupIn(BaseModel):
+    account_id: str | None = None
+    name: str = ""              # 待查的原始名字（用它自动抽查询词）
+    query: str = ""             # 手动指定查询词（覆盖自动抽取）
+    paren: str = "full"
+
+
+def _tmdb_token() -> str:
+    """TMDB 令牌读取顺序：环境变量 → `$DATA_DIR/tmdb_token.txt`。
+
+    ⚠️ 只认这两种**本机**位置 —— 令牌绝不进仓库（公开仓库 + 会同步 Hub 说明）。
+    红领巾 2026-10-17 给的那份 v4 读令牌就落在 `/data/tmdb_token.txt`（群晖上持久化）。
+    """
+    for key in ("TMDB_TOKEN", "TMDB_API_KEY", "TMDB_READ_TOKEN"):
+        val = (os.environ.get(key) or "").strip()
+        if val:
+            return val
+    try:
+        return (DATA_DIR / "tmdb_token.txt").read_text("utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _lookup_cache() -> dict:
+    with _store_lock:
+        try:
+            data = json.loads(LOOKUP_CACHE_FILE.read_text("utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+
+def _lookup_cache_put(key: str, payload: dict) -> None:
+    with _store_lock:
+        try:
+            cache = _lookup_cache()
+        except Exception:
+            cache = {}
+        cache[key] = {"ts": int(time.time()), "payload": payload}
+        # 只留最近 500 条，别让这个小文件无限长
+        if len(cache) > 500:
+            for k in sorted(cache, key=lambda k: cache[k].get("ts", 0))[:len(cache) - 500]:
+                cache.pop(k, None)
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            LOOKUP_CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False), "utf-8")
+        except Exception as exc:  # noqa: BLE001 —— 缓存写不进不影响查询
+            logging.warning("lookup 缓存写入失败：%s", exc)
+
+@app.post("/api/lookup", dependencies=[Depends(auth)])
+def lookup_name(body: LookupIn) -> dict:
+    """按需联网核对片名 —— **只读、不改名、不碰 115**。
+
+    红领巾 2026-10-17 定的口径：「不用批量，只针对名字很乱需要改名的文件，
+    点击进行查询，然后返回建议名字」⇒ 所以这里是**一条一查**，结果是建议、由他点。
+
+    查询词：优先用他手填的 `query`；否则用命名引擎抽出的**片名**（`title_of`），
+    抽不出来才退回「保守清洗后的名字」—— 别把一整串广告词丢给豆瓣。
+    """
+    query = (body.query or "").strip()
+    if not query:
+        query = (title_of(body.name or "") or clean_file(body.name or "")
+                 or (body.name or "")).strip()
+    if not query:
+        raise HTTPException(400, "这个名字里抽不出可查的词 —— 请手动填一个查询词")
+
+    paren = body.paren if body.paren in ("full", "half") else "full"
+    key = query.lower()
+    cached = False
+    payload = None
+    cache = _lookup_cache()
+    hit = cache.get(key)
+    if isinstance(hit, dict) and int(time.time()) - int(hit.get("ts") or 0) < LOOKUP_TTL:
+        payload = hit.get("payload")
+        cached = bool(payload)
+
+    if not payload:
+        payload = lookup.search(query, _tmdb_token())
+        # 只缓存「查到了」的结果：查不到的（多半是名字太乱）下次改了词就该重查
+        if payload.get("items"):
+            _lookup_cache_put(key, payload)
+
+    items: list[dict] = []
+    for it in payload.get("items") or []:
+        title = it.get("title") or ""
+        year = it.get("year") or ""
+        name = dir_name(title, year or None, paren=paren)
+        items.append({
+            **it,
+            # 建议名：`片名（年份）`；查不到年份就只给片名（别硬凑）
+            "name": name,
+            "series_name": dir_name(title, None, series=True, paren=paren),
+        })
+
+    return {
+        "ok": bool(payload.get("ok")),
+        "query": query,
+        "cached": cached,
+        "source": payload.get("source") or "",
+        "tmdb_ready": bool(_tmdb_token()),
+        "note": payload.get("note") or "",
+        "error": payload.get("error") or "",
+        "items": items,
+    }
 
 
 # ----------------------------------------------------------------- 删除（进回收站）

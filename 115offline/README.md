@@ -135,6 +135,7 @@ docker build -t 115offline:latest .
 | `ACCESS_TOKEN` | 空 | 访问口令。设置后打开网页需先输入。**一旦映射到公网，务必设一个长的** |
 | `DATA_DIR` | `/data` | 数据目录：`accounts.json`（115 cookie）、`folder_cache.json`（目录缓存）、`pushlog.json`（本地推送记录），**必须挂到宿主机** |
 | `FOLDER_CACHE_TTL` | `300` | 目录列表缓存的有效秒数。设 `0` = 永不过期、只能手动刷新（最省请求，但列表可能长期陈旧） |
+| `TMDB_TOKEN` | 空 | 可选。TMDB 的 v4 读令牌（`eyJ…`）或 v3 API Key，用于网页上的「🔍 查库」。**不填也能用**：会退到豆瓣 → Bing。也可以把它写在 `DATA_DIR/tmdb_token.txt`（一行纯文本），省得改 compose |
 | `TZ` | 容器系统 | 时区，如 `Asia/Shanghai` |
 
 **端口** —— 容器内固定监听 `8765`，映射到宿主机哪个端口随意（上面示例也映射成 8765）。

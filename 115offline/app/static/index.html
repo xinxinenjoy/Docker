@@ -1854,6 +1854,7 @@ function renderFsList(opts) {
             ${c.ad_hint ? '<span class="tag ad">广告</span>' : ''}
             <span class="fact">
               ${changed ? `<button class="newchip" data-cand="${esc(it.file_id)}" title="点击直接改用这个建议名：${esc(val)}"><span class="verb">改用</span><span class="nm">${esc(val)}</span></button>` : ''}
+              <button class="iconbtn" data-look="${esc(it.file_id)}" title="联网查一下这片子（豆瓣），返回建议名">🔍<span class="bt">查库</span></button>
               <button class="iconbtn" data-open="${esc(it.file_id)}" title="自己填一个新名字">✎<span class="bt">手动改名</span></button>
             </span>
           </div>
@@ -1948,6 +1949,9 @@ function bindFsList() {
       ed.classList.add('hide');
     }
   });
+  /* 🔍 联网查库（按需、单条）—— 红领巾 2026-10-17：只对名字很乱的那几条点一下查，
+     不批量、不自动改；查回来的名字只是候选，点哪条才填进这一行。 */
+  $$('#fsList button[data-look]').forEach(b => b.onclick = () => lookupRow(b.dataset.look));
   $$('#fsList input[data-edit]').forEach(inp => {
     inp.oninput = () => {
       const fid = inp.dataset.edit;
@@ -2304,6 +2308,67 @@ async function doMerge() {
     FS.busy = false;
     setFsBusy('');
   }
+}
+
+/** 🔍 联网查库（按需、单条）—— 红领巾 2026-10-17 的口径：
+    本地规则优先，只有他觉得「名字很乱」时才点这一条去查；查回来的名字只是候选，
+    点「用这个」才填进这一行的输入框（**不自动改名**）。
+    数据源顺序由后端决定：TMDB（有令牌）→ 豆瓣 → Bing。 */
+async function lookupRow(fid) {
+  const it = FS.items.find(x => x.file_id === fid) || {};
+  const mask = document.createElement('div');
+  mask.className = 'modal open';
+  mask.innerHTML = '<div class="box"><h3>联网查库</h3>' +
+    '<div class="muted" id="lkName" style="margin:-6px 0 8px;word-break:break-all"></div>' +
+    '<div class="mbox"><input type="text" id="lkQ" placeholder="查询词（留空＝自动从名字里抽片名）"></div>' +
+    '<div id="lkOut" style="max-height:46vh;overflow:auto;margin-bottom:6px"></div>' +
+    '<div class="mf"><button class="line sm" id="lkClose">关闭</button><button id="lkGo">查这个</button></div></div>';
+  document.body.appendChild(mask);
+  $('#lkName').textContent = it.name || '';
+  $('#lkClose').onclick = () => mask.remove();
+
+  const out = $('#lkOut');
+  async function run(q) {
+    out.innerHTML = '<div class="muted"><span class="spinner"></span>正在查…</div>';
+    let r;
+    try {
+      r = await api('/lookup', { method: 'POST', body: JSON.stringify({ account_id: CURRENT, name: it.name || '', query: q || '' }) });
+    } catch (e) {
+      out.innerHTML = '<div class="msg show err">' + esc(e.message) + '</div>';
+      return;
+    }
+    if (!r.items || !r.items.length) {
+      out.innerHTML = '<div class="msg show err">没查到：' + esc(r.error || '没有匹配') +
+        (r.tmdb_ready ? '' : '（还没配 TMDB 令牌，只用了豆瓣/搜索引擎）') + '</div>';
+      return;
+    }
+    out.innerHTML =
+      '<div class="muted" style="margin-bottom:6px">来源 ' + esc(r.source) + ' · 查询词「' + esc(r.query) + '」' +
+        (r.cached ? ' · 本地缓存' : '') + '</div>' +
+      (r.note ? '<div class="muted" style="margin-bottom:6px">' + esc(r.note) + '</div>' : '') +
+      r.items.map((x, i) =>
+        '<div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)">' +
+          '<div style="min-width:0;flex:1">' +
+            '<div style="font-weight:600;word-break:break-all">' + esc(x.name) + '</div>' +
+            '<div class="muted" style="font-size:12px">' +
+              esc([x.year, x.type === 'tv' ? '剧集' : (x.type === 'movie' ? '电影' : x.type), x.alias].filter(Boolean).join(' · ')) +
+            '</div>' +
+          '</div>' +
+          '<button class="line sm" data-use="' + i + '">用这个</button>' +
+        '</div>').join('');
+    out.querySelectorAll('button[data-use]').forEach(b => b.onclick = () => {
+      const x = r.items[+b.dataset.use];
+      FS.edits[fid] = x.name;
+      mask.remove();
+      renderFsList({ holdScroll: true });
+      updateFsBar();
+      const row = document.querySelector('#fsList .frow[data-row="' + fid + '"] .fedit');
+      if (row) { row.classList.remove('hide'); const i2 = row.querySelector('input'); if (i2) i2.focus(); }
+    });
+  }
+  $('#lkGo').onclick = () => run(($('#lkQ').value || '').trim());
+  $('#lkQ').onkeydown = e => { if (e.key === 'Enter') run(($('#lkQ').value || '').trim()); };
+  await run('');
 }
 
 async function doDelete(ids) {
