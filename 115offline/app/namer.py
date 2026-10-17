@@ -416,6 +416,10 @@ _SEP_SPLIT_RE = re.compile(r"[.\-_·\s]+")
 # 续集号：1~2 位数字的独立段（`寂静之地 2` / `寂静之地2` 里的那个 2）。
 # ⚠️ 4 位年份不会被误收（`_YEAR_RE` 已先删），3 位以上也不会（`\d{1,2}` 限量）。
 _SEQUEL_RE = re.compile(r"^\d{1,2}$")
+# 声道写法（`5.1` / `7.1` / `2.0`）：`_SEP_SPLIT_RE` 会把点当分隔符 ⇒ 变成 `5` `1` 两段，
+# 续集号逻辑就会拼出 `51`（2026-10-17 实测 `…WEB-DL.DDP 5.1` ⇒ `极限审判51`）。
+# ⚠️ 生效前提：`DDP5.1` 那种**紧贴字母**的写法已被 `strip_tech` 吃掉，这里管的是带空格 / 裸写。
+_CHANNEL_RE = re.compile(r"(?<![0-9])[1-9]\.[01](?![0-9])")
 
 
 def title_of(name: str) -> str:
@@ -431,6 +435,7 @@ def title_of(name: str) -> str:
         return ""
     s = _BRACKET_RE.sub(" ", s)
     s = strip_tech(s)
+    s = _CHANNEL_RE.sub(" ", s)
     s = _YEAR_RE.sub(" ", s)
     s = _GROUP_RE.sub("", s)
     s = _tidy(s)
@@ -453,8 +458,24 @@ def title_of(name: str) -> str:
     #      4 位年份早已被 `_YEAR_RE` 清掉，`1080` 这类 4 位数字也不在 `\d{1,2}` 之内 ⇒ 不会误收。
     if cjk_segs:
         first_cjk = next(i for i, seg in enumerate(segs) if _CJK_RE.search(seg))
-        keep = [seg for seg in segs[first_cjk:]
-                if _CJK_RE.search(seg) or _SEQUEL_RE.match(seg)]
+        keep = []
+        for seg in segs[first_cjk:]:
+            if _CJK_RE.search(seg):
+                keep.append(seg)
+                continue
+            if not _SEQUEL_RE.match(seg):
+                continue
+            # 🔴 2026-10-17 修的两个真 bug（红领巾：`飞驰人生2` → 建议成 `飞驰人生22（2024）`、
+            #    `极限审判` → 建议成 `极限审判51（2026）`），同一个薄弱点：
+            #    「只要 1~2 位数字就当续集号」太糙 ⇒ 收一道**只留第一个**、收一道**末尾已同号就跳**。
+            #    ① 只留**第一个**数字段：`…DDP 5.1` 被拆成 `5` `1` 两段 ⇒ 拼成 `51`（实测）。
+            #    ② 片名末尾**已经是这个数字**就不再加：中文名 `飞驰人生2` + 英文名 `Pegasus.2`
+            #       的续集号是同一个 2 ⇒ 拼成 `22`（实测）。
+            if any(_SEQUEL_RE.match(x) for x in keep):
+                continue
+            if keep and keep[-1].endswith(seg):
+                continue
+            keep.append(seg)
         keep = keep or cjk_segs
     else:
         # 纯英文片名时，丢掉纯数字段（多半是年份/分辨率残留）
