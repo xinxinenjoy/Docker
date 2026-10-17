@@ -511,6 +511,21 @@ class DeleteIn(BaseModel):
     dry_run: bool = False           # 只回执「将要删什么、分几批、大概多久」，不动数据
 
 
+class MergeIn(BaseModel):
+    """把选中的多个目录「合并」进一个新建目录（红领巾 2026-10-17：合并同系列的多季）。
+
+    ⚠️ 口径按他拍板的来：**整目录移进去**（`新名/原目录A`、`新名/原目录B`），
+       不是把各目录里的文件摊平混在一起。同名冲突交给 115 自己改名。
+    """
+    account_id: str
+    cid: str = "0"                  # 新目录建在哪个目录下（前端传当前所在目录）
+    name: str                       # 新目录名（用户输入）
+    file_ids: list[str]             # 要移进去的目录 id
+    chunk: int = Field(default=50, ge=1, le=100)
+    delay: float = Field(default=1.0, ge=0, le=30)
+    dry_run: bool = False           # 只回执「会建什么、会移几个」，不动数据
+
+
 class RevertIn(BaseModel):
     account_id: str
     file_ids: list[str]
@@ -1339,6 +1354,82 @@ def delete_items(body: DeleteIn) -> dict:
         "seconds": round(time.time() - started, 1),
         "note": "115 的删除是异步任务：已提交，回收站里可能延迟几十秒~几分钟才出现；"
                 "要确认是否真删掉，请刷新目录而不是立刻看回收站",
+    }
+
+
+# ----------------------------------------------------------------- 合并到一个新目录
+@app.post("/api/merge-dirs", dependencies=[Depends(auth)])
+def merge_dirs(body: MergeIn) -> dict:
+    """新建一个目录，把选中的多个目录**整个移进去**（合并同系列的多季）。
+
+    ⚠️ 两条实测结论（2026-10-17，都在真实账号上验过）：
+      ① `fs_move` 的 `fid="a,b"` 逗号形态**直接报错** `90008 文件（夹）不存在或已经删除`；
+         必须用数组 `fid[0..n]` —— 与 `/rb/delete` 是同一个坑（见 /api/delete 注释）。
+      ② 目标目录里已有同名子目录时，115 自己会改名（红领巾 2026-10-17 拍板：交给 115）。
+    ⚠️ 失败时的分寸：目录**已经建出来了就不再回滚**（删掉它反而可能把刚移进去的东西带走），
+       如实把 `dir` 回给前端并让 `ok=false`，由人决定下一步。
+    """
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in body.file_ids:
+        fid = str(raw).strip()
+        if fid and fid not in seen:
+            seen.add(fid)
+            ids.append(fid)
+    if not ids:
+        raise HTTPException(400, "没选中任何目录")
+    if len(ids) > 200:
+        raise HTTPException(400, f"一次最多合并 200 个目录，当前 {len(ids)} 个")
+
+    name = sanitize_name((body.name or "").strip())
+    if not name:
+        raise HTTPException(400, "新目录名不能为空（115 不允许 < > ， 这几个字符）")
+
+    plan = {
+        "name": name, "cid": str(body.cid), "count": len(ids),
+        "groups": len(_chunks(ids, body.chunk)), "delay": body.delay,
+    }
+    if body.dry_run:
+        return {"ok": True, "dry_run": True, "plan": plan}
+
+    acc = _find_account(body.account_id)
+    client = _client(acc)
+    started = time.time()
+
+    with _fs_write_slot("合并"):
+        try:
+            resp_ = check_response(client.fs_mkdir({"pid": str(body.cid), "cname": name}))
+        except Exception as exc:
+            raise HTTPException(502, f"新建目录失败：{exc}") from exc
+        new_cid = str((resp_ or {}).get("cid") or (resp_ or {}).get("file_id") or "")
+        if not new_cid:
+            raise HTTPException(502, f"新建目录没拿到 id：{resp_}")
+
+        moved: list[str] = []
+        failed: list[dict] = []
+        for i, group in enumerate(_chunks(ids, body.chunk)):
+            if i:
+                time.sleep(body.delay)
+            payload: dict[str, Any] = {f"fid[{k}]": fid for k, fid in enumerate(group)}
+            payload["pid"] = new_cid
+            try:
+                check_response(client.fs_move(payload))
+                moved.extend(group)
+            except Exception as exc:
+                failed.append({"file_ids": group, "error": f"{exc}"})
+
+    _cache_drop(body.account_id)
+    return {
+        "ok": not failed,
+        "dry_run": False,
+        "dir": {"id": new_cid, "name": name},
+        "plan": plan,
+        "moved": moved,
+        "failed": failed,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+        "seconds": round(time.time() - started, 1),
+        "note": "目录已建好，把选中的目录整个移进去了（层级不变）；同名冲突由 115 自动改名",
     }
 
 

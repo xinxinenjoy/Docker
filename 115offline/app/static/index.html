@@ -683,6 +683,7 @@
           <span class="muted" id="fsBarBusy"></span>
           <button class="ghost sm" id="fsSelNone">清空选择</button>
           <button class="line sm" id="fsBatchRename" disabled>批量改名</button>
+          <button class="line sm" id="fsBatchMerge" disabled>合并到文件夹</button>
           <button class="danger sm" id="fsBatchDelete" disabled>批量删除</button>
         </div>
       </div>
@@ -2024,6 +2025,14 @@ function updateFsBar() {
   $('#fsBatchRename').disabled = !renameSel.length;
   $('#fsBatchDelete').textContent = '批量删除' + (sel.length ? '（' + sel.length + '）' : '');
   $('#fsBatchDelete').disabled = !sel.length;
+  /* 合并到文件夹：**只在选了 ≥2 个目录时**可用（红领巾 2026-10-17「多选文件夹时给一个
+     选项，合并到新的文件夹里」）。选中的文件不参与，按钮上也说清只算目录。 */
+  const dirSel = sel.filter(fid => {
+    const it = FS.items.find(x => x.file_id === fid) || {};
+    return !!it.is_dir;
+  });
+  $('#fsBatchMerge').textContent = '合并到文件夹' + (dirSel.length >= 2 ? '（' + dirSel.length + '）' : '');
+  $('#fsBatchMerge').disabled = dirSel.length < 2 || !!FS.busy;
   if (sel.length && !renameSel.length) {
     $('#fsBarBusy').textContent = '（选中的都没有新名字）';
   } else if (!FS.busy) {
@@ -2144,6 +2153,7 @@ $('#fsBatchRename').onclick = () => {
     (items.length > 6 ? '\n…（其余 ' + (items.length - 6) + ' 项）' : ''))) return;
   doRename(items.map(({ file_id, new_name, ext }) => ({ file_id, new_name, ext })));
 };
+$('#fsBatchMerge').onclick = () => { doMerge(); };
 $('#fsBatchDelete').onclick = () => {
   if (!FS) return;
   const sel = Array.from(FS.sel);
@@ -2180,6 +2190,7 @@ function setFsBusy(text) {
   $('#fsBarBusy').textContent = text || '';
   if (text) {
     $('#fsBatchRename').disabled = true;
+    $('#fsBatchMerge').disabled = true;
     $('#fsBatchDelete').disabled = true;
   } else {
     updateFsBar();
@@ -2205,6 +2216,91 @@ async function doRename(items, opts) {
   } catch (e) {
     if (msgEl) toast(msgEl, 'err', '改名失败：' + esc(e.message));
     else alert('改名失败：' + e.message);
+    FS.busy = false;
+    setFsBusy('');
+  }
+}
+
+/* ---------- 合并到新文件夹（2026-10-17 红领巾提的功能） ----------
+   口径由他拍板：**整目录移进去**（`新名/原目录A`、`新名/原目录B`），用来合并同一部剧的多季；
+   同名冲突交给 115 自动改名。
+   ⚠️ 后端是「先 mkdir 再 fs_move」两步，中间失败时目录已经建出来了 ——
+      所以这里把后端回的 `dir` 如实说出来，不假装成功。 */
+
+/** 通用输入弹窗 → Promise<string|null>（null = 取消）。样式复用 askToken 那套 .modal。 */
+function askText(title, hint, defVal) {
+  return new Promise(resolve => {
+    const mask = document.createElement('div');
+    mask.className = 'modal open';
+    mask.innerHTML = '<div class="box"><h3>' + esc(title) + '</h3>' +
+      '<div class="mbox"><input type="text" id="atkTxt" value="' + esc(defVal || '') + '"></div>' +
+      (hint ? '<div class="muted" style="margin:-2px 0 10px">' + hint + '</div>' : '') +
+      '<div class="mf"><button class="line sm" id="atkCancel">取消</button><button id="atkOk">确定</button></div></div>';
+    document.body.appendChild(mask);
+    const done = v => { mask.remove(); resolve(v); };
+    $('#atkCancel').onclick = () => done(null);
+    $('#atkOk').onclick = () => done($('#atkTxt').value.trim());
+    $('#atkTxt').onkeydown = e => {
+      if (e.key === 'Enter') done($('#atkTxt').value.trim());
+      if (e.key === 'Escape') done(null);
+    };
+    setTimeout(() => { const el = $('#atkTxt'); el.focus(); el.select(); }, 30);
+  });
+}
+
+/** 选中目录的「公共片名」—— 当新目录名的默认值（`权力的游戏 S01/S02` → `权力的游戏`）。
+    优先用后端抽好的 title，拿不到才退回原名的公共前缀。 */
+function commonTitleOf(ids) {
+  const texts = ids.map(fid => {
+    const c = FS.cands[fid] || {};
+    if (c.title && String(c.title).trim()) return String(c.title).trim();
+    return ((FS.items.find(x => x.file_id === fid) || {}).name || '');
+  });
+  if (!texts.length) return '';
+  let s = texts[0];
+  for (const t of texts.slice(1)) {
+    let i = 0;
+    while (i < s.length && i < t.length && s[i] === t[i]) i++;
+    s = s.slice(0, i);
+  }
+  return s.replace(/[\s._\-·:：、,，]+$/, '').trim();
+}
+
+async function doMerge() {
+  if (!FS || FS.busy) return;
+  const dirs = Array.from(FS.sel).filter(fid => {
+    const it = FS.items.find(x => x.file_id === fid) || {};
+    return !!it.is_dir;
+  });
+  if (dirs.length < 2) { alert('至少选 2 个文件夹才能合并'); return; }
+  const skipped = FS.sel.size - dirs.length;
+  const name = await askText(
+    '合并到新文件夹',
+    '把选中的 ' + dirs.length + ' 个文件夹整个移进新文件夹（层级不变）' +
+      (skipped ? '；已忽略 ' + skipped + ' 个文件' : '') + '；同名由 115 自动改名',
+    commonTitleOf(dirs) || '新文件夹'
+  );
+  if (name === null) return;
+  if (!name) { alert('新文件夹名不能为空'); return; }
+  FS.busy = true;
+  setFsBusy('正在合并（新建目录 + 移动，别关页面）…');
+  try {
+    const r = await api('/merge-dirs', {
+      method: 'POST',
+      body: JSON.stringify({ account_id: CURRENT, cid: FS.cid, name, file_ids: dirs }),
+    });
+    if (r.ok) {
+      alert('✅ 已把 ' + r.moved_count + ' 个文件夹移进「' + r.dir.name + '」，用了 ' + r.seconds + ' 秒');
+    } else {
+      alert('⚠️ 已移 ' + r.moved_count + ' 个，失败 ' + r.failed_count + ' 个\n' +
+        '新目录「' + r.dir.name + '」已经建好了（在新目录里能看到已移进去的）\n' +
+        (((r.failed || [])[0] || {}).error || ''));
+    }
+    FS.busy = false;
+    FS.sel = new Set();
+    await fsLoad(FS.cid, { refresh: true });
+  } catch (e) {
+    alert('合并失败：' + e.message);
     FS.busy = false;
     setFsBusy('');
   }
