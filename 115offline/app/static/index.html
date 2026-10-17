@@ -2261,11 +2261,18 @@ async function doDelete(ids) {
     FS.busy = false;
     setFsBusy('');
   }
-  /* 最后统一把整段证据摆出来（成功 / 失败都摆 —— 只有「回执说成功、条目还在」才说明是别的问题） */
+  /* 最后统一把整段证据摆出来 —— **只在真的有问题时弹**。
+     2026-10-17 改：以前成功也弹一整段 JSON（红领巾：「删个文件弹这个」），
+     成功时上面那句 ✅ 已经说明结果，再弹一次纯属吓人；
+     证据照样挂在 window.__DELDIAG / 控制台，要查随时能拿。 */
+  const clean = diag.http === 'ok' && diag.ok && !diag.failed &&
+    !(diag.同名的还在吗 || []).some(x => x.startsWith('还在'));
   diag.结论 = (!diag.failed && (diag.同名的还在吗 || []).some(x => x.startsWith('还在')))
     ? '⚠️ 后端回执说成功，但这一层里对象还在 ⇒ 大概率是 115 的异步删除尚未落地，把这段发我看' : '';
   try { window.__DELDIAG = diag; console.log('%c[删除回执·汇总]', 'color:#c00', diag); } catch (e) { /* 忽略 */ }
-  try { window.alert(JSON.stringify(diag, null, 1)); } catch (e) { /* 忽略 */ }
+  if (!clean) {
+    try { window.alert(JSON.stringify(diag, null, 1)); } catch (e) { /* 忽略 */ }
+  }
 }
 
 

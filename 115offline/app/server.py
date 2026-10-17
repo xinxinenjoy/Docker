@@ -1257,6 +1257,12 @@ def delete_items(body: DeleteIn) -> dict:
       - 再删一次会回 `990009 删除[...]操作尚未执行完成，请稍后再试`
       - 回收站列表也要**几十秒~十几分钟**才更新出来
       ⇒ 所以这里对「尚未执行完成」做**有限重试 + 退避**，而不是立刻判失败。
+
+    🔴 2026-10-17 追加（红领巾「删除没效果」的根因，已实测复现）：
+      **多个对象必须用数组形态 `fid[0..n]`，逗号拼接的 `fid="a,b,c"` 会被 115 静默吞掉**
+      —— 回 `{"state": true, "errno": ""}`（看着像成功），实际一个都没删；
+      而单个 id 用 `fid=a` 是正常的 ⇒ 只有「多选删除」才会中招，所以之前很难发现。
+      证据：同一目录、同一批 id，`fid=a,b,c` 等 15s 仍在；改成 `fid[0]=a&fid[1]=b` 后 6s 内消失。
     """
     ids: list[str] = []
     seen: set[str] = set()
@@ -1291,7 +1297,13 @@ def delete_items(body: DeleteIn) -> dict:
         for i, group in enumerate(groups):
             if i:
                 time.sleep(body.delay)
-            payload: dict[str, Any] = {"fid": ",".join(group)}
+            # 🔴 2026-10-17 实测（红领巾「删除没效果」的**根因**）：
+            #    `fid="a,b,c"`（逗号拼接）在 115 现在**不生效但也不报错** ——
+            #    回的仍是 `{"state": true, "errno": ""}`，可文件一个都没少（等 15s 再看还在）。
+            #    ⇒ 后端回执说成功、前端刷新后条目还在，正是这个假成功。
+            #    ✅ 唯一认的写法是**数组**：`fid[0]=a&fid[1]=b`（p115client 传 list 时就是这种）。
+            #    对照实验：单个 id 用 `fid` 正常；≥2 个必须用 `fid[i]`。
+            payload: dict[str, Any] = {f"fid[{i}]": fid for i, fid in enumerate(group)}
             if body.ignore_warn:
                 payload["ignore_warn"] = 1
             # 115 的删除是异步任务，「上一个还没跑完」会导致 990009 ⇒ 退避重试（有限次）
