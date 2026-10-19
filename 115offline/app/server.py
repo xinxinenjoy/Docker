@@ -233,6 +233,7 @@ def _cache_drop(account_id: str | None = None) -> int:
             _folder_cache.pop(k, None)
         if keys:
             _cache_save_disk_locked()
+    _memo_drop(account_id)
     return len(keys)
 
 
@@ -249,6 +250,49 @@ def _cache_info(account_id: str | None = None) -> dict:
 
 def _ts_text(ts: float) -> str:
     return time.strftime("%H:%M:%S", time.localtime(ts)) if ts else ""
+
+
+# ------------------------------------------------- 轻量短缓存（用量 / 离线任务列表）
+# 🔴 红领巾 2026-10-17 定的设计口径：**浏览类数据先给缓存，只有「必要时」才真打 115**
+#    （原话：「在必要时才重新请求 115 的真实数据，像是查看、进出目录的时候根据缓存来进行就可以了」）。
+#    目录列表早就是这样（`FOLDER_CACHE_TTL`）；这里补上**原来每次切页都真打**的两处：
+#      · 用量页：一次切页 = 3 个请求（离线配额 + 网盘空间 + 账号信息）
+#      · 离线任务页：一次切页 = 1 个请求
+#    时效性由页面上的「刷新」按钮兜底 —— 它带 `refresh=1` 穿透缓存，其余时候读缓存。
+_MEMO: dict[tuple, tuple[float, dict]] = {}
+_MEMO_LOCK = threading.Lock()
+MEMO_TTL_USAGE = 60.0     # 配额/空间：一分钟内的重复查看不必再问 115
+MEMO_TTL_TASKS = 15.0     # 任务进度变化快，只挡「连续切页」这种风暴
+
+
+def _memo_get(key: tuple, ttl: float):
+    now = time.time()
+    with _MEMO_LOCK:
+        rec = _MEMO.get(key)
+        if not rec:
+            return None
+        at, payload = rec
+        if now - at > ttl:
+            _MEMO.pop(key, None)
+            return None
+        return payload, round(now - at, 1)
+
+
+def _memo_put(key: tuple, payload: dict) -> None:
+    with _MEMO_LOCK:
+        _MEMO[key] = (time.time(), payload)
+        if len(_MEMO) > 200:
+            for k, _ in sorted(_MEMO.items(), key=lambda kv: kv[1][0])[: len(_MEMO) - 200]:
+                _MEMO.pop(k, None)
+
+
+def _memo_drop(account_id: str | None = None) -> int:
+    """写操作后连带清掉短缓存 —— 否则「刚推完还显示旧配额」。"""
+    with _MEMO_LOCK:
+        keys = [k for k in _MEMO if account_id is None or (len(k) > 1 and k[1] == str(account_id))]
+        for k in keys:
+            _MEMO.pop(k, None)
+    return len(keys)
 
 
 # ----------------------------------------------------------------- 推送记录（本体推送）
@@ -702,7 +746,25 @@ def set_default_dir(account_id: str, body: DefaultDirIn) -> dict:
 
 # ----------------------------------------------------------------- 用量 / 空间
 @app.get("/api/accounts/{account_id}/usage", dependencies=[Depends(auth)])
-def usage(account_id: str) -> dict:
+def usage(account_id: str, refresh: int = 0) -> dict:
+    """离线配额 + 网盘空间 + 账号信息 —— **走 60s 短缓存**。
+
+    ⚠️ 这一页原来**每次切到「账号」页都真打 3 个 115 请求**（配额 + 空间 + 账号信息），
+       而这三样一分钟内几乎不会变（红领巾 2026-10-17 的口径：浏览类先给缓存）。
+       页面上的「刷新」按钮带 `refresh=1` 穿透。
+    """
+    key = ("usage", account_id)
+    if not refresh:
+        hit = _memo_get(key, MEMO_TTL_USAGE)
+        if hit:
+            payload, age = hit
+            return {**payload, "from_cache": True, "cache_age": age}
+    payload = _usage_impl(account_id)
+    _memo_put(key, payload)
+    return {**payload, "from_cache": False, "cache_age": 0}
+
+
+def _usage_impl(account_id: str) -> dict:
     """离线配额 + 网盘空间 + 账号信息。取不到的项留 None，前端自动隐藏。
 
     ⚠️ 字段名是 2026-10-05 在真实账号上实测出来的，不是猜的：
@@ -1052,7 +1114,23 @@ def _browse_folder_impl(account_id: str, cid: str, limit: int, offset: int,
 
 # ----------------------------------------------------------------- 任务
 @app.get("/api/accounts/{account_id}/tasks", dependencies=[Depends(auth)])
-def list_tasks(account_id: str, page: int = 1, stat: int = 0) -> dict:
+def list_tasks(account_id: str, page: int = 1, stat: int = 0, refresh: int = 0) -> dict:
+    """离线任务列表 —— **走 15s 短缓存**（红领巾 2026-10-17 的口径：浏览类先给缓存）。
+
+    页面上「刷新」按钮 / 切筛选档位带 `refresh=1` 穿透；反复切 tab 不再白打 115。
+    """
+    key = ("tasks", account_id, page, stat)
+    if not refresh:
+        hit = _memo_get(key, MEMO_TTL_TASKS)
+        if hit:
+            payload, age = hit
+            return {**payload, "from_cache": True, "cache_age": age}
+    payload = _tasks_impl(account_id, page, stat)
+    _memo_put(key, payload)
+    return {**payload, "from_cache": False, "cache_age": 0}
+
+
+def _tasks_impl(account_id: str, page: int = 1, stat: int = 0) -> dict:
     """离线任务列表。
 
     ⚠️ 任务数组在**响应顶层**的 `tasks`（不是 `data`）—— 2026-10-05 实测确认。

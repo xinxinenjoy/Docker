@@ -1091,12 +1091,13 @@ $('#btnAddAcct').onclick = async () => {
 };
 
 /* ================= 用量 ================= */
-async function loadUsage() {
+async function loadUsage(force) {
   const box = $('#usageBox'), info = $('#usageInfo');
   if (!CURRENT) { box.innerHTML = '<div class="empty">先添加账号</div>'; return; }
   info.textContent = '读取中…';
   try {
-    const r = await api('/accounts/' + CURRENT + '/usage');
+    /* 切页读 60s 缓存，只有「刷新用量」按钮强制穿透 */
+    const r = await api('/accounts/' + CURRENT + '/usage' + (force ? '?refresh=1' : ''));
     const parts = [];
     if (r.offline) {
       const o = r.offline, pct = o.total ? Math.round(o.used / o.total * 100) : 0;
@@ -1126,13 +1127,15 @@ async function loadUsage() {
     box.innerHTML = parts.length
       ? '<div class="tiles">' + parts.join('') + '</div>'
       : '<div class="empty">没取到用量信息</div>';
-    info.textContent = '更新于 ' + (r.updated || '') + (r.errors && r.errors.length ? '（部分失败：' + r.errors.join('；') + '）' : '');
+    info.textContent = '更新于 ' + (r.updated || '') +
+      (r.from_cache ? ' · 缓存 ' + Math.round(r.cache_age || 0) + ' 秒前（点「刷新用量」取最新）' : '') +
+      (r.errors && r.errors.length ? '（部分失败：' + r.errors.join('；') + '）' : '');
   } catch (e) {
     box.innerHTML = '<div class="empty">读取失败：' + esc(e.message) + '</div>';
     info.textContent = '';
   }
 }
-$('#btnUsage').onclick = loadUsage;
+$('#btnUsage').onclick = () => loadUsage(true);
 
 /* ================= 扫码登录 ================= */
 let QR_TIMER = null, QR_UID = null;
@@ -1371,13 +1374,17 @@ $('#btnPush').onclick = async () => {
 };
 
 /* ================= 任务 ================= */
-$('#btnTasks').onclick = loadTasks;
-async function loadTasks() {
+$('#btnTasks').onclick = () => loadTasks(true);
+/* 切筛选档位 = 换了查询条件（缓存 key 不同），本身就会打 115；不需要再强制穿透 */
+$('#taskStat').onchange = () => loadTasks();
+async function loadTasks(force) {
   if (!CURRENT) { $('#taskList').innerHTML = '<div class="empty">先添加账号</div>'; return; }
   $('#taskList').innerHTML = '<div class="empty">加载中…</div>';
   $('#taskInfo').textContent = '';
   try {
-    const r = await api('/accounts/' + CURRENT + '/tasks?stat=' + encodeURIComponent($('#taskStat').value));
+    /* 切 tab 用缓存（15s），只有「刷新」按钮与切筛选档位才强制穿透 —— 见后端注释 */
+    const r = await api('/accounts/' + CURRENT + '/tasks?stat=' + encodeURIComponent($('#taskStat').value) +
+      (force ? '&refresh=1' : ''));
     TASKS = r.items || [];
     $('#taskInfo').textContent = '共 ' + (r.count || TASKS.length) + ' 条' +
       (r.quota !== undefined && r.quota !== null ? ' · 剩余配额 ' + r.quota : '');
