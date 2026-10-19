@@ -39,7 +39,8 @@ from .reqlog import RequestLog
 from .throttle import Throttle
 
 __all__ = ["V115", "Node", "V115Error", "CookieMissing", "load_cookie",
-           "read_accounts", "account_of", "MAX_PAGES", "ROOT_DIR_NAME"]
+           "read_accounts", "account_of", "MAX_PAGES", "ROOT_DIR_NAME",
+           "export_poll_delay"]
 
 # 单层目录最多翻多少页（200 条/页 ⇒ 10 万项）。防「接口不认 offset」把工具转死。
 MAX_PAGES = 500
@@ -207,9 +208,46 @@ def _export_id_of(resp: Any) -> str:
     return ""
 
 
+# 「等导出任务」的退避系数 —— 第 n 次查询**之前**等 `poll * factor[n]` 秒，超出表长就固定 `poll_max`。
+#
+# 🔴 为什么要退避（2026-10-19 红领巾观察后改）：
+#    原来是**固定 2 秒**查一次，一轮 60 次请求里 **50 多次都是 `fs_export_dir_status`**。
+#    而这 50 多次里没有一条带来新信息：115 的导出是**任务级**异步动作，
+#    大库要跑一两分钟，头几十秒查得再密也不会更早结束。
+#
+# ⚠️ 也不能一味拉长：本库 727 目录 / 6,071 文件实测 **13 秒**就导完
+#    （见 `pipeline` 顶部与 README）。首次就等 30 秒，小库会白等。
+#    ⇒ 前几次仍然密（2s → 3.5s → 6s → 10s…），之后逐步拉长到 30 秒。
+#    ⚠️ 实际节奏比表更稀：节流器在每次请求前还要 sleep 1~3 秒（`THROTTLE_MIN/MAX`）。
+#
+# 算式（poll=2 / poll_max=30）：2, 3.5, 6, 10, 16, 24, 30, 30…
+#   · 13 秒导完的小库 ⇒ 含节流约第 3 次查询发现（原来 3~4 次，基本不变）
+#   · 200 秒才导完的大库 ⇒ 约 10 次（原来 ~50 次）
+#   · 到 900 秒超时上限 ⇒ 30 次上下（原来 ~225 次）
+#   （以上都按「不含节流」算；实际还要叠加每次 1~3 秒，只会更稀）
+_EXPORT_POLL_FACTORS: tuple[float, ...] = (1.0, 1.75, 3.0, 5.0, 8.0, 12.0, 17.0, 22.0)
+
+
+def export_poll_delay(tries: int, poll: float = 2.0, poll_max: float = 30.0) -> float:
+    """第 `tries` 次查询（**从 0 起**）之前该等多少秒。
+
+    ⚠️ 单独抽成函数是为了单测能直接验「序列不倒退、有上限」——
+       那个循环里还有时钟与 sleep，不方便一条条断言。
+    """
+    i = max(0, int(tries))
+    factor = (_EXPORT_POLL_FACTORS[i] if i < len(_EXPORT_POLL_FACTORS)
+              else _EXPORT_POLL_FACTORS[-1])
+    return max(0.5, min(poll * factor, float(poll_max)))
+
+
 # --------------------------------------------------------------------------- 主体
 class V115:
     """115 只读客户端。⚠️ 本类**不含任何写接口**。"""
+
+    # 时钟 / 睡眠的注入点 —— **只为单测**：「等导出任务」的退避要真等几分钟，
+    # 不注入的话那条用例只能断言纯函数，测不到循环本身。
+    _clock = staticmethod(time.monotonic)
+    _sleep = staticmethod(time.sleep)
 
     def __init__(self, client: Any, cfg: Config, throttle: Throttle, log: Any = None):
         self.client = client
@@ -433,7 +471,8 @@ class V115:
 
     # ---------------------------------------------------------------- 自动导出目录树
     def export_tree_bytes(self, *, layer_limit: int = EXPORT_LAYER_LIMIT, timeout: float = 900.0,
-                          poll: float = 2.0, keep: bool = False) -> bytes:
+                          poll: float = 2.0, poll_max: float = 30.0,
+                          keep: bool = False) -> bytes:
         """让 115 **自己**导出一份目录树，取回原始字节。
 
         ⭐ 这一步把「人工去网页点导出、再把 txt 丢进 `tree/`」变成**工具内部动作**。
@@ -449,6 +488,9 @@ class V115:
         ⚠️ 115 的硬约束（p115client 原文照抄，不是推测）：
            · 【导出目录树】任务**不可并发、不可中止**
            · **空目录不会被导出**
+        🔴 等它跑完这一段**按退避查**（见 `export_poll_delay` 上面的算式与依据）：
+           2026-10-19 之前的固定 2 秒一次，一轮 60 次请求里 50 多次都耗在这上面，
+           而且没有一条带来新信息。现在同样的 200 秒导出，轮询 ≈ 10 次。
         ⚠️ 导出会在**网盘根**留一个临时件（`根目录<时间戳>_目录树.txt`）。
            `keep=False`（默认）时工具取回后**顺手把它删掉**，不会在盘上堆积。
 
@@ -466,12 +508,30 @@ class V115:
         self.log("info", f"已让 115 自己导出目录树（任务 #{eid}）—— 等它跑完，大库要几分钟")
 
         info: dict = {}
-        t0 = time.time()
+        t0 = self._clock()
         tries = 0
         while True:
+            elapsed = self._clock() - t0
+            wait = export_poll_delay(tries, poll, poll_max)
+            # ⚠️ 超时判定放在 sleep **之前**，且算上这一次要等的时间 ——
+            #    否则最后一段等待会把总耗时顶过 `timeout`。
+            if elapsed + wait > timeout:
+                raise V115Error(
+                    f"「导出目录树」任务 #{eid} 等了 {elapsed:.0f} 秒还没好"
+                    f"（上限 {timeout:.0f} 秒）。\n"
+                    f"  ⚠️ 115 的导出任务**不可并发、不可中止**；若它卡住了，"
+                    f"要么等 115 自己超时，要么去网页版手动取消。")
+            # ⭐ **先等再查**，第 1 次也一样：提交完立刻查必然是「还没好」——
+            #    本库实测 13 秒才导完，那一发请求纯属浪费。
+            if wait >= 10:
+                # 间隔拉到十秒以上时给一条心跳：否则长时间没有输出，看着像卡死了
+                self.log("info", f"导出任务 #{eid} 还在跑（已等 {elapsed:.0f}s），"
+                                 f"{wait:.0f}s 后再查")
+            self._sleep(wait)
             tries += 1
             st = self._call("fs_export_dir_status", {"export_id": eid},
-                            note=f"等导出任务 #{eid} 跑完（第 {tries} 次查询）")
+                            note=f"等导出任务 #{eid} 跑完（第 {tries} 次查询"
+                                 f" · 已等 {self._clock() - t0:.0f}s）")
             data = (st or {}).get("data") if isinstance(st, dict) else None
             if isinstance(data, dict) and (data.get("pick_code") or data.get("file_id")):
                 info = data
@@ -479,12 +539,6 @@ class V115:
             code = int((data or {}).get("status") or 0) if isinstance(data, dict) else 0
             if code < 0:
                 raise V115Error(f"「导出目录树」任务 #{eid} 被 115 判为失败：{st!r}")
-            if time.time() - t0 > timeout:
-                raise V115Error(
-                    f"「导出目录树」任务 #{eid} 等了 {timeout:.0f} 秒还没好。\n"
-                    f"  ⚠️ 115 的导出任务**不可并发、不可中止**；若它卡住了，"
-                    f"要么等 115 自己超时，要么去网页版手动取消。")
-            time.sleep(poll)
 
         pick = str(info.get("pick_code") or "")
         fid = str(info.get("file_id") or "")
