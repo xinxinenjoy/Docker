@@ -89,7 +89,15 @@ class TestExportPolling(unittest.TestCase):
     """整条循环：`export_tree_bytes` 实际查了几次、花了多久（假时钟）。"""
 
     def _mk(self, ready_after: int, timeout: float = 900.0):
-        cfg = Config(strm_prefix="https://example.invalid/d/x", remote_root="")
+        # ⚠️ 这里**故意把节流抖动压成 0**（`throttle_min = throttle_max = 0`）。
+        #    节流是 `random.uniform(1, 3)` —— 挂上假时钟之后，每次请求还会额外推进
+        #    假时钟 1~3 秒，于是「等了多久」变成随机的 ⇒ `test_超时上限内轮询次数封顶`
+        #    里那条 `clock.t <= 900` 会偶发失败（实测撞到 901.5：最后一次 sleep 刚好压在
+        #    899.9，请求前的抖动把它顶过了上限）。
+        #    ⛔ 别改成「上限放宽到 940」把问题糊过去 —— 那条断言要验的是
+        #       「超时判定把**下一次等待**算进去了」，抖动混进来就验不准了。
+        cfg = Config(strm_prefix="https://example.invalid/d/x", remote_root="",
+                     throttle_min=0.0, throttle_max=0.0)
         clock = _Clock()
         throttle = Throttle(cfg=cfg, sleeper=clock.sleep, log=lambda *a, **k: None)
         client = _Client(ready_after)

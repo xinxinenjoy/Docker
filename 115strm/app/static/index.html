@@ -283,7 +283,10 @@ nav button.on{color:var(--pri)}
      ③ 右侧**常驻**状态签：折叠 = 「展开」，展开 = 「收起」
         ⛔ 不再像旧写法那样只在个别块上挂一句「点标题展开/收起」——
            一块有一块没有，反而让人怀疑没挂字的那块是不是不能点。
-   另补「有没有内容」：空块整行压灰、状态签写「空」（见 `.sec.empty`）。 */
+   🔴 2026-10-20 三改。红领巾：「这一套结果是并排显示的，感觉很乱。你可以把它改成默认折叠」
+   ⇒ 「有没有内容」不再靠**压灰**表达（.sec.empty 那套已废）：**空块整块不渲染**
+      （各 `sec*` 自己 `return ''`），默认态一律是**一行标题**，标题行上的计数照样看得见；
+      只有 warn / bad 的块自动展开。理由：六条灰条本身也是六条，照样占满屏。 */
 .sec{border:1px solid var(--line);border-radius:10px;margin-bottom:11px;
   overflow:hidden;background:#fff}
 .sec:last-child{margin-bottom:0}
@@ -324,11 +327,6 @@ nav button.on{color:var(--pri)}
 .sec.bad>.sec-h:hover{background:#fbe4e4}
 .sec.bad>.sec-h::before{background:#dc2626}
 .sec.bad.fold>.sec-h{background:#fbe9e9}
-/* 空块：整行压灰（立条熄灭）+ 状态签「空」⇒「有没有内容」不用点开就知道 */
-.sec.empty>.sec-h .tt,.sec.empty>.sec-h .sum{color:#9aa1ae}
-.sec.empty>.sec-h .car{color:#b6bcc6}
-.sec.empty>.sec-h::before{background:transparent}
-.sec.empty>.sec-h:hover .sp{color:var(--dim);border-color:var(--line)}
 
 /* ---------- 小表（请求明细 / 耗时拆分）---------- */
 .tbl{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
@@ -856,8 +854,16 @@ let RES_IS_LATEST = true;
 let RES_FP = '';
 // 每块的折叠状态（用户点过就以用户为准）。key = 块名（见 `secBox`）。
 const SEC_FOLD = {};
-// 每块的默认折叠态 —— 只有「请求与耗时」默认收起（流水长，平时不用看）。
-const SEC_DEFAULT = { req: true };
+/* ⚠️ 这个「以用户为准」**只管当前这一轮**。换一轮（`finished` 变了）就把 `SEC_FOLD` 清空
+   （见 `showResult`）—— 否则会出现最气人的那种状态：某天他手贱收起了「视频 strm」，
+   从此**每一轮**的告警都躺在那块收着的标题里，再也不自动展开了。
+   而同一份回执的重渲染（那 8 秒一次的轮询）必须保持他点的状态 ⇒ 判据用「轮次」而不是「渲染次数」。 */
+let RES_ROUND = '';
+/* 没点过时的默认态：**一律收起**，只有 warn / bad 的块破例自动展开（见 `secBox`）。
+   🔴 2026-10-20 改（红领巾：「这一套结果是并排显示的，感觉很乱」）——
+      原来是「只有请求与耗时收起、其余全展开」⇒ 一跑完六块摊开铺满屏，
+      真要找的那条夹在中间反而翻不到。现在反过来：默认全是一行标题，
+      关键计数（写 / 删 / 请求）就在标题行上，要细节再点开。 */
 // 明细列表当前选中的那一类（新增/更新/删除/已改名）—— 重渲染后要停在原地
 let RES_SEG_CUR = 'add';
 
@@ -882,17 +888,23 @@ function dur(ms) {
 const CARET = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 
 /* 一块的 HTML。`k` 是块名（也是折叠状态的 key）。
-   `o.empty` = 这块**本轮没内容** ⇒ 整行压灰 + 状态签写「空」（别让人点开才发现是空的）。 */
+   🔴 2026-10-20 改默认态（红领巾：「这一套结果是并排显示的，感觉很乱」+
+      「改成默认折叠，我需要看哪里会自己展开」）：
+        · **空块整块不渲染** —— 各 `sec*` 自己 `return ''`。以前是压灰 + 状态签写「空」，
+          可六条灰条堆起来照样占满屏，比内容还乱。
+        · **有告警的块（warn / bad）默认展开** —— 出事的那块一进来就是开着的，
+          不用挨个点过去找。
+        · 其余默认收起；`SEC_FOLD` 里记着他手动点过的，**永远优先**于这里的默认值。 */
 function secBox(k, o) {
-  const folded = (k in SEC_FOLD) ? SEC_FOLD[k] : !!SEC_DEFAULT[k];
-  const empty = !!o.empty;
-  return `<section class="sec ${o.tone || ''}${empty ? ' empty' : ''}${folded ? ' fold' : ''}" data-k="${k}">
+  const alertTone = o.tone === 'warn' || o.tone === 'bad';
+  const folded = (k in SEC_FOLD) ? SEC_FOLD[k] : !alertTone;
+  return `<section class="sec ${o.tone || ''}${folded ? ' fold' : ''}" data-k="${k}">
     <div class="sec-h" role="button" tabindex="0" aria-expanded="${folded ? 'false' : 'true'}"
          onclick="toggleSec('${k}')" onkeydown="secKey(event,'${k}')">
       <span class="car">${CARET}</span>
       <span class="tt">${o.icon || ''}${esc(o.title)}</span>
       ${o.sum ? `<span class="sum">${o.sum}</span>` : ''}
-      <span class="sp">${empty ? '空' : (folded ? '展开' : '收起')}</span>
+      <span class="sp">${folded ? '展开' : '收起'}</span>
     </div>
     <div class="sec-b"${o.id ? ` id="${o.id}"` : ''}>${o.body || ''}</div>
   </section>`;
@@ -908,7 +920,7 @@ function toggleSec(k) {
   const h = el.querySelector('.sec-h');
   if (h) h.setAttribute('aria-expanded', fold ? 'false' : 'true');
   const sp = el.querySelector('.sp');
-  if (sp && !el.classList.contains('empty')) sp.textContent = fold ? '展开' : '收起';
+  if (sp) sp.textContent = fold ? '展开' : '收起';
 }
 
 /* 标题行支持键盘（Enter / 空格）—— 它是 `role="button"`，不给键盘通路是半个按钮。 */
@@ -1012,6 +1024,13 @@ function showResult({ res, det = {}, finished = '', isLatest = true }) {
   const fp = fpOf(RES, det, finished, isLatest);
   if (fp === RES_FP) return;
   RES_FP = fp;
+  // 换了一轮 ⇒ 忘掉上一轮手动折过哪些（见 `RES_ROUND` 的注释）。
+  // ⚠️ 放在指纹判重**之后**：同一轮的重渲染不能清，否则他又得重新点一遍。
+  const round = String(finished || RES.finished || RES.started || '');
+  if (round !== RES_ROUND) {
+    RES_ROUND = round;
+    Object.keys(SEC_FOLD).forEach(k => { delete SEC_FOLD[k]; });
+  }
 
   const keep = captureScroll();
   $('#lastRun').innerHTML = resultBody(RES, det);
@@ -1037,8 +1056,8 @@ function fpOf(res, det, finished, isLatest) {
           det.tree_origin || res.tree_origin || ''].join('|');
 }
 
-/* ⭐ 结果区正文 = 六个块。顺序按「先看结论、再看细节」排：
-     概览 → 要注意的 → 目录 → 视频 strm → 字幕 → 请求与耗时
+/* ⭐ 结果区正文 = 概览 + **只有真有事的那几块**（空块由各 `sec*` 返回 `''`）。
+   顺序按「先看结论、再看细节」排：概览 → 要注意的 → 目录 → 视频 strm → 字幕 → 请求与耗时。
    ⛔ 别退回「一大坨 innerHTML」—— 那样「这段和那段是不是一回事」又得靠读的人自己猜。 */
 function resultBody(res, det) {
   return [
@@ -1046,9 +1065,9 @@ function resultBody(res, det) {
     secAlerts(res),
     secDirs(res, det),
     secMedia(res),
-    (res.subs_planned || res.subs_enabled) ? secSubs(res) : '',
+    secSubs(res),
     secReq(res),
-  ].join('');
+  ].filter(Boolean).join('');
 }
 
 /* 跳到某一块并展开（「请求」那个统计格点一下就落到明细上）。
@@ -1099,7 +1118,11 @@ function secOverview(res, det) {
       （主位显示的是两者之和）</div>` : ''}`;
   return secBox('ov', {
     icon: '📊 ', title: '概览',
-    sum: `写 ${n(res.written)} · 删 ${n(res.deleted)} · 请求 ${n(res.requests)}`,
+    // ⭐ 这行是**收起状态下唯一看得见的结论**（默认折叠之后更要紧）⇒ 别往里塞无关数字。
+    sum: `写 ${n(res.written)} · 删 ${n(res.deleted)} · 请求 ${n(res.requests)}` +
+         (res.pending_delete ? ` · 挂起 ${n(res.pending_delete)}` : ''),
+    // 退回本机旧树 = 导树失败后的降级 ⇒ 按告警处理，让它**自动展开**（见 `secBox`）。
+    tone: fellBack ? 'warn' : '',
     body,
   });
 }
@@ -1148,14 +1171,14 @@ function secDirs(res, det) {
   }
   // 「有没有内容」= 这一轮目录相关的动作**全为 0**。
   // ⚠️ `extensionless` 也算内容 —— 它是一条**要人看的告警**，漏掉就会出现
-  //    「状态签写着「空」、点开却有一条红字」的自相矛盾。
+  //    「明明有告警、这块却被当成空的不渲染」。
   const empty = !(res.dirs_made || res.dirs_skipped || res.dirs_pruned || res.extensionless);
+  // 🔴 空块**整块不渲染**（2026-10-20）—— 以前压灰摆在那儿，六条灰条比内容还乱。
+  if (empty) return '';
   return secBox('dir', {
     icon: '📁 ', title: '目录',
-    sum: empty ? '本轮没有目录变动'
-      : `建 ${n(res.dirs_made)} · 跳 ${n(res.dirs_skipped)} · 收 ${n(res.dirs_pruned)}`,
+    sum: `建 ${n(res.dirs_made)} · 跳 ${n(res.dirs_skipped)} · 收 ${n(res.dirs_pruned)}`,
     tone: res.extensionless ? 'warn' : '',
-    empty,
     body,
   });
 }
@@ -1199,14 +1222,17 @@ function secMedia(res) {
     <div class="muted" style="font-size:12.5px;margin-top:9px;word-break:break-all" id="resMore"></div>`;
   // ⚠️ 「挂起 / 复核保留」也算内容：`del` 是**判定要删**的条数，
   //    `res.deleted` 是实际删掉的，`kept` 是复核后留下的。
-  const empty = !(cx.add || cx.update || del || cx.renamed);
+  const empty = !(cx.add || cx.update || del || cx.renamed || pend || kept);
+  // 🔴 空块整块不渲染（2026-10-20）。⚠️ 明细列表 `#resList` 就在这块里 ⇒ 它不渲染时
+  //    `renderResList()` 找不到容器，那边已经加了判空返回，别在这儿给它补一个空壳。
+  if (empty) return '';
   return secBox('media', {
     icon: '🎬 ', title: '视频 strm',
-    sum: empty ? '本轮没有 strm 变动'
-      : `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
-        (pend ? `（挂起 ${n(pend)}）` : (kept ? `（保留 ${n(kept)}）` : '')) +
-        ` · 留 ${n(cx.renamed || 0)}`,
-    empty,
+    sum: `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
+         (pend ? `（挂起 ${n(pend)}）` : (kept ? `（保留 ${n(kept)}）` : '')) +
+         ` · 留 ${n(cx.renamed || 0)}`,
+    // 有挂起 / 有复核保留 ⇒ 这块是「有事」的那块，自动展开让人看见为什么没删。
+    tone: (pend || kept) ? 'warn' : '',
     body,
   });
 }
@@ -1237,13 +1263,13 @@ function secSubs(res) {
   // ⚠️ `subs_unmatched` 也算内容 —— 那是「配不上的字幕」，要人看（且 tone 会变 warn）。
   const empty = !(res.subs_planned || res.subs_downloaded || res.subs_skipped ||
                   res.subs_failed || (res.subs_unmatched || []).length);
+  // 🔴 空块整块不渲染（2026-10-20）。
+  if (empty) return '';
   return secBox('subs', {
     icon: '💬 ', title: '字幕',
-    sum: empty ? '本轮没有字幕要处理'
-      : `能配 ${n(res.subs_planned)} · 下 ${n(res.subs_downloaded)} · 跳 ${n(res.subs_skipped)}` +
-        (res.subs_failed ? ` · 败 ${n(res.subs_failed)}` : ''),
+    sum: `能配 ${n(res.subs_planned)} · 下 ${n(res.subs_downloaded)} · 跳 ${n(res.subs_skipped)}` +
+         (res.subs_failed ? ` · 败 ${n(res.subs_failed)}` : ''),
     tone: (res.subs_unmatched || []).length ? 'warn' : '',
-    empty,
     body,
   });
 }
@@ -1266,7 +1292,7 @@ function secReq(res) {
 
   if (!rd.total) {
     return secBox('req', {
-      icon: '⏱ ', title: '请求与耗时', sum: `请求 ${n(res.requests)}`, empty: true,
+      icon: '⏱ ', title: '请求与耗时', sum: `请求 ${n(res.requests)}`,
       body: `<div class="muted">这份回执没存请求明细（是加这个功能之前的版本跑的）。
         下一轮跑完就有了。</div>`,
     });
@@ -1334,6 +1360,9 @@ function secReq(res) {
 function renderResList(t, hasList) {
   if (t === undefined) t = RES_SEG_CUR || 'add';
   RES_SEG_CUR = t;
+  // ⚠️ 「视频 strm」空块不渲染（2026-10-20）⇒ 这一轮压根没有 `#resList`。
+  //    找不到就**直接收工**，别在下面 `.innerHTML` 上抛 TypeError（那会把整页渲染打断）。
+  if (!$('#resList')) return;
   if (hasList === undefined) {
     hasList = !!(RES && RES.diff && (RES.diff.add || RES.diff.update || RES.diff.delete));
   }
