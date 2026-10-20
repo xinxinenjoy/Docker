@@ -47,7 +47,7 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
 
     L.append("## 一、这一轮做了什么")
     L.append("")
-    L.append(_table([
+    _rows = [
         ("网盘条目", f"{res.get('scanned_remote', 0):,}"),
         ("本地已有 strm", f"{res.get('scanned_local', 0):,}"),
         ("**新写 strm**", f"**{res.get('written', 0):,}**"),
@@ -55,8 +55,13 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
         ("本地改过名（原样保留）", f"{res.get('renamed', 0):,}"),
         ("新建目录", f"{res.get('dirs_made', 0):,}"),
         ("**删除 strm**", f"**{res.get('deleted', 0):,}**"),
-        ("挂起待确认", f"{res.get('pending_delete', 0):,}"),
-    ], ("项", "数量")))
+        ("挂起等确认（异常 / 变动面过大）", f"{res.get('pending_delete', 0):,}"),
+    ]
+    # ⭐ 2026-10-20：复核说「其实还在网盘上」⇒ 保留本地没删。不报的话
+    #    「判定要删 3、实际删 2」看起来就像丢了一条。
+    if res.get("delete_kept"):
+        _rows.append(("复核后仍在网盘（保留没删）", f"{res.get('delete_kept', 0):,}"))
+    L.append(_table(_rows, ("项", "数量")))
     L.append("")
 
     if res.get("looks_like_move"):
@@ -148,7 +153,7 @@ def render_sync_markdown(res: dict, cfg_all: dict | None = None) -> str:
             ("网盘根", cfg_all.get("remote_root") or "(网络根)"),
             ("输出目录", f"`{cfg_all.get('output_dir', '')}`"),
             ("扩展名", cfg_all.get("video_ext", "")),
-            ("删除等待", f"{cfg_all.get('delete_defer_minutes', 0)} 分钟"),
+            ("删除判定", "当轮复核即删（判不准才挂起等确认）"),
             ("异常阈值", f"{cfg_all.get('delete_ratio_guard', 0):.0%}"),
             ("外挂字幕", ("开" if _truthy(cfg_all.get("subtitle_enable")) else "关")
                        + (f" · 跳过 .sup" if _truthy(cfg_all.get("subtitle_skip_sup")) else "")),

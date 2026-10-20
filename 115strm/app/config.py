@@ -307,9 +307,11 @@ class Config:
 
     # 自动扫描的 cron（空 = 不自动；给网页上的「定时」用）
     schedule_cron: str = field(default_factory=lambda: _env("SCHEDULE_CRON"))
-    # ⭐ 删除判定：本轮发现 X 处删除 ⇒ 等 N 分钟 ⇒ 二次确认才真删。
-    #    借鉴 OpenStrm 的做法（一轮里消失超过三成先不删）—— 这里的阈值是**绝对条数**。
-    delete_defer_minutes: float = field(default_factory=lambda: _float("DELETE_DEFER_MINUTES", 10.0))
+    # ⭐ 删除判定：**当轮**判完（2026-10-20 起）。
+    #    以前有个 `delete_defer_minutes`（等 N 分钟再扫一次才删）—— 已删：
+    #    它等的是「下一轮」，而下一轮取决于定时任务 ⇒ 实测挂起清单躺 127 分钟没人处理。
+    #    现在「本轮发现消失 ⇒ 当轮按父目录复核网盘 ⇒ 确认不在就删」，
+    #    没有可等的时间，也就没有这个参数。
     # 一轮里消失的比例超过这个数 ⇒ 判定为「异常」（可能 cookie 失效/权限变化，不是真删）⇒ 本轮不删
     delete_ratio_guard: float = field(default_factory=lambda: _float("DELETE_RATIO_GUARD", 0.3))
     # 单轮最大请求数（0 = 不限制）。给试跑用。

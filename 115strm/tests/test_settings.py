@@ -363,7 +363,7 @@ class TestCriticalFieldsRegistered(unittest.TestCase):
 
     # 这些字段**必须**能持久保存 —— 漏一个都会造成「看着成功、实际没生效」
     MUST_SAVE = ("schedule_cron", "remote_root", "include_dirs",
-                 "strm_prefix", "delete_defer_minutes", "delete_ratio_guard",
+                 "strm_prefix", "delete_ratio_guard",
                  "throttle_min", "video_ext", "subtitle_enable")
 
     def test_都在字段表里(self):

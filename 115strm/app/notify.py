@@ -427,11 +427,12 @@ def build_summary(res, out_dir=None) -> tuple[str, str]:
             lines.append("")
             lines.append("🎬 " + " · ".join(f"{k} {_n(v)} 部" for k, v in stats))
 
-    # ⚠️ 挂起**必须单独说**：它意味着「有 154 条判定要删、但还等着二次确认」——
-    #    不说的话，用户看到「无变动」会以为一切正常，而其实有一批正挂着。
+    # ⚠️ 挂起**必须单独说**：它意味着「有一批判定要删、但没敢自动删」——
+    #    不说的话，用户看到「无变动」会以为一切正常，而其实有一批正等着他拍板。
+    #    （2026-10-20 起它只在「异常闸门 / 变动面过大」时才出现；正常删除当轮就做完了）
     if pending:
         lines.append("")
-        lines.append(f"⚠️ {_n(pending)} 条 strm 在「待确认删除」里挂着（到点后下一轮会自动复核）")
+        lines.append(f"⚠️ {_n(pending)} 条 strm 被判定不该自动删，挂在「待确认删除」里等你确认")
 
     tail = []
     if elapsed:

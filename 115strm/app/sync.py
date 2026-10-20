@@ -51,10 +51,14 @@
     · 「先看再动」＝「同步」页的**差异预览**（零请求、不落盘、无持久开关）
       ⚠️ 以前还有个 `dry_run`（只演练）—— 2026-10-11 删掉了，因为它是个**持久设置**，
          忘了关就变成「每轮都只演练、还报跑成功」，比没有更糟
-    · 删除**永远**要过「延迟二次确认」（`delete_defer_minutes`）——
-      本轮发现有消失 ⇒ 记进 pending，等 N 分钟后再扫一次，确认了才真删
+    · 删除**当轮**就要判完（2026-10-20 改，红领巾：「这些待确认的项目不会自动再跑一次，
+      要到下一次运行时才会处理。要不然直接改成当时发现当时处理好了」）：
+      本轮发现有消失 ⇒ **同一轮**里按父目录去重复核一次网盘，确认不在就当场删
+      ⚠️ 以前是「挂起 → 等 N 分钟 → **等下一轮**才复核」，而下一轮取决于定时任务，
+         实测挂 127 分钟还躺在那儿 ⇒ 已废。复核本身才是真保险，等待不是。
     · 一轮里消失比例 > `delete_ratio_guard` ⇒ 判「异常」（多半是 cookie 失效）
-      ⇒ 本轮**一律不删**，只报告
+      ⇒ 本轮**一律不删**，只报告（清单存下来等他在网页上确认）
+    · 复核发现「其实还在网盘上」⇒ **保留本地**，不删（宁可多留一轮，不可误删）
 """
 from __future__ import annotations
 
@@ -72,7 +76,7 @@ from .config import Config
 from .namer import DiffResult, StrmBuilder, StrmFile, is_video, local_path_of, safe_name
 from .subtitle import SubFile, SubMiss, is_subtitle, plan_dir
 from .throttle import Throttle
-from .v115 import V115, V115Error, Node
+from .v115 import V115, V115DirNotFound, V115Error, Node
 
 __all__ = ["Syncer", "SyncResult", "Pending"]
 
@@ -89,6 +93,11 @@ SUBS_PENDING_NAME = "pending-delete-subs.json"
 #    全塞进回执 JSON 会让 `reports/` 膨胀、网页拉一次卡半天。
 #    200 条足够看清「哪几个目录有问题」，其余走 `subs_unmatched_more` **只报数**。
 _SUBS_MISS_CAP = 200
+# 复核「这些是不是真的没了」时，最多逐个列多少个**父目录**。
+# ⚠️ 每个唯一目录 = 1 次 `fs_files`（同一目录里 12 集只花 1 次）。
+#    超过这个数说明「一删就是一大片、散在几十个目录」⇒ 不是抖动而是大动作，
+#    这时**不猜**：整批挂起、让他确认（口径见 `_handle_delete`）。
+_RECHECK_DIR_CAP = 40
 
 
 def _safe_rel(rel: str) -> str:
@@ -98,6 +107,39 @@ def _safe_rel(rel: str) -> str:
        整条路径 `mkdir` 直接失败。目录段和文件段都不能漏。
     """
     return "/".join(safe_name(p) for p in rel.split("/") if p)
+
+
+def _group_by_parent(rels: Iterable[str]) -> dict[str, list[str]]:
+    """把本地相对路径按**父目录**归并 → `{父目录: [原始 rel, ...]}`。
+
+    ⚠️ 复核是**按目录**发请求的（列一次就能判一个目录里的所有候选），
+       所以必须先归并 —— 不然一季 12 集就是 12 次请求。
+    """
+    out: dict[str, list[str]] = {}
+    for rel in rels:
+        rel = str(rel).replace("\\", "/")
+        remote_rel = rel[:-5] if rel.endswith(".strm") else rel
+        parent = remote_rel.rsplit("/", 1)[0] if "/" in remote_rel else ""
+        out.setdefault(parent, []).append(rel)
+    return out
+
+
+def _base_name(rel: str) -> str:
+    """本地相对路径 → 网盘上的**文件名**（去掉 `.strm` 后缀、只留最后一段）。"""
+    remote_rel = str(rel).replace("\\", "/")
+    remote_rel = remote_rel[:-5] if remote_rel.endswith(".strm") else remote_rel
+    return remote_rel.rsplit("/", 1)[-1]
+
+
+def _join_remote(root: str, rel: str) -> str:
+    """「同步根 + 本地相对路径」→ **相对网盘根**的路径（`dir_id()` 要的就是这个）。
+
+    🔴 为什么非要它：本地 strm 的 rel 是**相对同步根**的（`walk_from_tree(base=remote_root)`），
+       而 `dir_id()` 从**网盘根**逐级解析。同步根不是整盘时（比如 `影音`），
+       直接把 rel 喂给 `dir_id()` ⇒ **一条都解析不出来**。
+    """
+    parts = [x.strip("/") for x in (root or "", rel or "") if x and x.strip("/")]
+    return "/".join(parts)
 
 
 def keep_only_file_dirs(dirs: Iterable[str], files: Iterable[Any]) -> list[str]:
@@ -157,7 +199,11 @@ class SyncResult:
     #    ⇒ 把**具体是哪几个**（前 5 条）一并落进回执，网页就能直接列出来。
     extensionless_sample: list = field(default_factory=list)
     deleted: int = 0
-    pending_delete: int = 0                # 挂起等二次确认的
+    pending_delete: int = 0                # 挂起等确认的（= 本轮判定「不删」，等他拍板）
+    # ⭐ 2026-10-20：复核说「其实还在网盘上」⇒ 保留本地没删。**必须报数**，
+    #    否则「判定删 3、实际删 2」看起来就像丢了一条。
+    delete_kept: int = 0
+    delete_kept_sample: list = field(default_factory=list)
     renamed: int = 0                       # 本地改过名、被认出来的（原样保留）
     requests: int = 0
     # ⭐ 2026-10-13：不再只给一个「请求 60」的数字 —— 明细（按接口归并 + 逐次流水 +
@@ -176,7 +222,7 @@ class SyncResult:
     subs_failed: int = 0                   # 下载/写入失败（只记账，不阻断 strm 同步）
     subs_skipped_ext: int = 0              # 被设置挡掉的（默认是 .sup 图形字幕）
     subs_deleted: int = 0                  # 网盘上没了 ⇒ 删掉的本地字幕
-    subs_pending_delete: int = 0           # 挂起等二次确认的
+    subs_pending_delete: int = 0           # 挂起等确认的（只有闸门触发才出现）
     subs_guard_tripped: bool = False
     subs_guard_reason: str = ""
     subs_unmatched: list = field(default_factory=list)   # 配不上的（只报不下）
@@ -190,15 +236,19 @@ class SyncResult:
 
 @dataclass
 class Pending:
-    """挂起删除的候选 —— 等二次确认。
+    """**本轮没删、等他拍板**的候选 —— 只剩两种触发条件（2026-10-20 收窄）：
 
-    ⚠️ 为什么要它：115 的删除是**异步**的，而且列表**带缓存** ——
-       某一轮「没看到某文件」完全可能是暂时的（接口抖动 / 缓存 / 权限瞬时问题）。
-       直接删本地 strm 会让播放器丢条目；等一轮再确认，代价小得多。
+        ① 异常闸门：一轮消失比例超阈值（cookie 失效 / 接口返回不全的典型症状）
+        ② 变动面过大：候选散落在 `_RECHECK_DIR_CAP` 个以上目录里 ⇒ 不逐个复核、不猜
+
+    ⚠️ 它**不再**是「等 N 分钟再来一轮」的等待队列 —— 那条路 2026-10-20 废了
+       （实测挂 127 分钟：下一轮取决于定时任务，等不起）。
+       正常情况下删除在同一轮里就判完了，`pending-delete.json` 平时不存在。
     """
     paths: list[str] = field(default_factory=list)
     first_seen: float = 0.0                # unix 秒，第一次发现它们消失的时刻
     seen_times: int = 0                    # 第几次确认了（用于排查）
+    reason: str = ""                       # 为什么没删（给他看的一句话）
 
     def age_minutes(self, now: float | None = None) -> float:
         now = now if now is not None else time.time()
@@ -719,7 +769,8 @@ class Syncer:
             d = json.loads(p.read_text(encoding="utf-8"))
             return Pending(paths=list(d.get("paths") or []),
                            first_seen=float(d.get("first_seen") or 0),
-                           seen_times=int(d.get("seen_times") or 0))
+                           seen_times=int(d.get("seen_times") or 0),
+                           reason=str(d.get("reason") or ""))
         except Exception:
             return Pending()
 
@@ -729,6 +780,7 @@ class Syncer:
         tmp = target.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({
             "paths": p.paths, "first_seen": p.first_seen, "seen_times": p.seen_times,
+            "reason": p.reason,
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, target)
@@ -745,7 +797,7 @@ class Syncer:
             source: str = "api", force_delete: bool = False) -> SyncResult:
         """跑一轮。调用方负责把「网盘现状」拿到并传进来（三条路各自组装）。
 
-        `force_delete=True` ⇒ 跳过挂起等待，立刻删（界面上「确认删除」按这个）。
+        `force_delete=True` ⇒ **跳过一切判定**，直接把候选全删（界面上「确认删除」按这个）。
         """
         t0 = time.time()
         res = SyncResult(
@@ -793,7 +845,7 @@ class Syncer:
             self.log("info", f"收掉 {len(pruned)} 个空目录（只删空的；"
                              f"里面有东西的一律不碰）例：{pruned[0]}")
 
-        # ③ 删除（带二次确认）
+        # ③ 删除（当轮判完，见 `_handle_delete`）
         if d.to_delete:
             # ⚠️ 传的是 **`to_add`**（新路径）而**不是** `to_add + to_update`。
             #    判「改名/移动」要看的是「有没有一批**新路径**冒出来」；
@@ -818,6 +870,19 @@ class Syncer:
     def _handle_delete(self, gone: list[str], local: dict[str, float],
                        res: SyncResult, *, force: bool, added: int = 0) -> SyncResult:
         """删除判定 —— 本工具最需要小心的那一段。
+
+        ## 🔴 三条线（2026-10-20 定的新口径，删掉了「等 N 分钟再来一轮」）
+
+            ① 异常闸门     消失比例 > `delete_ratio_guard` 且几乎没新增 ⇒ 一条都不删，挂起
+            ② 变动面过大   候选散在 `_RECHECK_DIR_CAP` 个以上目录 ⇒ 一条都不删，挂起
+            ③ 其余         **同一轮**里按父目录去重复核网盘 ⇒ 确认不在就当场删
+
+        ⚠️ 为什么不再「等 N 分钟」：红领巾 2026-10-20 实测挂起清单**躺了 127 分钟**
+           还没人处理 —— 因为「到点」之后还要**等下一轮**才复核，而下一轮取决于定时任务。
+           真正起作用的是「再问一次网盘」，不是「等一会儿」⇒ 把复核提到当轮做完。
+
+        ⚠️ 复核说「其实还在」⇒ **保留本地**（宁可多留一轮，不可误删）；
+           查不了（接口报错 / 目录没列完）⇒ 同样按「还在」处理。
 
         ## 🔴 区分「改名/移动」与「异常」—— 这是本方法的关键
 
@@ -858,7 +923,10 @@ class Syncer:
             self.log("error", res.guard_reason)
             # ⚠️ 清单**照样存下来** —— 万一是「真删了一大批」，他能在网页上
             #    看到清单并手动确认；不存的话他连发生了什么都看不到。
-            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1))
+            self.save_pending(Pending(
+                paths=gone, first_seen=time.time(), seen_times=1,
+                reason=f"消失 {len(gone)} 条（占本地 {ratio:.1%}）超过异常阈值 "
+                       f"{self.cfg.delete_ratio_guard:.0%} ⇒ 一条都没删"))
             res.pending_delete = len(gone)
             return res
 
@@ -874,32 +942,32 @@ class Syncer:
             self.log("info", f"已确认删除 {n} 个本地 strm")
             return res
 
-        # ② 延迟二次确认
-        p = self.load_pending()
-        if not p.first_seen:
-            # 第一次发现 ⇒ 挂起，等 N 分钟
-            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1))
+        # ② 变动面过大 ⇒ 不猜，整批挂起让他拍板
+        #    ⚠️ 判据用**唯一父目录数**而不是条数：同一季 12 集只花 1 次列目录，
+        #       条数多不等于变动面大。
+        by_dir = _group_by_parent(gone)
+        if len(by_dir) > _RECHECK_DIR_CAP:
+            reason = (f"要删 {len(gone)} 条、散在 {len(by_dir)} 个目录里"
+                      f"（超过 {_RECHECK_DIR_CAP} 个）⇒ 没逐个复核，一条都没删")
+            self.log("warning", reason + "；确认无误可在上面那张「待确认删除」卡里手动删")
+            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1,
+                                      reason=reason))
             res.pending_delete = len(gone)
-            self.log("info", f"发现 {len(gone)} 条本地多余，**先挂起**，"
-                             f"等 {self.cfg.delete_defer_minutes:.0f} 分钟后二次扫描确认")
             return res
 
-        age = p.age_minutes()
-        if age < self.cfg.delete_defer_minutes:
-            # 还没到时间 ⇒ 继续等，并更新清单（可能又多了几条）
-            self.save_pending(Pending(paths=gone, first_seen=p.first_seen,
-                                      seen_times=p.seen_times + 1))
-            res.pending_delete = len(gone)
-            self.log("info", f"挂起中（已等 {age:.1f}/{self.cfg.delete_defer_minutes:.0f} 分钟），"
-                             f"本轮仍不删")
-            return res
-
-        # ③ 到点了 ⇒ 再核对一次「它们真的不在网盘上了吗」，然后删
-        still_gone = self._recheck(gone)
-        n = self.remove(still_gone)
+        # ③ 当轮复核即删
+        self.stage(f"复核 {len(by_dir)} 个目录 · 确认这些真不在网盘上")
+        ok, kept = self._recheck(gone)
+        res.delete_kept = len(kept)
+        res.delete_kept_sample = kept[:5]
+        if kept:
+            self.log("warning",
+                     f"{len(kept)} 条复核后**仍在网盘上** ⇒ 保留本地不删"
+                     f"（多半是目录树与实时列表不一致）。例如：{kept[0]}")
+        n = self.remove(ok)
         res.deleted = n
         self.clear_pending()
-        self.log("info", f"二次确认通过（等了 {age:.0f} 分钟），删除 {n} 个本地 strm")
+        self.log("info", f"当轮复核通过（查了 {len(by_dir)} 个目录），删除 {n} 个本地 strm")
         return res
 
     # ================================================================== 外挂字幕
@@ -1063,10 +1131,12 @@ class Syncer:
 
     def _handle_subs_delete(self, ledger: dict[str, str], planned: set[str],
                             res: SyncResult, *, ledger_size: int) -> None:
-        """删本地字幕 —— 走和 strm **同一套**「异常比例闸门 + 延迟二次确认」。
+        """删本地字幕 —— 走和 strm **同一套**「异常比例闸门」，但**当轮就删**。
 
-        ⚠️ 字幕比 strm 便宜得多（丢了大不了重下），但**删除这件事本身**在这套工具里
-           一律要过闸门 —— 口径统一，出问题时只需要盯一个地方。
+        ⚠️ 字幕比 strm 便宜得多（丢了大不了重下），而且删除前已经有**两道**硬闸：
+           ① 只删「台账里我们写过的那份」+ ② 内容 sha1 必须没被你换过。
+           所以字幕侧不做「逐目录复核网盘」（它根本没法从本地路径反查网盘文件），
+           只留比例闸门兜底 —— 口径与 strm 一致：**正常情况当轮结束，不留给下一轮**。
         """
         gone, kept = self._scan_stale_subs(ledger, planned)
         for k in kept:
@@ -1084,27 +1154,11 @@ class Syncer:
                 f"{ratio:.1%}）超过阈值 {self.cfg.delete_ratio_guard:.0%}"
                 f" ⇒ 判定异常，本轮**不删**本地字幕。")
             self.log("error", res.subs_guard_reason)
-            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1),
+            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1,
+                                      reason=f"字幕：{len(gone)} 个超过异常阈值"
+                                             f" {self.cfg.delete_ratio_guard:.0%} ⇒ 没删"),
                               self.subs_pending_path)
             res.subs_pending_delete = len(gone)
-            return
-
-        p = self.load_pending(self.subs_pending_path)
-        if not p.first_seen:
-            self.save_pending(Pending(paths=gone, first_seen=time.time(), seen_times=1),
-                              self.subs_pending_path)
-            res.subs_pending_delete = len(gone)
-            self.log("info", f"字幕：{len(gone)} 个本地字幕在网盘上已无对应 ⇒ **先挂起**，"
-                             f"等 {self.cfg.delete_defer_minutes:.0f} 分钟后二次确认")
-            return
-
-        age = p.age_minutes()
-        if age < self.cfg.delete_defer_minutes:
-            self.save_pending(Pending(paths=gone, first_seen=p.first_seen,
-                                      seen_times=p.seen_times + 1), self.subs_pending_path)
-            res.subs_pending_delete = len(gone)
-            self.log("info", f"字幕：挂起中（已等 {age:.1f}/"
-                             f"{self.cfg.delete_defer_minutes:.0f} 分钟），本轮仍不删")
             return
 
         n = self.remove_subs(gone)
@@ -1112,7 +1166,7 @@ class Syncer:
         for k in gone:
             ledger.pop(k, None)
         self.clear_pending(self.subs_pending_path)
-        self.log("info", f"字幕：二次确认通过（等了 {age:.0f} 分钟），删除 {n} 个本地字幕")
+        self.log("info", f"字幕：网盘上已无对应 ⇒ 删除 {n} 个本地字幕")
 
     def remove_subs(self, rels: Iterable[str]) -> int:
         """删本地字幕 —— **双保险**，与 `remove()`（只删 `.strm`）同一套姿势：
@@ -1141,29 +1195,65 @@ class Syncer:
                 self.log("warning", f"删不掉字幕 {rel}：{exc}")
         return n
 
-    def _recheck(self, rels: list[str]) -> list[str]:
-        """对候选删除再核一次 —— 能查网盘就查，查不了就用传入的清单。
+    def _recheck(self, rels: list[str]) -> tuple[list[str], list[str]]:
+        """对候选删除再核一次网盘 → `(确认已不在, 复核后仍在 / 没查成)`。
 
-        ⚠️ 这里刻意**保守**：`V115` 不可用（没 cookie）时，
-           不擅自认为「删得对」，而是照用清单（清单本身已经是二次扫描的产物）。
+        ⚠️ **按父目录去重**：列一次能判一个目录里的所有候选
+           ⇒ 同一季 12 集只花 **1** 次请求（旧写法按条查，12 次）。
+
+        🔴 **路径基准（2026-10-20 修的一个真事故级缺陷）**：
+           本地 rel 是**相对同步根**的（`walk_from_tree(base=cfg.remote_root)`），
+           而 `V115.dir_id()` 是从**网盘根**逐级解析的 ⇒ 必须把同步根拼回去。
+           旧写法直接拿 rel 的父目录去 `dir_id()`：同步根不是整盘时**每条都解析失败**。
+           旧代码把失败当「还在」⇒ 表现为「旧 strm 永远删不掉」（正是这次要修的毛病）；
+           而换成「当轮复核即删」之后，同一个错会变成**误删整库** ⇒ 必须先拼根。
+
+        🔴 三种「查不了」的情形，一律按**还在**处理（不删）：
+           ① 连**同步根**都解析不出来（cookie 失效 / 根被改名）⇒ 整批不删
+           ② 接口报错、目录太大没列完（`MAX_PAGES` 截断 ⇒ 不能断言「这个名字不在」）
+           ③ 没有 `V115`（命令行 `pending` / 离线单测）
+
+        ⚠️ `self.v is None` 时照用清单（**不删就退化成永远不删**）：
+           这条路径只有「他明确点了确认删除」才会走到，清单本身已经是判定产物。
         """
         if self.v is None:
-            return rels
-        out: list[str] = []
-        for rel in rels:
-            # strm 相对路径 → 网盘上的目录（去掉 .strm 后缀）
-            remote_rel = rel[:-5] if rel.endswith(".strm") else rel
-            parent = remote_rel.rsplit("/", 1)[0] if "/" in remote_rel else ""
-            name = remote_rel.rsplit("/", 1)[-1]
+            return list(rels), []
+
+        # ⓪ 先确认同步根本身能解析 —— 解析不出来就说明这轮根本没资格判断「谁没了」
+        try:
+            self.v.root_id()
+        except Exception as exc:
+            self.log("error", f"复核跳过：连同步根（{self.cfg.remote_root or '(网盘根)'}）"
+                              f"都解析不出来（{exc}）⇒ 本轮一条都不删")
+            return [], list(rels)
+
+        gone: list[str] = []
+        kept: list[str] = []
+        for parent, items in _group_by_parent(rels).items():
+            names: set[str] | None = None        # None = 没查成 ⇒ 这批全部保留
+            full = _join_remote(self.cfg.remote_root, parent)
             try:
-                cid = self.v.dir_id(parent) if parent else self.v.root_id()
-                found = any(n.name == name for n in self.v.list_dir(cid))
+                cid = self.v.dir_id(full) if full else "0"
+                nodes = self.v.list_dir(cid)
+                if getattr(self.v, "last_list_complete", True):
+                    names = {n.name for n in nodes}
+                else:
+                    self.log("warning", f"复核 {parent or '(同步根)'} 时目录太大、没列完"
+                                        f" ⇒ 这个目录下的候选按「还在」处理，不删")
+            except V115DirNotFound:
+                # 父目录本身在网盘上已经不存在了 ⇒ 里面的东西当然也不在
+                names = set()
+                self.log("info", f"复核：网盘上已没有 `{full or '(网盘根)'}` 这个目录"
+                                 f" ⇒ 它下面的 {len(items)} 条按「已删除」处理")
             except Exception as exc:
-                self.log("warning", f"复核 {rel} 失败（{exc}）⇒ 按「还在」处理，不删")
-                found = True
-            if not found:
-                out.append(rel)
-        return out
+                self.log("warning", f"复核 {parent or '(同步根)'} 失败（{exc}）"
+                                    f" ⇒ 这个目录下的候选按「还在」处理，不删")
+            for rel in items:
+                if names is not None and _base_name(rel) not in names:
+                    gone.append(rel)
+                else:
+                    kept.append(rel)
+        return gone, kept
 
 
 # ------------------------------------------------------------------ 差异 → 回执

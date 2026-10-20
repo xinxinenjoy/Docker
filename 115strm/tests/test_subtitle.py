@@ -20,7 +20,7 @@ from unittest import mock
 
 from app.config import Config
 from app.namer import StrmBuilder
-from app.subtitle import SubFile, classify, is_subtitle, parse_exts, plan_dir
+from app.subtitle import SubFile, classify, is_subtitle, parse_exts, plan_dir, sha1_of
 from app.sync import Syncer
 from app.treefile import parse_text
 
@@ -56,7 +56,7 @@ def cfg(tmp: Path, **kw) -> Config:
         data_dir=tmp / "data", output_dir=tmp / "out",
         strm_prefix=PREFIX, url_encode=False,
         remote_root="影音", include_dirs="电影,电视剧", video_ext="mp4,mkv",
-        delete_defer_minutes=10.0, delete_ratio_guard=0.3,
+        delete_ratio_guard=0.3,
     )
     base.update(kw)
     c = Config(**base)
@@ -346,11 +346,11 @@ class TestSubsLedgerAndDelete(unittest.TestCase):
             self.assertEqual(len(led["items"]), 4)
             self.assertIn("电影/示例影片一（2025）/示例影片 Example Movie.mkv.srt", led["items"])
 
-    def test_网盘删了字幕_要过延迟确认才删(self):
+    def test_网盘删了字幕_当轮就删(self):
+        """2026-10-20：字幕删除与 strm 同一口径 —— **当轮判完**，不再等下一轮。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=1.0,
-                                 delete_defer_minutes=0.0))
+            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=1.0))
             with mock.patch("app.subtitle.fetch_bytes", return_value=b"sub"):
                 run_sync(s)
             target = tmp / "out" / "电影" / "示例影片一（2025）" / "示例影片 Example Movie.mkv.srt"
@@ -358,42 +358,49 @@ class TestSubsLedgerAndDelete(unittest.TestCase):
 
             dirs, files = s.walk_from_tree(parse_text(self.TREE_NO_SUB))
             res = s.run(remote_files=files, remote_dirs=dirs, source="tree")
-            self.assertEqual(res.subs_deleted, 0, "第一次只挂起")
-            self.assertEqual(res.subs_pending_delete, 1)
-            self.assertTrue(target.exists())
-
-            dirs, files = s.walk_from_tree(parse_text(self.TREE_NO_SUB))
-            res = s.run(remote_files=files, remote_dirs=dirs, source="tree")
-            self.assertEqual(res.subs_deleted, 1, "二次确认到点了才删")
+            self.assertEqual(res.subs_deleted, 1, "当轮就删，不再挂起")
+            self.assertEqual(res.subs_pending_delete, 0)
             self.assertFalse(target.exists())
 
     def test_异常比例闸门_一条都不删(self):
+        """🔴 字幕删除现在**当轮就做**（与 strm 同口径），所以这条用例不能再靠
+        「先跑一轮让它挂起」来造状态 —— 直接按「台账 + 本地那份文件」摆好现场。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=0.3,
-                                 delete_defer_minutes=0.0))
+            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=0.01))
+            rel = "电影/示例影片一（2025）/示例影片 Example Movie.mkv.srt"
+            p = tmp / "out" / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"sub")
+            s.save_subs_ledger({rel: sha1_of(b"sub")})
+
+            # 这棵树里一个字幕都没有 ⇒ 台账里那 1 个「已无对应」= 100% > 1% ⇒ 闸门
+            dirs, files = s.walk_from_tree(parse_text(self.TREE_NO_SUB))
+            res = s.run(remote_files=files, remote_dirs=dirs, source="tree")
+            self.assertTrue(res.subs_guard_tripped)
+            self.assertEqual(res.subs_deleted, 0)
+            self.assertEqual(res.subs_pending_delete, 1)
+            self.assertTrue(p.exists())
+
+    def test_低于阈值就当轮删掉(self):
+        """4 个里少 1 个 = 25% ≤ 30% ⇒ 不触发闸门 ⇒ 当轮删，不等下一轮。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=0.3))
             with mock.patch("app.subtitle.fetch_bytes", return_value=b"sub"):
                 run_sync(s)
             dirs, files = s.walk_from_tree(parse_text(self.TREE_NO_SUB))
             res = s.run(remote_files=files, remote_dirs=dirs, source="tree")
-            # 4 个里少了 1 个 = 25% ≤ 30% ⇒ 不触发；这里把阈值压到极小才触发
             self.assertFalse(res.subs_guard_tripped)
-
-            s2 = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=0.01,
-                                  delete_defer_minutes=0.0))
-            dirs, files = s2.walk_from_tree(parse_text(self.TREE_NO_SUB))
-            res = s2.run(remote_files=files, remote_dirs=dirs, source="tree")
-            self.assertTrue(res.subs_guard_tripped)
-            self.assertEqual(res.subs_deleted, 0)
-            self.assertTrue((tmp / "out" / "电影" / "示例影片一（2025）" /
-                             "示例影片 Example Movie.mkv.srt").exists())
+            self.assertEqual(res.subs_deleted, 1)
+            self.assertFalse((tmp / "out" / "电影" / "示例影片一（2025）" /
+                              "示例影片 Example Movie.mkv.srt").exists())
 
     def test_你自己换过的字幕不删(self):
         """第二道闸：文件内容已经不是我们写下的那份 ⇒ **保留**（你换了更好的字幕）。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=1.0,
-                                 delete_defer_minutes=0.0))
+            s = Syncer(None, cfg(tmp, subtitle_enable=True, delete_ratio_guard=1.0))
             with mock.patch("app.subtitle.fetch_bytes", return_value=b"sub"):
                 run_sync(s)
             target = tmp / "out" / "电影" / "示例影片一（2025）" / "示例影片 Example Movie.mkv.srt"

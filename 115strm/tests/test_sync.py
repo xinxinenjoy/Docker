@@ -2,10 +2,11 @@
 
 删除是本工具唯一不可逆的动作，所以用例要覆盖：
   · 正常情况：新增能落盘、未变的不重写（保住 mtime）
-  · 删除挂起：第一次发现**不删**，只挂起
-  · 等待中：没到时间**还是不动**
-  · 二次确认：到点了才删
+  · **当轮复核即删**（2026-10-20 起）：发现消失 ⇒ 同一轮里复核网盘 ⇒ 确认不在就删
+  · 复核说「还在」/ 查不了 ⇒ **保留本地**（宁可多留一轮，不可误删）
+  · 整目录改名 ⇒ 父目录已不存在也算「确认不在」（旧版这里会永远删不掉）
   · 🔴 异常闸门：消失比例超阈值 ⇒ **一条都不删**（cookie 失效的典型症状）
+  · 变动面过大（候选散在几十个目录）⇒ 不逐个复核，整批挂起等他确认
   · 边界：只删 .strm，绝不碰别的文件、绝不越界到 output 之外
 """
 from __future__ import annotations
@@ -18,7 +19,8 @@ from pathlib import Path
 
 from app.config import Config
 from app.namer import StrmFile
-from app.sync import Pending, Syncer
+from app.sync import Pending, Syncer, _RECHECK_DIR_CAP
+from app.v115 import Node, V115DirNotFound, V115Error
 
 
 def make_cfg(tmp: Path, **kw) -> Config:
@@ -28,7 +30,6 @@ def make_cfg(tmp: Path, **kw) -> Config:
         output_dir=tmp / "out",
         strm_prefix="https://example.test/d",
         url_encode=False,
-        delete_defer_minutes=10.0,
         delete_ratio_guard=0.3,
         video_ext="mp4,mkv",
     )
@@ -37,6 +38,43 @@ def make_cfg(tmp: Path, **kw) -> Config:
     Path(cfg.data_dir).mkdir(parents=True, exist_ok=True)
     Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
     return cfg
+
+
+class FakeV:
+    """只够 `Syncer._recheck` 用的假 115（真接口那层另有 `test_v115*` 覆盖）。
+
+    `tree` = `{父目录(相对网盘根, 不带首尾斜杠): [文件名, ...]}`
+    """
+
+    def __init__(self, tree: dict[str, list[str]] | None = None, *,
+                 missing: tuple = (), broken: tuple = (), complete: bool = True,
+                 root_broken: bool = False):
+        self.tree = tree or {}
+        self.missing = set(missing)      # 网盘上**真没有**的目录
+        self.broken = set(broken)        # 接口报错的目录
+        self.complete = complete         # False = 目录太大没列完
+        self.root_broken = root_broken   # 连同步根都解析不出来
+        self.last_list_complete = True
+        self.listed: list[str] = []      # 列过哪些目录（= 花了几次请求）
+
+    def root_id(self) -> str:
+        if self.root_broken:
+            raise V115Error("fs_dir_getid 被 115 拒绝：cookie 失效")
+        return "cid:"          # 去掉前缀就是 "" ⇒ 对应「网盘根」那一层
+
+    def dir_id(self, path: str) -> str:
+        path = (path or "").strip("/")
+        if path in self.missing:
+            raise V115DirNotFound(f"115 上找不到目录：{path}")
+        if path in self.broken:
+            raise V115Error("fs_dir_getid 被 115 拒绝：接口抽风")
+        return "cid:" + path
+
+    def list_dir(self, cid: str, dirs_only: bool = False) -> list[Node]:
+        path = cid[4:] if cid.startswith("cid:") else ""
+        self.listed.append(path)
+        self.last_list_complete = self.complete
+        return [Node(id="f", name=x, is_dir=False) for x in self.tree.get(path, [])]
 
 
 def f(rel: str, fid: str = "") -> StrmFile:
@@ -140,16 +178,20 @@ class TestDiffPayload(unittest.TestCase):
             self.assertEqual(res.diff["counts"]["add"], 1)
 
     def test_删除的明细进回执(self):
-        """第一次发现只挂起（等 10 分钟），但**明细里照样要能看到它**。"""
+        """没有 `V115`（离线）时照用清单 ⇒ **当轮就删**，明细照样要能看到它。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             (tmp / "out").mkdir(parents=True, exist_ok=True)
-            (tmp / "out" / "孤儿.mkv.strm").write_text("x", encoding="utf-8")
+            for i in range(10):
+                (tmp / "out" / f"g{i}.mkv.strm").write_text("x", encoding="utf-8")
+            # 网盘只剩 9 个（10% < 30% 阈值，过闸门）
             res = Syncer(None, make_cfg(tmp)).run(
-                remote_files=[], remote_dirs=[], source="tree")
-            self.assertEqual(res.diff["delete"], ["孤儿.mkv.strm"])
-            self.assertEqual(res.pending_delete, 1)
-            self.assertTrue((tmp / "out" / "孤儿.mkv.strm").exists())
+                remote_files=[f(f"g{i}.mkv") for i in range(9)],
+                remote_dirs=[], source="tree")
+            self.assertEqual(res.diff["delete"], ["g9.mkv.strm"])
+            self.assertEqual(res.deleted, 1)
+            self.assertEqual(res.pending_delete, 0)
+            self.assertFalse((tmp / "out" / "g9.mkv.strm").exists())
 
     def test_明细有上限超出只报数(self):
         """几千条时不把回执撑爆 —— 超出的进 `more`，只报数不列名。"""
@@ -176,44 +218,142 @@ class TestDeleteGuard(unittest.TestCase):
             p.write_text("old", encoding="utf-8")
         return s
 
-    def test_第一次发现只挂起不删(self):
+    def test_发现即删_不再等下一轮(self):
+        """🔴 2026-10-20 定的新口径（红领巾：挂起清单躺了 127 分钟还没人处理）。
+
+        以前：第一次发现只挂起，要**等下一轮**才复核删除。
+        现在：同一轮里就复核完、删掉 —— `pending-delete.json` 平时压根不该存在。
+        """
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = self._prep(tmp, [f"g{i}.mkv.strm" for i in range(10)])
             # 网盘只剩 9 个 ⇒ 少了 1 个（10% < 30% 阈值，过闸门）
             remote = [f(f"g{i}.mkv") for i in range(9)]
             res = s.run(remote_files=remote, remote_dirs=[], source="tree")
-            self.assertEqual(res.deleted, 0)              # ⛔ 不删
-            self.assertEqual(res.pending_delete, 1)       # 挂起
-            self.assertTrue((tmp / "out" / "g9.mkv.strm").exists())
-            p = s.load_pending()
-            self.assertEqual(len(p.paths), 1)
+            self.assertEqual(res.deleted, 1)              # ✅ 当轮就删
+            self.assertEqual(res.pending_delete, 0)       # 不再挂起
+            self.assertFalse((tmp / "out" / "g9.mkv.strm").exists())
+            self.assertEqual(s.load_pending().paths, [])
 
-    def test_等待中仍不删(self):
+    def test_复核说还在就保留(self):
+        """复核发现「它其实还在网盘上」⇒ 保留本地（宁可多留一轮，不可误删）。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = self._prep(tmp, [f"g{i}.mkv.strm" for i in range(10)])
+            # 目录树说 g9 没了，但实时列目录里它还在
+            s.v = FakeV({"": ["g9.mkv"]})
             remote = [f(f"g{i}.mkv") for i in range(9)]
-            s.run(remote_files=remote, remote_dirs=[], source="tree")   # 第 1 轮挂起
-            res = s.run(remote_files=remote, remote_dirs=[], source="tree")  # 第 2 轮，时间没到
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
             self.assertEqual(res.deleted, 0)
+            self.assertEqual(res.delete_kept, 1)
             self.assertTrue((tmp / "out" / "g9.mkv.strm").exists())
 
-    def test_到点后二次确认才删(self):
+    def test_父目录已不存在也算确认不在(self):
+        """🔴 整目录改名/移走的场景（旧版在这里会**永远删不掉**）。
+
+        旧 `_recheck` 把 `dir_id()` 抛的「找不到目录」当成查不成 ⇒ 按「还在」处理
+          ⇒ 目录都没了，它下面的旧 strm 一条也删不掉（只能手动确认）。
+        """
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            cfg = make_cfg(tmp, delete_defer_minutes=0.0)     # 不等待
-            s = Syncer(None, cfg)
-            for i in range(10):
-                (tmp / "out" / f"g{i}.mkv.strm").write_text("old", encoding="utf-8")
-            remote = [f(f"g{i}.mkv") for i in range(9)]
-            # 先手动造一个「早已挂起」的 pending
-            s.save_pending(Pending(paths=["g9.mkv.strm"], first_seen=time.time() - 600,
-                                   seen_times=1))
-            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            s = self._prep(tmp, ["电影/旧名/片.mkv.strm"])
+            s.v = FakeV({}, missing=("电影/旧名",))
+            res = s.run(remote_files=[f("电影/新名/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.deleted, 1)
-            self.assertFalse((tmp / "out" / "g9.mkv.strm").exists())
-            self.assertEqual(s.load_pending().paths, [])      # 清单已清
+            self.assertFalse((tmp / "out" / "电影" / "旧名" / "片.mkv.strm").exists())
+
+    def test_接口报错时不删(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = self._prep(tmp, [f"电影/g{i}.mkv.strm" for i in range(10)])
+            s.v = FakeV({}, broken=("电影",))
+            remote = [f(f"电影/g{i}.mkv") for i in range(9)]
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            self.assertEqual(res.deleted, 0)
+            self.assertEqual(res.delete_kept, 1)
+            self.assertTrue((tmp / "out" / "电影" / "g9.mkv.strm").exists())
+
+    def test_目录没列完时不删(self):
+        """翻页被截断 ⇒ 不能断言「这个名字不在」（否则把没列到的当成删了）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = self._prep(tmp, [f"电影/g{i}.mkv.strm" for i in range(10)])
+            s.v = FakeV({}, complete=False)
+            remote = [f(f"电影/g{i}.mkv") for i in range(9)]
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            self.assertEqual(res.deleted, 0)
+            self.assertEqual(res.delete_kept, 1)
+
+    def test_同一目录只列一次(self):
+        """一季 12 集 = 1 次请求，不是 12 次（旧写法按条查）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            gone = [f"电视剧/某剧/S01/E{i:02d}.mkv.strm" for i in range(12)]
+            # 撑分母（否则 13/20 = 65% 会先撞异常闸门，走不到复核）
+            stays = [f"g{i}.mkv.strm" for i in range(48)]
+            s = self._prep(tmp, gone + stays + ["g48.mkv.strm"])
+            fake = FakeV({"电视剧/某剧/S01": []})
+            s.v = fake
+            remote = [f(f"g{i}.mkv") for i in range(48)]
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            self.assertFalse(res.guard_tripped)
+            # 13 条候选只散在 2 个目录里 ⇒ 只列 2 次
+            self.assertEqual(sorted(fake.listed), ["", "电视剧/某剧/S01"])
+            self.assertEqual(res.deleted, 13)
+
+    def test_同步根不是整盘时按同步根拼路径(self):
+        """🔴 本地 rel 是**相对同步根**的，`dir_id()` 却从**网盘根**解析。
+
+        旧写法直接把 `电影/…` 喂给 `dir_id()` ⇒ 同步根不是整盘（如 `影音`）时
+        **每条都解析不出来**。这条用例钉死「必须拼上同步根」——
+        拼错 + 新口径（当轮即删）＝ 误删整库。
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = self._prep(tmp, [f"电影/g{i}.mkv.strm" for i in range(10)])
+            s.cfg = make_cfg(tmp, remote_root="影音")
+            fake = FakeV({"影音/电影": []})
+            s.v = fake
+            remote = [f(f"电影/g{i}.mkv") for i in range(9)]
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            self.assertIn("影音/电影", fake.listed, "解析目录时没把同步根拼回去")
+            self.assertEqual(res.deleted, 1)
+            self.assertFalse((tmp / "out" / "电影" / "g9.mkv.strm").exists())
+
+    def test_同步根都解析不出来就一条都不删(self):
+        """cookie 失效 / 同步根被改名 ⇒ 没资格判「谁没了」，整批保留。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            s = self._prep(tmp, [f"电影/g{i}.mkv.strm" for i in range(10)])
+            fake = FakeV({}, root_broken=True)
+            s.v = fake
+            remote = [f(f"电影/g{i}.mkv") for i in range(9)]
+            res = s.run(remote_files=remote, remote_dirs=[], source="tree")
+            self.assertEqual(res.deleted, 0)
+            self.assertEqual(res.delete_kept, 1)
+            self.assertEqual(fake.listed, [], "根都解析不出来就不该再列目录")
+            self.assertTrue((tmp / "out" / "电影" / "g9.mkv.strm").exists())
+
+    def test_变动面过大就整批挂起(self):
+        """候选散在几十个目录里 ⇒ 不逐个复核（会把一轮拖成几百次请求），整批等他拍板。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            n_dirs = _RECHECK_DIR_CAP + 1
+            moved = [f"d{i}/片.mkv.strm" for i in range(n_dirs)]
+            stays = [f"g{i}.mkv.strm" for i in range(100)]      # 撑着分母，别让闸门先触发
+            s = self._prep(tmp, moved + stays)
+            fake = FakeV({})
+            s.v = fake
+            # 那 100 个照旧在网盘上，只有 41 个目录里的「片」没了 ⇒ 41/141 ≈ 29% < 30%
+            res = s.run(remote_files=[f(f"g{i}.mkv") for i in range(100)],
+                        remote_dirs=[], source="tree")
+            self.assertFalse(res.guard_tripped)
+            self.assertEqual(res.deleted, 0)
+            self.assertEqual(res.pending_delete, n_dirs)
+            self.assertEqual(fake.listed, [], "不该真去列目录")
+            p = s.load_pending()
+            self.assertIn("散在", p.reason)
+            self.assertTrue((tmp / "out" / moved[0]).exists())
 
     def test_异常闸门一条都不删(self):
         """🔴 cookie 失效的典型症状：网盘「看起来全没了」。绝不能照删。"""
@@ -231,12 +371,12 @@ class TestDeleteGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = self._prep(tmp, [f"g{i}.mkv.strm" for i in range(10)])
-            # 消失 3/10 = 30%，阈值 30%，判据是 `>` ⇒ 不触发闸门，走挂起
+            # 消失 3/10 = 30%，阈值 30%，判据是 `>` ⇒ 不触发闸门 ⇒ 当轮复核后删
             remote = [f(f"g{i}.mkv") for i in range(7)]
             res = s.run(remote_files=remote, remote_dirs=[], source="tree")
             self.assertFalse(res.guard_tripped)
-            self.assertEqual(res.deleted, 0)
-            self.assertEqual(res.pending_delete, 3)
+            self.assertEqual(res.deleted, 3)
+            self.assertEqual(res.pending_delete, 0)
 
     def test_恢复后挂起清单作废(self):
         """上一轮挂起、这一轮网盘又都在了 ⇒ 说明是抖动，清单要清掉。"""
@@ -251,7 +391,8 @@ class TestDeleteGuard(unittest.TestCase):
             self.assertEqual(s.load_pending().paths, [])
             self.assertTrue((tmp / "out" / "g9.mkv.strm").exists())
 
-    def test_force跳过等待(self):
+    def test_force一条判定都不做直接删(self):
+        """界面上「确认删除」走的就是这条 —— 他点了他负责。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = self._prep(tmp, [f"g{i}.mkv.strm" for i in range(10)])
@@ -277,7 +418,7 @@ class TestRenameVsAnomaly(unittest.TestCase):
             p.write_text("old", encoding="utf-8")
         return s
 
-    def test_整目录改名不触发闸门(self):
+    def test_整目录改名不触发闸门_且旧的一并清掉(self):
         """867 个里改掉 283 个（32.6% > 30%）—— 旧行为会误判成异常。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
@@ -289,23 +430,21 @@ class TestRenameVsAnomaly(unittest.TestCase):
             self.assertFalse(res.guard_tripped, "改名不该触发异常闸门")
             self.assertTrue(res.looks_like_move)
             self.assertEqual(res.written, 30)          # 新的正常写
-            self.assertEqual(res.deleted, 0)           # 旧的仍走挂起（不立即删）
-            self.assertEqual(res.pending_delete, 30)
+            self.assertEqual(res.deleted, 30)          # 旧的当轮就清掉（父目录已不存在也算确认不在）
+            self.assertEqual(res.pending_delete, 0)
 
-    def test_改名到点后能正常删旧的(self):
+    def test_改名当轮就把旧名清掉(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            s = Syncer(None, make_cfg(tmp, delete_defer_minutes=0.0))
+            s = Syncer(None, make_cfg(tmp))
             for i in range(30):
                 p = tmp / "out" / f"电影/旧名{i}/片.mkv.strm"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text("old", encoding="utf-8")
             new = [f(f"电影/新名{i}/片.mkv") for i in range(30)]
-            s.save_pending(Pending(paths=[f"电影/旧名{i}/片.mkv.strm" for i in range(30)],
-                                   first_seen=time.time() - 600, seen_times=1))
             res = s.run(remote_files=new, remote_dirs=[], source="tree")
             self.assertFalse(res.guard_tripped)
-            self.assertEqual(res.deleted, 30)          # 到点确认后才删
+            self.assertEqual(res.deleted, 30)          # 当轮即删，不再等下一轮
             self.assertEqual(res.written, 30)
 
     def test_cookie失效仍然拦得住(self):
@@ -354,7 +493,7 @@ class TestRenameVsAnomaly(unittest.TestCase):
             res = s.run(remote_files=remote, remote_dirs=[], source="tree")
             self.assertFalse(res.looks_like_move)
 
-    def test_本地改名会被重生成并挂起删除(self):
+    def test_本地改名会被重生成并清掉旧的(self):
         """🔴 旧行为（2026-10-08 之前）：本地改名 ⇒ 判「丢失 + 多余」。
 
         ⚠️ **这条已被 `TestLocalRename` 取代** —— 红领巾明确要求
@@ -372,9 +511,8 @@ class TestRenameVsAnomaly(unittest.TestCase):
             res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 1)               # 重新生成原名的
             self.assertTrue((tmp / "out" / "电影" / "片.mkv.strm").exists())
-            self.assertEqual(res.deleted, 0)               # 改过名的那份：挂起，没立即删
-            self.assertEqual(res.pending_delete, 1)
-            self.assertIn("电影/片-我改的.mkv.strm", s.load_pending().paths)
+            self.assertEqual(res.deleted, 1)               # 改过名的那份：当轮清掉
+            self.assertFalse((tmp / "out" / "电影" / "片-我改的.mkv.strm").exists())
 
     def test_本地手动改内容会被改回来(self):
         with tempfile.TemporaryDirectory() as td:
@@ -431,10 +569,10 @@ class TestLocalRename(unittest.TestCase):
             old = self._seed(tmp, "电影/片.mkv.strm", "https://旧前缀/d/电影/片.mkv")
             old.rename(old.with_name("我改的名字.mkv.strm"))
             res = s.run(remote_files=[f("电影/片.mkv")], remote_dirs=[], source="tree")
-            # 内容对不上 ⇒ 认领失败 ⇒ 走正常流程（生成 + 旧的挂起）
+            # 内容对不上 ⇒ 认领失败 ⇒ 走正常流程（生成新的 + 旧的当轮清掉）
             self.assertEqual(res.renamed, 0)
             self.assertEqual(res.written, 1)
-            self.assertEqual(res.pending_delete, 1)
+            self.assertEqual(res.deleted, 1)
 
     def test_手动新增的strm被保留(self):
         """手动加一个指向真实网盘文件的 strm ⇒ 内容对得上 ⇒ 保留，不当孤儿删。"""
@@ -457,7 +595,7 @@ class TestLocalRename(unittest.TestCase):
             res = s.run(remote_files=[f("电影/新名.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.written, 1)                     # 新名字的生成出来
             self.assertTrue((tmp / "out" / "电影" / "新名.mkv.strm").exists())
-            self.assertEqual(res.pending_delete, 1)              # 旧名字的挂起
+            self.assertEqual(res.deleted, 1)                     # 旧名字的当轮清掉
             self.assertEqual(res.renamed, 0)
 
     def test_同一URL多份只认领一个(self):
@@ -468,9 +606,14 @@ class TestLocalRename(unittest.TestCase):
             u = s.builder.url("a.mkv")
             self._seed(tmp, "副本1.mkv.strm", u)
             self._seed(tmp, "副本2.mkv.strm", u)
-            res = s.run(remote_files=[f("a.mkv")], remote_dirs=[], source="tree")
+            # 再撑 9 份正常文件 ⇒ 1/10 = 10%，别撞异常闸门
+            for i in range(9):
+                self._seed(tmp, f"g{i}.mkv.strm", s.builder.url(f"g{i}.mkv"))
+            res = s.run(remote_files=[f("a.mkv")] + [f(f"g{i}.mkv") for i in range(9)],
+                        remote_dirs=[], source="tree")
+            self.assertFalse(res.guard_tripped)
             self.assertEqual(res.renamed, 1)
-            self.assertEqual(res.pending_delete, 1)     # 另一份进挂起
+            self.assertEqual(res.deleted, 1)     # 另一份判多余 ⇒ 当轮清掉
 
     def test_内容对的路径也对_走第一级不重复读(self):
         with tempfile.TemporaryDirectory() as td:
@@ -491,7 +634,7 @@ class TestLocalRename(unittest.TestCase):
             res = s.run(remote_files=[f("a.mkv")], remote_dirs=[], source="tree")
             self.assertEqual(res.renamed, 0)
             self.assertEqual(res.written, 1)
-            self.assertEqual(res.pending_delete, 1)
+            self.assertEqual(res.deleted, 1)
 
     def test_改名的也进回执明细(self):
         """⭐ 「记录」里要能看见「这轮有哪些是我自己改过名的」——
@@ -636,7 +779,7 @@ class TestRoundTripNoFalseDelete(unittest.TestCase):
             self.assertFalse(r2.guard_tripped, "闸门不该被触发")
             self.assertEqual(r2.pending_delete, 0)
 
-    def test_真的消失了会进挂起(self):
+    def test_真的消失了当轮就删(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
@@ -644,8 +787,8 @@ class TestRoundTripNoFalseDelete(unittest.TestCase):
             s.run(remote_files=a, remote_dirs=[], source="tree")
             b = a[:9]                                  # 少一个
             r = s.run(remote_files=b, remote_dirs=[], source="tree")
-            self.assertEqual(r.deleted, 0)
-            self.assertEqual(r.pending_delete, 1)
+            self.assertEqual(r.deleted, 1)
+            self.assertEqual(r.pending_delete, 0)
             self.assertFalse(r.guard_tripped)
 
 
@@ -654,11 +797,14 @@ class TestPendingPersistence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             s = Syncer(None, make_cfg(tmp))
-            s.save_pending(Pending(paths=["a", "b"], first_seen=1234.5, seen_times=2))
+            s.save_pending(Pending(paths=["a", "b"], first_seen=1234.5, seen_times=2,
+                                   reason="散在 41 个目录里"))
             p = s.load_pending()
             self.assertEqual(p.paths, ["a", "b"])
             self.assertEqual(p.first_seen, 1234.5)
             self.assertEqual(p.seen_times, 2)
+            # ⚠️ `reason` 必须一起存 —— 网页那张卡上「为什么没删」就是它
+            self.assertEqual(p.reason, "散在 41 个目录里")
 
     def test_文件损坏时返回空不抛(self):
         with tempfile.TemporaryDirectory() as td:

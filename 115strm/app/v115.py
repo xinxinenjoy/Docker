@@ -58,6 +58,16 @@ class CookieMissing(V115Error):
     pass
 
 
+class V115DirNotFound(V115Error):
+    """网盘上**确实没有**这个目录（不是接口出错）。
+
+    🔴 2026-10-20：`_recheck()` 必须能分清这两种情况 ——
+       前者说明「里面的东西当然也没了」，后者说明「没查成，别乱删」。
+       以前两者都是 `V115Error` ⇒ 整目录改名时 `dir_id()` 抛「找不到目录」，
+       被当成「还在」⇒ **旧 strm 在自动路径上永远删不掉**（只能手动确认）。
+    """
+
+
 @dataclass
 class Node:
     """115 列表里的一项（目录的 id 在 cid，文件的在 fid —— 统一成 `id`）。"""
@@ -255,6 +265,11 @@ class V115:
         self.throttle = throttle
         self.log = log or (lambda *a, **k: None)
         self.calls = 0
+        # ⚠️ 紧接在 `list_dir()` 之后读：这一层**有没有列完**（被 `MAX_PAGES` 截断 = False）。
+        #    调用方（`Syncer._recheck`）靠它决定「能不能断言某个名字不在」——
+        #    截断了还硬断言就会把没列到的文件当成「网盘上没了」。
+        #    ⛔ 别跨多次调用攒着读（下一次 list_dir 会覆盖它）。
+        self.last_list_complete = True
         self._dir_ids: dict[str, str] = {}       # 相对路径 → 目录 id
         self._paths: dict[str, str] = {}         # 目录 id → 相对**网盘根**的路径（含自身名）
         # ⭐ 请求流水 —— 网页上点「请求」数字展开的就是它（见 `app/reqlog.py`）。
@@ -306,6 +321,7 @@ class V115:
         offset = 0
         limit = 200
         pages = 0
+        self.last_list_complete = True          # 默认「列完了」，下面截断时翻 False
         while True:
             payload: dict[str, Any] = {"cid": cid, "limit": limit, "offset": offset, "show_dir": 1}
             if dirs_only:
@@ -333,8 +349,9 @@ class V115:
             if total is not None and offset >= int(total):
                 break                    # `count` 是总数，有它就不猜
             if pages >= MAX_PAGES:
+                self.last_list_complete = False
                 self.log("warning", f"列目录 {cid} 已翻 {pages} 页还没到底，先收手"
-                                    f"（已取 {len(out)} 项，结果可能不全）")
+                                    f"（已取 {offset} 项，结果可能不全）")
                 break
         return out
 
@@ -367,7 +384,7 @@ class V115:
                         cid = node.id
                         break
             if not cid:
-                raise V115Error(f"115 上找不到目录：{path}（卡在 {part}）")
+                raise V115DirNotFound(f"115 上找不到目录：{path}（卡在 {part}）")
             self._dir_ids[cur] = cid
             parent = cid
         return parent

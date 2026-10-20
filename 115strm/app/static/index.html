@@ -488,6 +488,9 @@ nav button.on{color:var(--pri)}
           <span class="hint" id="pendingHint"></span>
         </div>
         <div class="card-b">
+          <!-- ⚠️ 这段是**为什么没自动删**。⚠️ 2026-10-20 起这张卡只在这两种情况出现：
+               异常闸门触发 / 变动面过大 ⇒ 不写清原因，他就只能看到一长串路径瞎猜。 -->
+          <div class="muted" id="pendingWhy" style="margin-bottom:11px;line-height:1.7"></div>
           <div class="actions">
             <button class="btn bad sm" onclick="applyPending()">确认删除</button>
             <button class="btn sm" onclick="cancelPending()">取消</button>
@@ -798,19 +801,23 @@ async function loadState() {
     ['同步根', s.scope && s.scope.remote_root ? s.scope.remote_root : '（树根）', ''],
     ['只处理', sc ? (sc.length > 2 ? `${sc.length} 个目录` : sc.join(' · ')) : '全部', sc ? 'pri' : ''],
     ['方式', '自己导目录树', 'ok'],
-    ['删除等待', s.delete_defer_minutes + ' 分', ''],
+    // ⚠️ 2026-10-20：这一格原来是「删除等待 10 分」（等够时间、**再等下一轮**才真删）。
+    //    红领巾实测挂起清单躺 127 分钟没人处理 ⇒ 改成当轮复核即删，没有可等的分钟数了。
+    ['删除判定', '当轮复核即删', 'ok'],
   ].map(([k, v, cls]) => `<div class="stat ${cls}">
     <div class="k">${k}</div>
     <div class="v" style="font-size:15px" title="${esc(String(v))}">${esc(String(v))}</div></div>`).join('');
   if ($('#homeStats').innerHTML !== homeHtml) $('#homeStats').innerHTML = homeHtml;
 
-  // 待确认删除
+  // 待确认删除 —— ⚠️ 2026-10-20 起**只有两种情况**才会出现：
+  //    异常闸门触发（消失比例过高）/ 变动面过大（候选散在几十个目录里）。
+  //    正常删除当轮就做完了，这张卡平时是隐藏的。
   const p = s.pending || {};
   if (p.count) {
     $('#pendingCard').style.display = '';
-    $('#pendingHint').textContent = p.ready
-      ? `已等 ${p.age_minutes} 分钟 · 可确认`
-      : `已等 ${p.age_minutes} / ${p.wait_minutes} 分钟`;
+    $('#pendingHint').textContent =
+      `${n(p.count)} 条 · 发现于 ${p.age_minutes} 分钟前`;
+    $('#pendingWhy').textContent = p.reason || '';
     $('#pendingList').innerHTML = (p.sample || []).map(x =>
       `<div class="row"><span class="badge del">删</span><span class="p">${esc(x)}</span></div>`).join('')
       + (p.count > (p.sample || []).length ? `<div class="row muted">…还有 ${p.count - p.sample.length} 条</div>` : '');
@@ -945,14 +952,21 @@ const RES_SEG = [
 /* 疑似「被截断的子树」到底是**哪几个** —— 光报数等于没说。
    🔴 红领巾 2026-10-11 看到「有 3 个条目既没有子项、也没有扩展名」：「这个也不知道说的是哪个」
    ⇒ 把后端存的前几条路径直接列出来。路径已由后端去掉树根那一段，直接对应 115 里的位置。 */
-function exList(res) {
-  const s = res.extensionless_sample || [];
+/* 「前几条路径」的通用渲染（截断子树 / 复核后保留，都用它）——
+   光报数等于没说，红领巾要的是**是哪几个**。 */
+function sampleList(items, total) {
+  const s = items || [];
   if (!s.length) return '';
-  const rest = (res.extensionless || 0) - s.length;
+  const rest = (total || 0) - s.length;
   return `<div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12.5px;
     line-height:1.75;word-break:break-all">${
       s.map(p => '· ' + esc(p)).join('<br>')}${
       rest > 0 ? `<br>· …另有 ${n(rest)} 个未列出` : ''}</div>`;
+}
+
+function exList(res) {
+  return sampleList(res.extensionless_sample,
+    res.extensionless || (res.extensionless_sample || []).length);
 }
 
 /* 配不上的字幕 —— **按目录分组**。
@@ -1012,7 +1026,7 @@ function showResult({ res, det = {}, finished = '', isLatest = true }) {
 function fpOf(res, det, finished, isLatest) {
   const c = (res.diff && res.diff.counts) || {};
   return [isLatest ? 1 : 0, finished, res.started, res.finished,
-          res.written, res.deleted, res.pending_delete, res.requests,
+          res.written, res.deleted, res.pending_delete, res.delete_kept, res.requests,
           res.elapsed, res.elapsed_total, res.elapsed_tree,
           res.scanned_remote, res.scanned_local, res.unchanged, res.renamed,
           res.dirs_made, res.dirs_skipped, res.dirs_pruned, res.extensionless,
@@ -1077,8 +1091,8 @@ function secOverview(res, det) {
       ${res.renamed ? ` · 本地改过名保留 <b>${n(res.renamed)}</b>` : ''}
     </div>
     ${res.pending_delete ? `<div class="muted" style="margin-top:4px">
-      ⏳ 有 <b>${n(res.pending_delete)}</b> 个 strm 挂着等二次确认 ——
-      处理入口在最上面那张「待确认删除」卡（这一轮<b>没有</b>真删）。</div>` : ''}
+      ⏳ 有 <b>${n(res.pending_delete)}</b> 个 strm 判为<b>不该自动删</b>（异常 / 变动面过大）——
+      清单和原因在最上面那张「待确认删除」卡里（这一轮<b>没有</b>真删）。</div>` : ''}
     ${origin ? `<div class="muted" style="margin-top:4px">目录树来源：${esc(origin)}</div>` : ''}
     ${res.elapsed_tree ? `<div class="muted" style="margin-top:4px">
       耗时拆开：导目录树 <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>
@@ -1151,21 +1165,30 @@ function secMedia(res) {
   const cx = (res.diff && res.diff.counts) || {};
   const del = cx.delete || 0;
   const pend = res.pending_delete || 0;
+  const kept = res.delete_kept || 0;
   // 🔴 2026-10-13 实测撞出来的歧义：概览说「删除 0」、这块说「删 154」——
-  //    两处都对（**判定要删** 154 个，但按二次确认机制 **实际一个都没删**），
-  //    可摆在一起读就是「自相矛盾」。分块之后这种跨块的矛盾**更容易被看见**，
-  //    所以这里必须把「判定」和「已删」拆开说，并且指出去哪儿处理。
-  let note = '';
+  //    两处都对（**判定要删** 154 个，但实际没删），可摆在一起读就是「自相矛盾」。
+  //    ⇒ 这里必须把「判定 / 已删 / 挂起 / 保留」四个数分开说。
+  // ⚠️ 2026-10-20：正常情况**当轮就删完了**，所以「挂起」这条现在只在异常时出现。
+  const notes = [];
   if (pend) {
-    note = `<div class="note warn" style="margin-bottom:11px"><i>⏳</i><div>
-      判定要删 <b>${n(del)}</b> 个 strm，本轮<b>实际一个都没删</b> ——
-      它们挂在上面那张「<b>待确认删除</b>」卡里等二次确认
-      （先挂起、等够时间再扫一次确认，才真删）。
-      要立刻处理就回上面点「确认删除」。</div></div>`;
+    notes.push(`<div class="note warn"><i>⏳</i><div>
+      判定要删 <b>${n(del)}</b> 个 strm，本轮<b>一个都没自动删</b> ——
+      原因和清单在最上面那张「<b>待确认删除</b>」卡里。
+      确认无误就点那张卡上的「确认删除」。</div></div>`);
   } else if (del && res.deleted) {
-    note = `<div class="note ok" style="margin-bottom:11px"><i>✅</i><div>
-      已删除 <b>${n(res.deleted)}</b> 个本地 strm（网盘上确实没了）。</div></div>`;
+    notes.push(`<div class="note ok"><i>✅</i><div>
+      已删除 <b>${n(res.deleted)}</b> 个本地 strm
+      （当轮复核过：网盘上确实没了）。</div></div>`);
   }
+  if (kept) {
+    notes.push(`<div class="note warn"><i>↩️</i><div>
+      另有 <b>${n(kept)}</b> 条判定要删、但复核时发现<b>网盘上还在</b>
+      ⇒ 保留本地没删（宁可多留一轮，不可误删）。
+      ${sampleList(res.delete_kept_sample, kept)}</div></div>`);
+  }
+  const note = notes.length
+    ? `<div style="margin-bottom:11px">${notes.join('')}</div>` : '';
   const body = note + `
     <div class="seg" id="resSeg" style="margin-bottom:11px">
       ${RES_SEG.map(([t, lab], i) => `<button data-t="${t}"${i ? '' : ' class="on"'}
@@ -1174,14 +1197,15 @@ function secMedia(res) {
     </div>
     <div class="diff" id="resList"></div>
     <div class="muted" style="font-size:12.5px;margin-top:9px;word-break:break-all" id="resMore"></div>`;
-  // ⚠️ 「挂起」也算内容：`del` 是**判定要删**的条数，pending 是实际挂起的。
-  //    两者都为 0 才是真的「本轮没有 strm 变动」。
+  // ⚠️ 「挂起 / 复核保留」也算内容：`del` 是**判定要删**的条数，
+  //    `res.deleted` 是实际删掉的，`kept` 是复核后留下的。
   const empty = !(cx.add || cx.update || del || cx.renamed);
   return secBox('media', {
     icon: '🎬 ', title: '视频 strm',
     sum: empty ? '本轮没有 strm 变动'
       : `增 ${n(cx.add || 0)} · 改 ${n(cx.update || 0)} · 删 ${n(del)}` +
-        (pend ? `（挂起 ${n(pend)}）` : '') + ` · 留 ${n(cx.renamed || 0)}`,
+        (pend ? `（挂起 ${n(pend)}）` : (kept ? `（保留 ${n(kept)}）` : '')) +
+        ` · 留 ${n(cx.renamed || 0)}`,
     empty,
     body,
   });
@@ -1335,7 +1359,7 @@ function renderResList(t, hasList) {
     $('#resList').innerHTML = items.map(rel => `<div class="it">
       <div class="l1"><span class="badge ${t === 'add' ? 'add' : (t === 'delete' ? 'del' : 'upd')}">${lab}</span><span class="p">${esc(rel)}</span></div>
       <div class="u">${t === 'add' ? '本地没有 → 新建这个 strm'
-        : (t === 'delete' ? '本地有、网盘上没了 → 判定删除（挂着的话先等二次确认才真删）'
+        : (t === 'delete' ? '本地有、网盘上没了 → 当轮复核后删除（复核说还在就保留；异常则挂起等确认）'
                           : '文件还在、内容变了 → 重写这个 strm')}</div></div>`).join('');
   }
   $('#resMore').innerHTML = more ? `…还有 ${n(more)} 条未列出（回执 JSON 里有前 ${n(500)} 条）` : '';
@@ -1468,9 +1492,9 @@ $$('#prevSeg button').forEach(b => b.onclick = () => renderPrev(b.dataset.t));
 async function run() {
   // ⛔ 不传 `mode`（只有一条路）、不传 `dry_run`（2026-10-11 已删）。
   // ⚠️ 原来这里靠「只演练开着就不拦」当安全阀；演练删掉后，这道 confirm 就是
-  //    **动手前最后一道明示**（真正的保险仍在后端：删除要过 10 分钟二次确认 + 比例闸门，
+  //    **动手前最后一道明示**（真正的保险仍在后端：删除要先复核网盘 + 比例闸门，
   //    而且只删 `.strm`、只删落在输出目录里的）。⛔ 别顺手把它也删了。
-  if (!confirm('会真的写文件，并可能删除本地 strm（删除有二次确认兜底）。\n'
+  if (!confirm('会真的写文件，并可能删除本地 strm（删除前会复核网盘）。\n'
                + '想先看一眼点「预览差异」——那一步零请求、一个文件都不动。\n继续？')) return;
   try {
     await api('/api/run', { method: 'POST', body: JSON.stringify({ force_delete: false }) });
@@ -1482,7 +1506,10 @@ async function stop() {
   try { await api('/api/run/stop', { method: 'POST' }); toast('已请求停止'); } catch (e) { toast(e.message); }
 }
 async function applyPending() {
-  if (!confirm('确认删除这些本地 strm？（不可撤销）')) return;
+  // ⚠️ 把「为什么挂着」再念一遍 —— 这张卡现在只在**异常**情况下出现，
+  //    点确认就真删，不能让他只看到一句「确认删除这些？」。
+  const q = (window.__state && window.__state.pending) || {};
+  if (!confirm(`${q.reason ? q.reason + '\n\n' : ''}确认删除这 ${q.count || 0} 个本地 strm？（不可撤销）`)) return;
   try { const r = await api('/api/pending/apply', { method: 'POST' }); toast(`已删 ${r.deleted} 个`); loadState(); }
   catch (e) { toast(e.message); }
 }
@@ -1718,7 +1745,7 @@ function renderScopeEstimate(d) {
     const c = (e.counts) || {};
     const move = d.looks_like_move
       ? `<div class="note info"><i>🔀</i><div>这一批看着是<b>改名 / 移动</b>（消失的条数 ≈ 新增的条数）——
-          不是异常。旧的会走「挂起 → 二次确认」流程，不会当场删。</div></div>`
+          不是异常。旧的会在<b>本轮复核后</b>一并清掉。</div></div>`
       : '';
     box.innerHTML = w + move + `<div class="note ok"><i>✓</i><div>
       <div>按这个范围试算（<b>没有动任何文件</b>）：</div>

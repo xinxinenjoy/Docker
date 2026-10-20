@@ -331,7 +331,6 @@ def state() -> dict:
         "strm_prefix": cfg.strm_prefix,
         "prefix_ready": cfg.prefix_ready,
         "schedule_cron": cfg.schedule_cron,
-        "delete_defer_minutes": cfg.delete_defer_minutes,
         "delete_ratio_guard": cfg.delete_ratio_guard,
         "accounts_file": str(cfg.accounts_file),
     }
@@ -492,7 +491,11 @@ def set_scope(body: ScopeIn) -> dict:
 
 
 def _pending_info(cfg: Config) -> dict:
-    """挂起删除现状 —— 页面上要能一眼看到「有 N 条等着确认」。"""
+    """待确认删除现状 —— 页面上要能一眼看到「有 N 条等着确认、为什么」。
+
+    ⚠️ 2026-10-20 起它**只在两种情况下非空**：异常闸门触发 / 变动面过大。
+       正常删除在当轮就做完了，这张卡平时不出现。
+    """
     s = Syncer(None, cfg)
     p = s.load_pending()
     if not p.paths:
@@ -500,8 +503,7 @@ def _pending_info(cfg: Config) -> dict:
     return {
         "count": len(p.paths),
         "age_minutes": round(p.age_minutes(), 1),
-        "wait_minutes": cfg.delete_defer_minutes,
-        "ready": p.age_minutes() >= cfg.delete_defer_minutes,
+        "reason": p.reason or "这些是被判为不该自动删的，等你确认",
         "sample": p.paths[:50],
     }
 

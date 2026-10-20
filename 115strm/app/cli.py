@@ -241,8 +241,9 @@ def cmd_pending(cfg: Config, log, args) -> int:
     if not p.paths:
         print("没有挂起的删除")
         return 0
-    print(f"挂起 {len(p.paths)} 条，已等 {p.age_minutes():.1f} 分钟"
-          f"（阈值 {cfg.delete_defer_minutes:.0f} 分钟）")
+    print(f"挂起 {len(p.paths)} 条（发现于 {p.age_minutes():.0f} 分钟前）")
+    if p.reason:
+        print(f"原因：{p.reason}")
     for x in p.paths[:200]:
         print("  -", x)
     return 0
