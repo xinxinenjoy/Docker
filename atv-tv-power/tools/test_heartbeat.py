@@ -64,7 +64,7 @@ class FakeApi:
             raise self.exc
         return self.status
 
-    def listen_to(self, event, cb):          # 必需：_attach_raw_guard 会调
+    def listen_to(self, event, cb):          # 必需：_attach_raw_state 会调
         pass
 
     async def subscribe_event(self, event):
@@ -118,7 +118,6 @@ def make_service(api, poll_seconds: float = 0.05) -> m.LinkService:
         "atv": {"host": "192.168.1.10", "credentials": "keys/atv_credentials.json"},
         "tv": {"host": "192.168.1.11", "port": 6095, "timeout": 1, "verify_delay": 0.01},
         "bark": {"enabled": False},          # 测试绝不允许真推手机
-        "guard": {"enabled": True, "on_unknown": "skip"},
     }
     svc = m.LinkService(cfg)
     svc.tv.state = lambda: m.TV_OFF          # 电视当作已关，杜绝真发 HTTP 键

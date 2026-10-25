@@ -102,7 +102,7 @@ services:
 
 | 键 | 默认 | 说明 |
 |:---|:---|:---|
-| `delay_seconds` | 20 | ATV 待机后等多久才关电视。期间若 ATV 被唤醒则取消（防误触） |
+| `delay_seconds` | 3 | ATV 待机后等多久才关电视。期间若 ATV 被唤醒则取消（防误触） |
 | `poll_seconds` | 30 | **心跳探活间隔**（也是状态对账间隔）—— 每轮真发一次 `fetch_attention_state()`，顺带发现推送漏掉的事件。别调得比 5s 还小（探活本身有 5s 超时） |
 | `retries` / `retry_interval` | 3 / 5 | 关电视失败重试次数与间隔 |
 | `reconnect_delay` | 30 | ATV 掉线后的重连间隔 |
@@ -111,8 +111,6 @@ services:
 | `tv.host` / `tv.port` | — / 6095 | 电视地址与局域网 HTTP 接口端口（可被 `TV_HOST` / `TV_PORT` 覆盖）。⚠️ **`6095` 是小米电视的端口，其它品牌未测、未必一致** —— 见文首「设备支持范围」 |
 | `tv.timeout` | 4 | 单次 HTTP 超时（判"已待机"靠的就是它超时） |
 | `tv.verify_delay` | 4 | 发键后复查状态的等待秒数 |
-| `guard.enabled` | true | **防误关判据**（见下节）。关掉则退回「ATV 一待机就关电视」的旧逻辑 |
-| `guard.on_unknown` | `skip` | 拿不到 ATV 原始状态时的取舍：`skip` = 不关电视（保守）/ `close` = 按旧逻辑关 |
 | `bark.*` | — | 失效告警推送（`enabled` / `key_file` / `group` / `sound` / `icon` / `offline_after`） |
 
 ### 用环境变量覆盖设备地址（可选）
@@ -151,17 +149,22 @@ compose 里这样写（默认值一律留空，靠 `.env` 覆盖）：
 
 1. 容器内一个 Python 进程常驻。
 2. 用 pyatv 连 Apple TV 的 Companion 协议，**订阅电源状态推送**（不是轮询 —— ATV 一进待机事件立刻就到）。
-3. 收到「待机」→ 等 `delay_seconds`（默认 20s）；期间 ATV 若被唤醒就取消，防误触。
-4. **防误关判据**：查「待机前 ATV 的**原始**状态」，只有 `Awake` 才继续；`Screensaver`/`Idle` 说明是 ATV 闲置后自己睡着的 ⇒ **不关电视**。
-5. 通过判据 → HTTP 请求电视 `6095` 发一次电源键 → 4 秒后复查确认已关。
-6. 关电视重试耗尽 / ATV 连续失联 / 判据降级 → 走 Bark 推一条告警（同一问题不刷屏）。
-7. **心跳探活**：每 `poll_seconds` 真发一次 `fetch_attention_state()` —— 这是**整个服务唯一**会走网络的存活检查。连接死了就在 5s 内失败 ⇒ 退出会话 ⇒ 重连。心跳读到的状态同时用于**对账**：与本地记录不符（推送丢了）就按新值补偿，避免漏关。
+3. 收到「待机」→ 等 `delay_seconds`（默认 **3s**）；期间 ATV 若被唤醒就整个取消（防误触）。
+4. 到点仍是待机 → HTTP 请求电视 `6095` 发一次电源键 → 4 秒后复查确认已关。
+5. 关电视重试耗尽 / ATV 连续失联 / 心跳探活降级 → 走 Bark 推一条告警（同一问题不刷屏）。
+6. **心跳探活**：每 `poll_seconds` 真发一次 `fetch_attention_state()` —— 这是**整个服务唯一**会走网络的存活检查。连接死了就在 5s 内失败 ⇒ 退出会话 ⇒ 重连。心跳读到的状态同时用于**对账**：与本地记录不符（推送丢了）就按新值补偿，避免漏关。
 
-### 🔴 防误关判据：为什么要看「原始状态」
+### 判据已删除：待机 = 关电视（2026-10-25）
 
-**问题**：ATV 有自己的屏保 / 睡眠计时器，**和你切没切电视输入源无关**。你正用电视的另一个 HDMI 看别的内容，ATV 到点自己睡着 —— 此时若无条件关电视，就是一次误关。
+早期版本会看「待机前 ATV 的**原始**状态」：`Awake` 才关，`Screensaver`/`Idle` 当作「ATV 闲置后自己睡着」而不关。**这条判据已废弃**，因为它是在猜意图，猜错的方向还是最难受的那个 ——
 
-**根因**：pyatv 把设备上报的原始状态做了**有损压缩**（`companion/__init__.py` 的 `_system_status_to_power_state`）：
+> 2026-10-23 实测：ATV 已在屏保，人按遥控器主动关机 ⇒ 原始状态走 `Awake → Screensaver → Asleep`，最后一帧是 `Screensaver` ⇒ 被判成「自己睡着」⇒ **该关的没关**，电视亮着，还把 ATV 又唤醒了。
+
+真正的解法在设备侧：**把 ATV 设置里的「闲置 XX 分钟后自动睡眠」关掉** ⇒ 待机只可能来自人按遥控器 ⇒ 判据没有存在的必要。于是规则收敛成一句：**收到待机就关电视，延迟 3s**。
+
+⚠️ 代价（免得以后当 bug 查）：哪天又把 ATV 的自动睡眠打开，闲置睡着会把电视一起关掉。**该改的是 ATV 设置，不是把判据加回来。**
+
+**原始状态（`SystemStatus`）的订阅仍然保留**，但**不再参与判断** —— 它是心跳探活的唯一载体（见上一节第 6 条）+ 漏推送时的对账依据。pyatv 的 `PowerState` 会把 `Screensaver`/`Awake`/`Idle` 压成同一个 `On`，所以要绕开映射直接取原始值：
 
 | 设备原始状态（`SystemStatus`） | pyatv 交给我们的 `PowerState` |
 |:---|:---|
@@ -170,19 +173,8 @@ compose 里这样写（默认值一律留空，靠 `.env` 覆盖）：
 | `Awake` (0x03) | `On` ← **区分被抹掉** |
 | `Idle` (0x04) | `On` ← pyatv 自己标注 "Not verified"，实测也从未见过 |
 
-**解决办法**：绕开这层映射，从 `atv._interfaces[Power]._interfaces[Protocol.Companion].api` 拿到 `CompanionAPI`，再 `listen_to("SystemStatus", cb)` + `subscribe_event("SystemStatus")`。
-
+取法：从 `atv._interfaces[Power]._interfaces[Protocol.Companion].api` 拿 `CompanionAPI`，再 `listen_to("SystemStatus", cb)` + `subscribe_event("SystemStatus")`。
 （`listen_to` 走 `MessageDispatcher`，是 **append** ⇒ 不会覆盖 pyatv 自己的电源回调；`subscribe_event` 内部有去重 ⇒ 重复订阅安全。⚠️ 回调会被 `loop.call_soon` 调用，须写成**同步函数**。）
-
-**决策表**：
-
-| 待机前的原始状态 | 推断 | 动作 |
-|:---|:---|:---|
-| `Awake` | 你正在用 ATV，是按遥控器主动关机 | **关电视** |
-| `Screensaver` / `Idle` | ATV 闲置后自己睡着的 | **不关电视** |
-| 拿不到（降级） | 判据失效 | 按 `guard.on_unknown`（默认 `skip` 不关）+ Bark 告警 |
-
-**已知取舍**（写在这里免得以后当 bug 查）：在 ATV 主界面停到它进屏保、**之后**再按遥控器关机，会被判成「自己睡着」而不关电视。代价是**偶尔该关没关**（手按一下遥控器即可），换来的是**不误关**。
 
 **为什么不能从电视侧判断**（三条路都堵死了，别再试）：
 
@@ -258,8 +250,8 @@ python atv_tv_power.py --test-bark      # 手动推一条 Bark，验证告警通
 | 现象 | 原因 / 处理 |
 |:---|:---|
 | `找不到 Apple TV` | 设备换 IP 或休眠较深。核对 `config.json` 的 host；`atvremote scan` 复查 |
-| 日志有 `ATV 进入待机` 但电视没关 | 先看紧随其后的那行：若写「**跳过关电视 —— 待机前 = Screensaver**」，这是**预期**的防误关；若写「关电视：…」再对照「复查状态」，显式 `off` 说明电视本就关着（正常） |
-| 电视该关却没关 | 跑 `python atv_tv_power.py --show-state` 看判据怎么判的；再看 ATV 设置里屏保 / 睡眠时长。若判据**降级**（会推 🟡 告警），把 `guard.on_unknown` 改 `close` 可退回旧行为 |
+| 日志有 `ATV 进入待机` 但电视没关 | 现在**不存在「跳过关电视」这种预期行为**（判据已于 2026-10-25 删除）。往下看有没有 `确认 ATV 仍在待机，开始关闭电视`：有 ⇒ 看「复查状态」，显式 `off` 说明电视本就关着（正常）；没有 ⇒ 延迟期间 ATV 被唤醒了（日志会写「取消待执行的关电视动作」） |
+| 电视该关却没关 | 跑 `python atv_tv_power.py --show-state` 看 ATV 状态与电视状态；若推送根本没到，看有没有 🟡「心跳探活已降级」告警 |
 | 电视被**打开**了（而不是关掉） | `keyevent` 是切换语义 —— 说明发键前状态判断出错。检查 `tv.port` / host 是否指到了别的设备 |
 | 推送收不到 | 十有八九是 listener 被 GC（见结论 1）。本服务的 `_listener` 是强引用，改动代码请保留 |
 | **长期运行后完全收不到 ATV 事件** | 旧缺陷：Companion 长连接无保活 + 兜底轮询读的是缓存 ⇒ 连接静默死亡后无人发现。新版已修（心跳探活） |
@@ -275,7 +267,7 @@ python atv_tv_power.py --test-bark      # 手动推一条 Bark，验证告警通
 | 脚本 | 用途 |
 |:---|:---|
 | `tools/pair_atv.py` | 与 Apple TV 做 Companion 配对，产出 `keys/atv_credentials.json`（PIN 显示在电视上） |
-| `tools/test_guard.py` | **防误关判据的回归测试**：离线跑决策表（不连设备、不发请求）。改动判据函数后**务必先跑它** |
+| `tools/test_standby_off.py` | **「待机 → 关电视」触发的回归测试**：离线跑（不连设备、不发请求），含「待机前是屏保也必须关」这条回归。改动触发/延迟逻辑后**务必先跑它** |
 | `tools/test_heartbeat.py` | **连接探活的回归测试**：离线验证「连接死了必须被发现」—— 反例（`fetch` 抛异常 → 会话退出并清理干净）、正例（健康时不退出）、状态对账、拿不到 API 时不误判。改动心跳 / 会话循环后**务必先跑它** |
 
 ---
