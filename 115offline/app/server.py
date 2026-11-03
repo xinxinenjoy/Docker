@@ -60,6 +60,9 @@ from namer import (
 # 推送记录（「本体推送」账本）是纯标准库逻辑，单独放在 pushlog.py。
 from pushlog import MAX_RECORDS as PUSHLOG_MAX
 from pushlog import PushLog
+# 分批推送的切批 / 进度 / 错误归类同样是纯标准库逻辑，单独放在 pusher.py。
+import pusher
+from pusher import PushJob
 
 # ----------------------------------------------------------------- 配置
 BASE_DIR = Path(__file__).resolve().parent
@@ -67,6 +70,20 @@ STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = Path(os.environ.get("DATA_DIR") or (BASE_DIR.parent / "data"))
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 ACCESS_TOKEN = (os.environ.get("ACCESS_TOKEN") or "").strip()
+
+# ----------------------------------------------------------------- 分批推送的参数
+# 🔴 2026-11-03 红领巾：一次粘 1644 条，115 回「一次最多 100 条」⇒ 要求「内部分批推送，
+#    注意不要过快避免风控」。切批逻辑在 pusher.py，这里只管三个可调参数：
+#      PUSH_CHUNK      每批多少条（默认 100 = 115 单请求硬限，只能调小不能调大）
+#      PUSH_DELAY      批与批之间等几秒（默认 3.0，别调太小 —— 这才是躲风控的地方）
+#      PUSH_MAX_TOTAL  一次提交的总上限（默认 3000，按默认节奏约 100 秒跑完）
+PUSH_CHUNK = pusher.clamp_chunk(os.environ.get("PUSH_CHUNK") or pusher.DEFAULT_CHUNK)
+PUSH_DELAY = pusher.clamp_delay(os.environ.get("PUSH_DELAY") or pusher.DEFAULT_DELAY)
+try:
+    PUSH_MAX_TOTAL = max(pusher.MAX_PER_REQUEST,
+                         int(os.environ.get("PUSH_MAX_TOTAL") or pusher.MAX_TOTAL))
+except ValueError:
+    PUSH_MAX_TOTAL = pusher.MAX_TOTAL
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -504,6 +521,10 @@ class PushIn(BaseModel):
     # 前端选中的目录名（只用于本地推送记录里回显「存到哪」）——
     # 115 的推送接口只认目录 id，名字它不回，所以让前端顺手带一个。
     dir_name: str = ""
+    # 分批参数（不传就用服务端默认：每批 100 条、批间 3 秒）——
+    # 留成可选是为了让「这次想更慢一点」可以不重启容器，普通调用方不用管。
+    chunk: int | None = None
+    delay: float | None = None
 
 
 class ParseIn(BaseModel):
@@ -600,6 +621,13 @@ def get_config() -> dict:
     return {
         "need_auth": bool(ACCESS_TOKEN),
         "max_batch": MAX_BATCH,
+        # 分批推送的实际情况（前端提示文案直接跟着它走，避免两边写死的数字对不上）
+        "push": {
+            "per_request": pusher.MAX_PER_REQUEST,
+            "chunk": PUSH_CHUNK,
+            "delay": PUSH_DELAY,
+            "max_total": PUSH_MAX_TOTAL,
+        },
         "qr_apps": QR_APPS,
         "folder_cache_ttl": _FOLDER_TTL,
     }
@@ -1733,6 +1761,125 @@ def recyclebin_revert(body: RevertIn) -> dict:
     }
 
 
+# ----------------------------------------------------------------- 推送（分批执行）
+# 任务进度只放内存（重启即丢，反正推送结果都已记账）；同账号用 `_PUSH_RUNNING` 做单飞。
+_PUSH_JOBS: dict[str, PushJob] = {}
+_PUSH_JOBS_KEEP = 20                      # 只留最近 20 个任务的进度
+_PUSH_REG_LOCK = threading.Lock()
+_PUSH_RUNNING: dict[str, str] = {}        # account_id → job_id（同账号同时只跑一个）
+
+
+def _push_register(job: PushJob) -> None:
+    with _PUSH_REG_LOCK:
+        _PUSH_JOBS[job.id] = job
+        if len(_PUSH_JOBS) > _PUSH_JOBS_KEEP:
+            stale = sorted(_PUSH_JOBS.values(), key=lambda j: j.created)
+            for old in stale[: len(_PUSH_JOBS) - _PUSH_JOBS_KEEP]:
+                _PUSH_JOBS.pop(old.id, None)
+
+
+def _push_claim(account_id: str, job: PushJob) -> PushJob | None:
+    """抢这个账号的推送位。抢到回 None；没抢到回**正在跑的那个任务**（好把进度报给他）。"""
+    with _PUSH_REG_LOCK:
+        cur = _PUSH_JOBS.get(_PUSH_RUNNING.get(account_id) or "")
+        if cur is not None and cur.state in (pusher.STATE_QUEUED, pusher.STATE_RUNNING):
+            return cur
+        _PUSH_RUNNING[account_id] = job.id
+        return None
+
+
+def _push_release(account_id: str, job_id: str) -> None:
+    with _PUSH_REG_LOCK:
+        if _PUSH_RUNNING.get(account_id) == job_id:
+            _PUSH_RUNNING.pop(account_id, None)
+
+
+def _submit_urls(client, batch: list[str], wp: str) -> tuple[bool, str]:
+    """发一批（≤100 条）。返回 (是否成功, 115 的原始说明)。
+
+    ⚠️ 这里**不抛** HTTPException：一次任务要发十几批，某一批失败不该把整个任务打断 ——
+       由调用方按 pusher.classify_error 判断「这批发完还能不能继续」。
+    """
+    payload: dict[str, Any] = {f"url[{i}]": u for i, u in enumerate(batch)}
+    if wp:
+        payload["wp_path_id"] = wp
+    try:
+        resp = client.clouddownload_task_add_urls(payload)
+    except Exception as exc:
+        return False, f"{exc}"
+    ok, msg = True, ""
+    if isinstance(resp, dict):
+        ok = resp.get("state") in (True, 1, "1", None)
+        msg = str(resp.get("error_msg") or resp.get("message") or resp.get("error") or "")
+    return ok, msg
+
+
+def _push_log_job(job: PushJob) -> None:
+    """整次任务记一笔账（不是一批一笔）：账本要能一眼看出「这一千多条推成没推成」。"""
+    links = [{"url": u, "source": job.sources.get(u.lower(), "链接")}
+             for batch in job.batches for u in batch]
+    _PUSHLOG.add(
+        account_id=job.account_id, account=job.account,
+        dir_id=job.dir_id, dir=job.dir_name,
+        count=job.pushed, skipped=job.skipped, links=links,
+        ok=(job.state == pusher.STATE_DONE and not job.failed),
+        message=job.summary(),
+    )
+
+
+def _run_push_job(job: PushJob, acc: dict, wp: str) -> None:
+    """真正的分批循环（后台线程跑；单批时同步跑，逻辑同一份）。
+
+    · 第 i 批之前 sleep `job.delay`（第一批不睡）
+    · 被限流 ⇒ 退避 8 秒重试**一次**；还失败就停（别再往风控上撞）
+    · 配额不足 / 登录失效 ⇒ 直接停
+    · 任何一批失败都记进 job.failed，最后统一写账本
+    """
+    try:
+        client = _client(acc)
+    except HTTPException as exc:
+        job.finish(pusher.STATE_ERROR, f"账号不可用：{exc.detail}")
+        _push_release(job.account_id, job.id)
+        _push_log_job(job)
+        return
+
+    job.start()
+    # 顺手看一眼离线剩余次数：拿不到就算了，**绝不因为它阻断推送**（115 的配额口径我们说了不算）
+    try:
+        data = check_response(client.clouddownload_quota_info())
+        job.note_quota(data.get("quota"), data.get("total"))
+    except Exception:
+        pass
+
+    fatal = False
+    for idx, batch in enumerate(job.batches):
+        if idx:
+            time.sleep(job.delay)          # 批间隔 —— 躲风控的关键
+        ok, msg = _submit_urls(client, batch, wp)
+        kind = "ok" if ok else pusher.classify_error(msg)
+        if kind == "throttle":
+            time.sleep(pusher.THROTTLE_BACKOFF)
+            ok, msg = _submit_urls(client, batch, wp)
+            kind = "ok" if ok else "fatal"    # 退避一次还不行 ⇒ 认了，停
+        if kind == "ok":
+            job.batch_ok(len(batch))
+        else:
+            job.batch_failed(idx, len(batch), msg or "115 未返回原因")
+            fatal = kind == "fatal"
+        job.tick()
+        if fatal:
+            break
+
+    # 只要有推成功，目标目录的内容就变了 ⇒ 目录缓存失效；配额 / 任务列表也别再给旧的
+    if job.pushed:
+        _cache_drop(job.account_id)
+        _memo_drop(job.account_id)
+
+    job.finish(pusher.STATE_STOPPED if fatal else pusher.STATE_DONE)
+    _push_release(job.account_id, job.id)
+    _push_log_job(job)
+
+
 # ----------------------------------------------------------------- 推送
 @app.post("/api/parse", dependencies=[Depends(auth)])
 def parse(body: ParseIn) -> dict:
@@ -1753,6 +1900,20 @@ def parse(body: ParseIn) -> dict:
 
 @app.post("/api/push", dependencies=[Depends(auth)])
 def push(body: PushIn) -> dict:
+    """推送链接到 115 离线下载 —— **超过 115 单请求上限的部分由后端自己分批推完**。
+
+    🔴 2026-11-03（红领巾截图：1644 条被 115 回「一次最多 100 条」）：
+       他的口径是「可以内部分批推送，注意不要过快避免风控」⇒ 不在界面上让人手动分批，
+       改成后端按 `PUSH_CHUNK`（默认 100 = 115 硬限）切批、批间 `PUSH_DELAY`（默认 3s）：
+
+       · **单批（≤100 条）**：仍走同步路径，一次性把结果返回（老调用方不受影响）
+       · **多批**：起后台线程跑，立刻返回 job（前端轮询 /api/push/jobs/{id} 画进度条）——
+         1644 条要 50 秒左右，同步等一个 HTTP 请求既会被反代掐断、界面也全程没反馈
+       · **同账号单飞**：一个账号同时只跑一个推送任务（第二个直接 409 并把当前进度说出来），
+         别两个任务交错着怼 115
+       · **致命错误立刻停**：配额不足 / 登录失效 / 被限流重试后仍失败 ⇒ 不再往下推，
+         把「已推多少、剩多少」如实报出来，而不是硬把几千条全试一遍
+    """
     acc = _find_account(body.account_id)
 
     urls: list[str] = []
@@ -1778,58 +1939,79 @@ def push(body: PushIn) -> dict:
 
     if not deduped:
         raise HTTPException(400, "没有解析到可推送的链接")
-    if len(deduped) > MAX_BATCH:
-        raise HTTPException(400, f"一次最多 {MAX_BATCH} 条，当前 {len(deduped)} 条（分批推吧）")
+    if len(deduped) > PUSH_MAX_TOTAL:
+        raise HTTPException(
+            400, f"一次最多 {PUSH_MAX_TOTAL} 条，当前 {len(deduped)} 条（分两次推吧）")
 
-    client = _client(acc)
-    payload: dict[str, Any] = {f"url[{i}]": u for i, u in enumerate(deduped)}
+    chunk = pusher.clamp_chunk(PUSH_CHUNK if body.chunk is None else body.chunk)
+    delay = pusher.clamp_delay(PUSH_DELAY if body.delay is None else body.delay)
     wp = (body.wp_path_id or "").strip() or str(acc.get("default_dir") or "").strip()
-    if wp:
-        payload["wp_path_id"] = wp
+    batches = pusher.split_batches(deduped, chunk)
 
-    # 本地账本的公共部分（成功 / 失败都要记一笔，否则「推了但没下来」查不出原因）
-    # ⚠️ `skipped` 多数时候是 0：`parse_links` 自己在解析阶段就按 info_hash 去过重了，
-    #    这里那一层只兜住「前端直接把 urls 数组传上来」的情况。
-    def _log(ok: bool, message: str) -> None:
-        _PUSHLOG.add(
-            account_id=str(body.account_id),
-            account=str(acc.get("name") or ""),
-            dir_id=wp,
-            dir=(body.dir_name or "").strip(),
-            count=len(deduped),
-            skipped=len(urls) - len(deduped),
-            links=[{"url": u, "source": src_of.get(u.lower(), "链接")} for u in deduped],
-            ok=ok,
-            message=message,
+    job = PushJob(
+        account_id=str(body.account_id), account=str(acc.get("name") or ""),
+        dir_id=wp, dir_name=(body.dir_name or "").strip(),
+        batches=batches, chunk=chunk, delay=delay,
+        # ⚠️ `skipped` 多数时候是 0：`parse_links` 自己在解析阶段就按 info_hash 去过重了，
+        #    这里那一层只兜住「前端直接把 urls 数组传上来」的情况。
+        skipped=len(urls) - len(deduped), sources=src_of,
+    )
+
+    busy = _push_claim(job.account_id, job)
+    if busy is not None:
+        snap = busy.snapshot()
+        raise HTTPException(
+            409,
+            f"这个账号正在推送（第 {snap['batch']}/{snap['batches']} 批，"
+            f"已推 {snap['pushed']} 条），等它跑完再推",
         )
+    _push_register(job)
 
-    try:
-        resp = client.clouddownload_task_add_urls(payload)
-    except Exception as exc:
-        _log(False, f"推送失败：{exc}")
-        raise HTTPException(502, f"推送失败：{exc}") from exc
+    if len(batches) <= 1:
+        _run_push_job(job, acc, wp)          # 单批：同步跑完再返回（老结构）
+        snap = job.snapshot()
+        return {
+            "ok": snap["ok"],
+            "count": job.pushed,
+            "urls": deduped,
+            "wp_path_id": wp,
+            "message": job.summary(),
+            "job": snap,
+        }
 
-    ok = True
-    message = ""
-    if isinstance(resp, dict):
-        state = resp.get("state")
-        ok = state in (True, 1, "1", None)
-        message = str(resp.get("error_msg") or resp.get("message") or "")
-
-    # 新任务落地后目标目录会多东西 ⇒ 丢掉该账号的目录缓存（下一次点开就是新的）
-    if ok:
-        _cache_drop(body.account_id)
-
-    _log(ok, message)
-
+    threading.Thread(target=_run_push_job, args=(job, acc, wp),
+                     name=f"push-{job.id}", daemon=True).start()
     return {
-        "ok": ok,
+        "ok": True,
+        "accepted": True,
         "count": len(deduped),
-        "urls": deduped,
-        "wp_path_id": wp,
-        "message": message,
-        "raw": resp,
+        "batches": len(batches),
+        "chunk": chunk,
+        "delay": delay,
+        "job": job.snapshot(),
     }
+
+
+# ----------------------------------------------------------------- 推送任务进度
+@app.get("/api/push/jobs", dependencies=[Depends(auth)])
+def push_jobs(account_id: str = "", limit: int = Query(default=10, ge=1, le=50)) -> dict:
+    """最近的推送任务（最新在前）。前端切账号 / 刷新页面时用它接回正在跑的任务。"""
+    with _PUSH_REG_LOCK:
+        rows = [j for j in _PUSH_JOBS.values()
+                if not account_id or j.account_id == str(account_id)]
+        rows.sort(key=lambda j: j.created, reverse=True)
+        rows = rows[:limit]
+    return {"ok": True, "items": [j.snapshot() for j in rows]}
+
+
+@app.get("/api/push/jobs/{job_id}", dependencies=[Depends(auth)])
+def push_job_detail(job_id: str) -> dict:
+    """单个任务进度。⚠️ 进度只在内存里 —— 容器重启就没了，但**已经推过的都记账了**。"""
+    with _PUSH_REG_LOCK:
+        job = _PUSH_JOBS.get(str(job_id))
+    if job is None:
+        raise HTTPException(404, "任务不存在或已过期（容器重启会清掉进度，推送记录还在）")
+    return {"ok": True, "job": job.snapshot()}
 
 
 # ----------------------------------------------------------------- 推送记录

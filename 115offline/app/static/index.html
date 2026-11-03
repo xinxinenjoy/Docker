@@ -506,7 +506,7 @@
             <div><h2>粘贴链接 / 暗号</h2></div>
           </div>
           <div class="hints">
-            <span>每次最多 100 条</span>
+            <span id="hintCap">每次最多 100 条</span>
             <span>百家姓 · 核心价值观 · 佛曰</span>
             <span>链接与暗号可混合</span>
           </div>
@@ -790,6 +790,12 @@ let PARSED = [];
 let TASKS = [];
 let LOGS = [];
 let RBSEL = new Set();
+/* 分批推送的现场：PUSH_JOB = 正在看的那个任务快照，PUSH_TIMER = 轮询句柄。
+   PUSH_CFG 由 /api/config 回填（每批多少条 / 间隔多久 / 一次最多多少）——
+   界面上的数字一律跟着后端走，别在两处写死。 */
+let PUSH_JOB = null;
+let PUSH_TIMER = null;
+let PUSH_CFG = { per_request: 100, chunk: 100, delay: 3, max_total: 3000 };
 let PICK = { cid: '', path: [{ id: '0', name: '根目录' }] };
 let PICKVIEW = { cid: '0', path: [], items: [] };
 let FS = null;
@@ -1013,6 +1019,10 @@ function defaultCid() {
 }
 $('#acctSel').onchange = () => {
   CURRENT = $('#acctSel').value || null;
+  /* 换了账号 ⇒ 上一个账号的推送进度不该继续显示（任务本身还在后端跑，账本照样记） */
+  stopPushPolling(); PUSH_JOB = null; setPushBusy(false);
+  $('#pushMsg').className = 'msg';
+  resumePush();
   applyAccountDefaults();
   TASKS = []; RBSEL = new Set(); FS = null;
   $('#taskList').innerHTML = '<div class="empty">点「刷新」加载</div>';
@@ -1340,37 +1350,129 @@ function renderParsed(stats) {
     renderParsed();
   });
 }
-/* ================= 推送 ================= */
+/* ================= 推送（后端自动分批 + 进度条） ================= */
 /* 目标目录的**名字**也带上：115 的推送接口只认目录 id、不回名字，
    而本地推送记录要能一眼看出「存到哪了」（server.py 只把 dir_name 记进账本）。 */
 function pickDirName() {
   return PICK.cid ? (PICK.path || []).map(p => p.name).join(' / ') : '';
 }
+function fmtSecs(n) {
+  n = Math.max(0, Math.round(Number(n) || 0));
+  return n < 60 ? n + ' 秒' : Math.round(n / 60) + ' 分钟';
+}
+/* 进度条长什么样 —— 状态、第几批、已推/总数、还要多久，一次说清 */
+function renderPushProgress(j) {
+  const msg = $('#pushMsg');
+  const pct = Math.max(0, Math.min(100, Number(j.percent) || 0));
+  const head = j.state === 'queued' ? '<span class="spinner"></span>排队中（共 ' + j.batches + ' 批）'
+    : j.state === 'running' ? '<span class="spinner"></span>正在推送 第 ' + j.batch + '/' + j.batches + ' 批'
+      : j.state === 'done' ? (j.ok ? '✅ 推送完成' : '⚠️ 推送完成，但有批次失败')
+        : j.state === 'stopped' ? '⏹ 已停止（后面的批次没推）' : '❌ 推送没能开始';
+  const bits = ['已推 <b>' + (j.pushed || 0) + '</b> / ' + (j.total || 0) + ' 条'];
+  if (j.state === 'running' && j.eta) bits.push('预计还要 ' + fmtSecs(j.eta));
+  if (j.failed_count) bits.push('未推 ' + j.failed_count + ' 条');
+  if (j.quota_remain !== null && j.quota_remain !== undefined) {
+    bits.push('离线剩余 ' + j.quota_remain + (j.quota_total ? ' / ' + j.quota_total : ''));
+  }
+  let warn = '';
+  /* 软提示：配额肉眼可见不够时先说一声（不拦，115 的配额口径我们说了不算） */
+  if (j.quota_remain !== null && j.quota_remain !== undefined && j.total > j.quota_remain) {
+    warn = '<div class="muted" style="margin-top:4px">⚠️ 离线剩余次数 ' + j.quota_remain +
+      ' 少于这次要推的 ' + j.total + ' 条 —— 可能推不完（115 那边配额够了才会继续）</div>';
+  }
+  const detail = j.done ? (j.summary || j.message || '') : '';
+  toast(msg, j.state === 'done' && j.ok ? 'ok' : (j.done ? 'err' : 'info'),
+    head +
+    '<div class="bar" style="margin:8px 0 6px"><i style="width:' + pct + '%"></i></div>' +
+    bits.join(' · ') + warn +
+    (detail ? '<div class="muted" style="margin-top:5px">' + esc(detail) + '</div>' : '') +
+    /* ⚠️ 「已记账」只能在**跑完之后**说：排队/推送中还没写账本，先说了就是假消息 */
+    ((j.state === 'running' || j.state === 'queued')
+      ? '<div class="muted" style="margin-top:5px">可以离开这个页面，推完会记进「任务记录 › 本地推送记录」</div>'
+      : LOG_HINT(!!j.total)));
+}
+function stopPushPolling() {
+  if (PUSH_TIMER) { clearInterval(PUSH_TIMER); PUSH_TIMER = null; }
+}
+function setPushBusy(busy) {
+  const btn = $('#btnPush');
+  btn.disabled = busy;
+  btn.textContent = busy ? '推送中…（分批进行）' : '推送到 115 离线下载';
+}
+function startPushPolling(jobId) {
+  stopPushPolling();
+  setPushBusy(true);
+  PUSH_TIMER = setInterval(async () => {
+    try {
+      const r = await api('/push/jobs/' + encodeURIComponent(jobId));
+      PUSH_JOB = r.job;
+      renderPushProgress(r.job);
+      if (r.job.done) {
+        stopPushPolling();
+        setPushBusy(false);
+        if (r.job.pushed) { $('#parseInfo').textContent = '已推送 ' + r.job.pushed + ' 条'; TASKS = []; FS = null; }
+      }
+    } catch (e) {
+      /* 404 = 容器重启过（进度只在内存里）⇒ 别再轮询，账本里那笔还在 */
+      stopPushPolling();
+      setPushBusy(false);
+      toast($('#pushMsg'), 'err', '查不到任务进度了（服务可能重启过）—— 已推的都在「本地推送记录」里：' + esc(e.message));
+    }
+  }, 1000);
+}
+/* 切账号 / 刷页面回来时，把还在跑的任务接上（否则界面像什么都没发生） */
+async function resumePush() {
+  if (!CURRENT) return;
+  try {
+    const r = await api('/push/jobs?account_id=' + encodeURIComponent(CURRENT) + '&limit=5');
+    const live = (r.items || []).find(x => !x.done);
+    if (live) { PUSH_JOB = live; renderPushProgress(live); startPushPolling(live.id); }
+  } catch (e) { /* 接不上不影响正常推送 */ }
+}
 $('#btnPush').onclick = async () => {
   const msg = $('#pushMsg');
   if (!CURRENT) { toast(msg, 'err', '先在「账号管理」里添加一个 115 账号'); return; }
+  if (PUSH_JOB && !PUSH_JOB.done) { toast(msg, 'info', '上一个推送还在跑，等它结束'); return; }
   const text = $('#input').value;
   if (!text.trim() && !PARSED.length) { toast(msg, 'err', '先粘贴磁力或链接'); return; }
   const body = PARSED.length
     ? { account_id: CURRENT, urls: PARSED.map(p => p.url), wp_path_id: PICK.cid || '' }
     : { account_id: CURRENT, text, wp_path_id: PICK.cid || '' };
   body.dir_name = pickDirName();
-  const btn = $('#btnPush');
-  btn.disabled = true;
-  toast(msg, 'info', '<span class="spinner"></span>推送中…');
+  setPushBusy(true);
+  toast(msg, 'info', '<span class="spinner"></span>提交中…');
   try {
     const r = await api('/push', { method: 'POST', body: JSON.stringify(body) });
-    /* ⚠️ 「已被记账」这句话只在**真的走到 115 那一步**时才说 ——
-       校验类失败（没解析到链接 / 超过 100 条）在发请求前就被挡下，不记账。 */
-    const logged = r.ok === false || !!r.count;
-    toast(msg, r.ok ? 'ok' : 'err', (r.ok ? '✅ 已推送 ' + r.count + ' 条到 115 离线下载' : '⚠️ 115 返回异常：' + esc(r.message || '未知')) +
-      (r.ok && r.message ? '（' + esc(r.message) + '）' : '') + LOG_HINT(logged));
-    if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; TASKS = []; FS = null; }
+    if (r.accepted && r.job) {
+      /* 超一批：后端已经在分批跑了，接着轮询进度 */
+      PUSH_JOB = r.job;
+      renderPushProgress(r.job);
+      startPushPolling(r.job.id);
+    } else {
+      /* 单批（≤100 条）：后端同步跑完才返回，直接给结果 */
+      PUSH_JOB = r.job || null;
+      setPushBusy(false);
+      if (r.job) renderPushProgress(r.job);
+      else toast(msg, r.ok ? 'ok' : 'err', (r.ok ? '✅ 已推送 ' + r.count + ' 条到 115 离线下载' : '⚠️ 115 返回异常：' + esc(r.message || '未知')) + LOG_HINT(!!r.count));
+      if (r.ok) { $('#parseInfo').textContent = '已推送 ' + r.count + ' 条'; TASKS = []; FS = null; }
+    }
   } catch (e) {
-    const reaches115 = String(e.message || '').indexOf('推送失败') === 0;   /* 502 才代表问过 115 */
-    toast(msg, 'err', '推送失败：' + esc(e.message) + LOG_HINT(reaches115));
+    /* 409 = 这个账号有任务在跑 ⇒ 直接把那个任务的进度接过来看，别只弹个红字 */
+    if (/正在推送/.test(String(e.message || ''))) {
+      try {
+        const jr = await api('/push/jobs?account_id=' + encodeURIComponent(CURRENT) + '&limit=5');
+        const live = (jr.items || []).find(x => !x.done);
+        if (live) {
+          PUSH_JOB = live;
+          renderPushProgress(live);
+          startPushPolling(live.id);
+          return;
+        }
+      } catch (e2) { /* 落到下面的普通报错 */ }
+    }
+    setPushBusy(false);
+    toast(msg, 'err', '推送失败：' + esc(e.message));
   }
-  btn.disabled = false;
 };
 
 /* ================= 任务 ================= */
@@ -2449,8 +2551,19 @@ async function boot() {
   try {
     const cfg = await api('/config');
     if (cfg.need_auth && !localStorage.getItem(TOKEN_KEY)) { askToken(); return; }
+    if (cfg.push) {
+      PUSH_CFG = Object.assign(PUSH_CFG, cfg.push);
+      /* 界面上这句提示跟着后端配置走 —— 原来是写死的「每次最多 100 条」，
+         现在超出的部分后端自己分批，写死会立刻过时。 */
+      const cap = $('#hintCap');
+      if (cap) {
+        cap.textContent = '一次最多 ' + PUSH_CFG.max_total + ' 条 · 每 ' + PUSH_CFG.chunk +
+          ' 条一批，间隔 ' + PUSH_CFG.delay + ' 秒';
+      }
+    }
     await initQrApps();
     await loadAccounts();
+    await resumePush();   /* 正在分批推送时刷新页面 ⇒ 接着显示进度 */
     /* 先落地请求也走一遍默认账号（这样切到「网盘整理」立刻能用） */
   } catch (e) {
     if (e.message !== '需要访问口令') console.error(e);
