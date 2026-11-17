@@ -41,7 +41,7 @@ from .health import scope_warn
 from .namer import StrmBuilder, is_video
 from .sync import Pending, SyncResult, Syncer
 from .throttle import Throttle
-from .v115 import CookieMissing, V115, build_client, load_cookie
+from .v115 import CookieMissing, V115, V115Error, build_client, load_cookie
 
 __all__ = ["app", "serve"]
 
@@ -889,13 +889,19 @@ def browse(path: str = "") -> dict:
        而补录的场景恰恰是「刚放进去的片，还不在树里」⇒ 必须实时问 115。
        这也正是补录要绕开「导全量树」的原因：问一层只要一个请求。
 
-    `path` 省略 ⇒ 从**同步根**开始（那才是补录的合法上限）。
+    `path` 一律是**相对网盘根**的目录路径（与 `walk_remote_sub` 的入参同一个口径）；
+    省略 ⇒ 从**同步根**开始（那才是补录的合法上限，别让他从网盘根一层层点进去）。
+
+    🔴 2026-11-17 线上踩到「口径不一致」：`V115.root_id()` 给的是**同步根**的 id，
+       而 `dir_id()` 认的是**相对网盘根**的路径 ⇒ 一开始把浏览路径当成「相对同步根」，
+       结果下拉一层就报「115 上找不到目录：115电影」（其实那目录就在那儿）。
+       现在统一成「相对网盘根」，默认值补上 `remote_root`。
     返回里带 `selectable` / `reason`：不在同步根下、或不在白名单里时**不许选**，
     并把原因说清楚 —— 让他点了才报错是最差的体验。
     """
     cfg = load()
     v = _browse_client(cfg)
-    p = (path or "").strip().strip("/")
+    p = (path or "").strip().strip("/") or (cfg.remote_root or "").strip("/")
     try:
         cid = v.dir_id(p) if p else v.root_id()
         nodes = v.list_dir(cid)
@@ -930,7 +936,8 @@ def browse(path: str = "") -> dict:
     selectable = True
     if not p:
         selectable = False
-        reason = "这是网盘根，不是同步根 —— 请进入同步根里面再选"
+        reason = ("这就是同步根本身（你的同步根 = 整个网盘）——"
+                  "整库刷新请用上面的「立即执行」；这里只补具体几部")
     elif rel is None:
         selectable = False
         reason = f"不在同步根 `{root or '(网盘根)'}` 下面，选了也生不出正确的地址"

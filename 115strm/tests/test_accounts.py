@@ -229,6 +229,38 @@ class TestProbeNoNetwork(unittest.TestCase):
             else:
                 sys.modules["p115client"] = saved
 
+    def test_超时真的传给了请求(self):
+        """🔴 `timeout` 以前是**死参数**（签名里有，三个调用一个都没传）。
+
+        2026-11-17 查 CI 卡死时才发现：115 连不通时 `probe_cookie` 会**一直挂着**，
+        网页点「添加账号」就永远转圈。这条钉住「真的传下去」——
+        ⛔ 别写成只断言签名里有这个参数（那样改了调用也照样绿）。
+        """
+        from unittest import mock
+
+        import p115client
+
+        seen: dict = {}
+
+        class _FakeClient:
+            def __init__(self, cookie, **kw):
+                pass
+
+            def user_info(self, **kw):
+                seen["timeout"] = kw.get("timeout")
+                raise RuntimeError("测试用：不联网")
+
+            def login_status(self, **kw):        # pragma: no cover - 上面就抛了
+                raise RuntimeError("测试用：不联网")
+
+            def clouddownload_sign(self, **kw):  # pragma: no cover
+                raise RuntimeError("测试用：不联网")
+
+        with mock.patch.object(p115client, "P115Client", _FakeClient):
+            r = A.probe_cookie("UID=1;SEID=x", timeout=7)
+        self.assertFalse(r["ok"])
+        self.assertEqual(seen["timeout"], 7)
+
 
 if __name__ == "__main__":
     unittest.main()

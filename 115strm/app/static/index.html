@@ -1780,8 +1780,9 @@ function renderBrowse(d) {
   $('#browseCrumbs').innerHTML = crumbs;
 
   const rows = [];
-  // 「上一级」：只有在你已经进过某一层时才给（网盘根没有上一级）
-  if (d.path) {
+  // 「上一级」：只有在你已经进过某一层时才给（同步根那层不给 —— 再往上就是网盘根，
+  // 那里选不了，给个按钮只会让人白点一次）
+  if (d.path && !d.at_root) {
     rows.push(`<div class="pick"><span class="nm" data-go="${esc(d.parent)}">↩ 上一级</span></div>`);
   }
   if (d.selectable) {

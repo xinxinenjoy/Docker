@@ -29,6 +29,42 @@ BAR_TREE = """|——云下载
 """
 
 
+class _FakeBrowseV:
+    """`/api/browse` 用的假 115 —— 只实现浏览真正会碰到的那几个方法。
+
+    ⚠️ 不能拿 `test_sync.FakeV` 顶替：那个是给「复核删除」用的，没有 `list_dir`。
+    """
+
+    def __init__(self, nodes=None, *, error=None, root: str = "云下载"):
+        self.nodes = list(nodes or [])
+        self.error = error
+        self._root = root
+
+    def root_id(self) -> str:
+        return "cid:" + self._root
+
+    def dir_id(self, path: str) -> str:
+        if self.error is not None:
+            raise self.error
+        return "cid:" + path
+
+    def list_dir(self, cid: str):
+        if self.error is not None:
+            raise self.error
+        return self.nodes
+
+    def to_sync_rel(self, path: str):
+        p = (path or "").strip("/")
+        if p == self._root:
+            return ""
+        if p.startswith(self._root + "/"):
+            return p[len(self._root) + 1:]
+        return None
+
+    def in_scope(self, rel: str) -> bool:
+        return True
+
+
 @unittest.skipIf(TestClient is None, "没装 fastapi/httpx")
 class TestWeb(unittest.TestCase):
     def setUp(self):
@@ -67,6 +103,19 @@ class TestWeb(unittest.TestCase):
         importlib.reload(web_mod)
         self.web = web_mod
         self.client = TestClient(web_mod.app)
+
+        # 🔴 单测**不许真联网** —— 2026-11-17 CI「跑单测」卡 15 分钟的根因就是它：
+        #    `POST /api/accounts` 会调 `accounts.probe_cookie()` 去问 115，
+        #    本地（有代理、连不通立刻失败）秒过，CI（Ubuntu）TCP 一直挂着不动 ⇒ 整步卡死。
+        #    凡是走添加账号 / 校验账号的用例都在这里被统一换成桩，一个字节都不发出去。
+        from unittest import mock
+
+        from app import accounts as accounts_mod
+        patcher = mock.patch.object(
+            accounts_mod, "probe_cookie",
+            return_value={"ok": False, "nickname": "", "error": "测试桩：不联网"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         # ⚠️ 后台线程可能还在跑 —— 等它结束再删临时目录，
@@ -258,6 +307,71 @@ class TestWeb(unittest.TestCase):
         r = self.client.post("/api/scope", json={
             "remote_root": "云下载", "include_dirs": ["云下载/电影"]})
         self.assertEqual(r.json()["scope"]["includes"], ["电影"])
+
+    # ------------------------------------------------------------------ 补录：实时浏览网盘
+    def test_browse_没账号回400(self):
+        """没 cookie ⇒ 400 + 人话，不是 500。"""
+        r = self.client.get("/api/browse")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("115 账号", r.text)
+
+    def test_browse_列目录失败要包成400不是500(self):
+        """🔴 2026-11-17 线上真踩到：`except V115Error` 但**没 import** ⇒ NameError ⇒ 500。
+
+        单测原先只覆盖「没 cookie」那条（压根没进 `try`），所以这个 bug 一直没被发现，
+        直到拿真 115 往下点了一层才暴露。这里直接让假 client 抛 `V115Error`。
+        """
+        from unittest import mock
+
+        from app.v115 import V115Error
+
+        boom = V115Error("115 上找不到 `影音`")
+        with mock.patch("app.web._browse_client",
+                        return_value=_FakeBrowseV(error=boom)):
+            r = self.client.get("/api/browse?path=影音")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("找不到", r.text)
+
+    def test_browse_默认落在同步根且根不可选(self):
+        """省略 `path` ⇒ 直接落在**同步根**（不是网盘根），且那一层不许选。
+
+        ⚠️ 这条同时钉住路径口径：返回的 `path` / `dirs[].path` 都是**相对网盘根**，
+           与 `walk_remote_sub` 的入参一致 —— 2026-11-17 就是这里错位才「下拉一层报找不到」。
+        """
+        from unittest import mock
+
+        from app.v115 import Node
+
+        nodes = [Node(id="1", name="电影", is_dir=True),
+                 Node(id="2", name="a.mkv", is_dir=False),
+                 Node(id="3", name="b.srt", is_dir=False)]
+        with mock.patch("app.web._browse_client",
+                        return_value=_FakeBrowseV(nodes=nodes)):
+            d = self.client.get("/api/browse").json()
+        self.assertEqual(d["path"], "云下载")            # 同步根，不是 ""
+        self.assertTrue(d["at_root"])
+        self.assertFalse(d["selectable"])
+        self.assertIn("同步根", d["reason"])
+        self.assertEqual([x["name"] for x in d["dirs"]], ["电影"])
+        self.assertEqual(d["dirs"][0]["path"], "云下载/电影")   # 相对网盘根
+        self.assertEqual(d["video_count"], 1)           # 字幕不算视频
+        self.assertEqual(d["file_count"], 1)            # 非视频文件进 file_count
+        self.assertEqual([c["name"] for c in d["crumbs"]], ["云下载"])
+
+    def test_browse_进到具体片子就可选(self):
+        from unittest import mock
+
+        from app.v115 import Node
+
+        nodes = [Node(id="9", name="某片（2026）", is_dir=True)]
+        with mock.patch("app.web._browse_client",
+                        return_value=_FakeBrowseV(nodes=nodes)):
+            d = self.client.get("/api/browse?path=云下载/电影").json()
+        self.assertTrue(d["selectable"])
+        self.assertEqual(d["reason"], "")
+        self.assertEqual(d["rel"], "电影")
+        self.assertEqual(d["crumbs"][-1]["path"], "云下载/电影")
+        self.assertEqual(d["dirs"][0]["path"], "云下载/电影/某片（2026）")
 
     def test_scope_保存带出配对告警(self):
         # 前缀末段是 `d`（`https://example.test/d`）而同步根末段是 `云下载` ⇒ 应告警

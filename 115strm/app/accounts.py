@@ -139,6 +139,11 @@ def probe_cookie(cookie: str, timeout: float = 15) -> dict:
 
     ⚠️ 依次试三个接口 —— 115 的接口不是每个都稳定，任何一个通了就算「可用」。
        （照 115offline 的成熟做法，`user_info` → `login_status` → `clouddownload_sign`）
+
+    🔴 `timeout` 之前是**死参数**（签名里有、三个调用一个都没传）——
+       2026-11-17 排查 CI 卡死时才发现：115 连不上时这里会**一直挂着**，
+       网页点「添加账号」就永远转圈、单测直连真网直接卡住。
+       现在真传给请求（`p115client` 的 `request(**request_kwargs)` 认它）。
     """
     out: dict[str, Any] = {"ok": False, "nickname": "", "error": ""}
     try:
@@ -153,9 +158,9 @@ def probe_cookie(cookie: str, timeout: float = 15) -> dict:
         return out
 
     for call in (
-        lambda: client.user_info(),
-        lambda: client.login_status(),
-        lambda: client.clouddownload_sign(),
+        lambda: client.user_info(timeout=timeout),
+        lambda: client.login_status(timeout=timeout),
+        lambda: client.clouddownload_sign(timeout=timeout),
     ):
         try:
             data = check_response(call())
