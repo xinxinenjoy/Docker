@@ -98,6 +98,17 @@ _SUBS_MISS_CAP = 200
 #    超过这个数说明「一删就是一大片、散在几十个目录」⇒ 不是抖动而是大动作，
 #    这时**不猜**：整批挂起、让他确认（口径见 `_handle_delete`）。
 _RECHECK_DIR_CAP = 40
+# 【手动补录】一次最多实时走多少个目录。
+# ⚠️ 每个目录 = 1 次 `fs_files` + 1~3 秒节流 ⇒ 300 个 ≈ 十分钟，
+#    而那已经不叫「补录」了（那是全量导树该干的事，成本还更低）。
+#    ⛔ 别为了「能勾顶层」把这个数调大：`115电影` 一层就是 257 个子目录，
+#       勾它等于放着全量那条 13 秒的路不走，偏去走十分钟的路。
+_PARTIAL_DIR_CAP = 300
+# 补录时如果目录数超上限，统一用这一句 —— 前端也会原样显示。
+_PARTIAL_CAP_MSG = (
+    "要走的目录太多，先停下了 —— 实时列目录是**每个目录一次请求**，范围一大就变成几十分钟。\n"
+    "  ⇒ 请选到**具体的片子 / 季**那一层（例如 `电影/沙丘3（2026）`），"
+    "或者分几次补录；整库刷新交给每天那轮全量。")
 
 
 def _safe_rel(rel: str) -> str:
@@ -228,6 +239,14 @@ class SyncResult:
     subs_unmatched: list = field(default_factory=list)   # 配不上的（只报不下）
     subs_unmatched_more: int = 0
     subs_notes: list = field(default_factory=list)       # 给人看的补充说明
+    # ---- 手动补录（2026-11-17 新增）----
+    # ⚠️ 这一组存在的意义：补录的回执混在 `reports/` 里跟全量轮次长得一样，
+    #    光看 written/deleted 分不出「这是整库对账」还是「只补了三部片」。
+    partial: bool = False                  # 这一趟是补录（**只增不删**）
+    partial_paths: list = field(default_factory=list)    # 用户点名的目录（相对网盘根）
+    partial_dirs: int = 0                  # 实时走了多少个子目录 ≈ 这一趟的主要请求成本
+    delete_suppressed: int = 0             # 补录时「本可删、但这一趟一条都没删」的条数
+    delete_suppressed_sample: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         d = dict(vars(self))
@@ -330,7 +349,9 @@ class Syncer:
             return ""
 
     # ------------------------------------------------------------------ 网盘现状
-    def walk_remote(self, cid: str = "", rel: str = "") -> tuple[list[str], list[StrmFile]]:
+    def walk_remote(self, cid: str = "", rel: str = "",
+                    cap: int | None = None, _seen: list[int] | None = None
+                    ) -> tuple[list[str], list[StrmFile]]:
         """递归列网盘 → `(目录相对路径列表, 要生成的 strm 列表)`。
 
         ⚠️ **这是请求最重的一条路**（请求量 ≈ 目录数）⇒ 只在没有目录树、
@@ -338,17 +359,28 @@ class Syncer:
 
         ⚠️ 本函数**递归**地建 `dirs`，所以过滤「没有文件的目录」放在最外层的
            `walk_remote_filtered()` 里做（递归中段还不知道子树底下有没有文件）。
+
+        🔴 `cap` / `_seen` 是给**手动补录**（`walk_remote_sub`）加的内部参数：
+           `_seen` 是跨多棵子树**共享的计数器**（`[已走目录数]`），`cap` 是总上限。
+           ⛔ 别改成「每棵子树各自算」—— 补录可能一次勾好几个目录，
+              按子树各算就等于「勾 10 个 ⇒ 最多走 10×cap 个」，上限形同虚设。
+           ⚠️ 外部调用方（`walk_remote_filtered` / 测试）不传这两个参数，行为不变。
         """
         dirs: list[str] = []
         files: list[StrmFile] = []
         if cid == "":
             cid = self.v.root_id()
+        if _seen is None:
+            _seen = [0]
 
         for node in self.v.list_dir(cid):
             child_rel = f"{rel}/{node.name}" if rel else node.name
             if node.is_dir:
                 dirs.append(child_rel)
-                d2, f2 = self.walk_remote(node.id, child_rel)
+                _seen[0] += 1
+                if cap is not None and _seen[0] > cap:
+                    raise V115Error(_PARTIAL_CAP_MSG)
+                d2, f2 = self.walk_remote(node.id, child_rel, cap=cap, _seen=_seen)
                 dirs.extend(d2)
                 files.extend(f2)
             elif is_video(node.name, self.cfg.exts):
@@ -372,6 +404,120 @@ class Syncer:
         """
         dirs, files = self.walk_remote()
         return keep_only_file_dirs(dirs, files), files
+
+    def walk_remote_sub(self, paths: Iterable[str], cap: int = _PARTIAL_DIR_CAP
+                        ) -> tuple[list[str], list[StrmFile], dict]:
+        """**只走用户点名的那几棵子树**（实时列目录）→ `(目录, strm, 说明)`。
+
+        ⭐ 这是「手动补录」的数据源（2026-11-17 加）。红领巾的需求：
+
+            「临时新加电影或者电视剧的时候我需要手动将新的这些加进来，
+              不然每次都全量导出，官方生成目录树很慢（这个还需要保留，每天保底刷新）」
+
+        ⇒ 全量那条路**一个字不改**（每天兜底 + 删除 + 改名），这里只补一条「几部片」的快捷路：
+           一部电影 = 1~3 个目录 = 几个请求；一季剧几十个目录，十几秒。
+           对比导全量树要等 13 秒~几分钟（任务级）。
+
+        ## 🔴 口径必须与 `walk_from_tree` 一致
+
+        这里是**同一个库的另一条进口**。两条路算出来的「该有哪些 strm」必须一样，
+        否则「同一部片、换个入口进来，本地目录结构就不一样」—— 这种问题极难查。
+        所以：路径一律**相对同步根**、目录一律过 `keep_only_file_dirs()`（没有视频的目录不建）。
+
+        ## 入参
+
+        `paths` 是**相对网盘根**的目录路径（浏览接口给的就是这个，如 `影音/电影/沙丘3（2026）`）。
+        也容忍「相对同步根」的写法（`电影/沙丘3（2026）`），会自动补上同步根再解析。
+        单个视频文件路径也认 —— 他可能只想补某一集。
+
+        ## ⛔ 三条硬校验（都在解析前做，宁可拒绝也不猜）
+
+        ① 必须在同步根 `remote_root` 下面（否则拼出来的 strm 地址是错的）
+        ② 必须在「同步范围」白名单里（否则本地结构会跟全量那轮对不上）
+        ③ 目录数不超过 `cap`（见 `_PARTIAL_CAP_MSG`）
+
+        返回的第三人（说明）里有：`bases`（这次实际处理的相对路径，给
+        `run(local_scope=...)` 用）、`dir_count`、`files`。
+        """
+        bases: list[str] = []
+        dirs: list[str] = []
+        files: list[StrmFile] = []
+        seen = [0]                      # 跨子树共享的目录计数器（见 walk_remote 的说明）
+
+        for raw in paths:
+            p = str(raw or "").strip().strip("/")
+            if not p:
+                continue
+
+            full, rel = p, self.v.to_sync_rel(p)
+            if rel is None:
+                # 容忍「相对同步根」的写法：`电影/xxx` ⇒ `影音/电影/xxx`
+                alt = _join_remote(self.cfg.remote_root, p)
+                rel2 = self.v.to_sync_rel(alt)
+                if rel2 is not None:
+                    full, rel = alt, rel2
+            if rel is None:
+                raise V115Error(
+                    f"`{p}` 不在同步根 `{self.cfg.remote_root or '(网盘根)'}` 下面 ——"
+                    f"这个工具只镜像同步根以下的目录，请选同步根里的路径。")
+            if not self.v.in_scope(rel):
+                raise V115Error(
+                    f"`{p}` 不在「同步范围」白名单里"
+                    f"（当前只处理：{'、'.join(self.cfg.includes)}）——\n"
+                    f"  ⇒ 要么把它放到白名单目录下面，要么先去设置里调整范围。"
+                    f"不按范围来会让本地目录跟每日全量那轮对不上。")
+
+            # ---- 目录 or 单个文件 ----
+            try:
+                cid = self.v.dir_id(full)
+            except V115DirNotFound:
+                sub = self._add_single_file(full, rel)
+                if sub is None:
+                    raise V115Error(
+                        f"115 上找不到 `{p}`（既不是目录，也不是能识别的视频文件）——\n"
+                        f"  ⚠️ 只会在同步根 `{self.cfg.remote_root or '(网盘根)'}` "
+                        f"以下找；名字要**一字不差**（全角括号、广告词都得对）。\n"
+                        f"  ⇒ 拿不准就用「从网盘选目录」直接点，别手打。") from None
+                files.append(sub)
+                bases.append(rel.rsplit("/", 1)[0] if "/" in rel else "")
+                continue
+
+            if seen[0] >= cap:
+                raise V115Error(_PARTIAL_CAP_MSG)
+            d2, f2 = self.walk_remote(cid, rel, cap=cap, _seen=seen)
+            dirs.extend(d2)
+            files.extend(f2)
+            bases.append(rel)
+            self.log("info", f"已列出 `{p}`：{len(d2)} 个子目录 / {len(f2)} 个视频")
+
+        if not bases:
+            raise V115Error("没给有效的目录 —— 至少选一个（或粘一条路径）。")
+
+        dirs = keep_only_file_dirs(dirs, files)
+        return dirs, files, {
+            "bases": bases,
+            "dir_count": seen[0],
+            "files": len(files),
+        }
+
+    def _add_single_file(self, full: str, rel: str) -> StrmFile | None:
+        """`walk_remote_sub` 的文件分支：父目录里按**全名精确匹配**一个视频。
+
+        ⚠️ 为什么不做模糊匹配：补录是「他刚放进去的那一集」，名字就是他打的那个；
+           模糊匹配在「第 1 集 / 第 1 集 修正版」这种场景下会挑错 ⇒ 写出一条错的 strm。
+        """
+        parent, _, name = full.rpartition("/")
+        if not name or not is_video(name, self.cfg.exts):
+            return None
+        try:
+            pcid = self.v.dir_id(parent) if parent else "0"
+        except V115DirNotFound:
+            return None
+        for node in self.v.list_dir(pcid):
+            if not node.is_dir and node.name == name:
+                return StrmFile(rel=rel, url=self.builder.url(rel),
+                                fid=node.id, size=node.size)
+        return None
 
     def walk_from_tree(self, tree: Any, base: str = "") -> tuple[list[str], list[StrmFile]]:
         """从**目录树导出件**离线算出网盘结构 —— 零请求。
@@ -794,19 +940,42 @@ class Syncer:
 
     # ------------------------------------------------------------------ 总流程
     def run(self, *, remote_files: list[StrmFile], remote_dirs: list[str],
-            source: str = "api", force_delete: bool = False) -> SyncResult:
-        """跑一轮。调用方负责把「网盘现状」拿到并传进来（三条路各自组装）。
+            source: str = "api", force_delete: bool = False,
+            add_only: bool = False,
+            local_scope: Iterable[str] | None = None) -> SyncResult:
+        """跑一轮。调用方负责把「网盘现状」拿到并传进来（各条路各自组装）。
 
         `force_delete=True` ⇒ **跳过一切判定**，直接把候选全删（界面上「确认删除」按这个）。
+
+        ## 🔴 `add_only` / `local_scope`：手动补录专用（2026-11-17）
+
+        补录拿到的是**局部**的网盘清单（就他点的那几个目录），而本地是**全库**扫出来的。
+        若照常跑差异，全库剩下那几千条 strm 全都会被判成「网盘上没了」⇒ **误删整个库**。
+        所以这里有两道口子，缺一不可：
+
+            `local_scope`  把「本地现状」也限制在同一批目录里 —— 差异才可比
+            `add_only`     即便范围内真有对不上的，**这一趟也一条都不删**
+
+        删除本来就该由每日那轮全量来决定（它看得见全库、有异常闸门和逐目录复核）。
+        ⛔ 别为了「顺手清理」把 `add_only` 去掉 —— 局部清单判不出「全库该有什么」。
         """
         t0 = time.time()
         res = SyncResult(
             started=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             source=source,
             scanned_remote=len(remote_files),
+            partial=bool(add_only),
         )
 
         local = self.scan_local()
+        scoped = [_safe_rel(b) for b in (local_scope or []) if str(b or "").strip()]
+        # ⚠️ 空串 = 同步根本身（`to_sync_rel` 返回 ""）⇒ 不能拿去前缀匹配，
+        #    否则 `k == "" or k.startswith("/")` 恒假 ⇒ 本地清单被筛成空。
+        if any(b == "" for b in scoped):
+            scoped = []
+        if scoped:
+            local = {k: v for k, v in local.items()
+                     if any(k == b or k.startswith(b + "/") for b in scoped)}
         res.scanned_local = len(local)
         res.diff = {}
         # 走目录树时攒下的备注（跳过多少目录、多少条目疑似被截断）——
@@ -824,6 +993,17 @@ class Syncer:
         # ② 写 strm
         d = self.diff(remote_files, local)
         res.unchanged = len(remote_files) - len(d.to_add) - len(d.to_update)
+        # 🔴 补录（只增不删）：先把「本可删」记下来当信息，再**清掉** —— 一条都不删。
+        #    ⚠️ 必须在 `_diff_payload(d)` **之前** 清，否则回执里会出现一份
+        #       「delete 列表」，而 deleted 是 0 —— 看回执的人只会以为工具坏了。
+        if add_only and d.to_delete:
+            res.delete_suppressed = len(d.to_delete)
+            res.delete_suppressed_sample = d.to_delete[:5]
+            self.log("info",
+                     f"补录只增不删：这几个目录里另有 {res.delete_suppressed} 条本地 strm "
+                     f"没对上（例如 {res.delete_suppressed_sample[0]}）—— 这一趟一条都不删，"
+                     f"交给每日全量那轮判定")
+            d.to_delete = []
         # 差异**明细**收进回执 —— 网页「记录」点开要显示的就是它。
         # ⚠️ 这份明细原来**只有「演练」那条路会填**，真跑时只写 `{"counts": …}`
         #    ⇒ 于是记录里只能看到「写了几个」，看不到「写的是哪几个」。2026-10-11 补上。
@@ -839,7 +1019,9 @@ class Syncer:
         #     光「不再新建」不够，上一版按「空目录也建」跑过的那批还躺在那儿。
         #     ⛔ 只删**空目录**（里面有你自己放的任何文件就绝不碰），
         #        而且 `output_dir` 自己永不删。详见 `prune_empty_dirs`。
-        pruned = self.prune_empty_dirs(remote_dirs)
+        #     ⛔ 补录时**跳过**：`remote_dirs` 只是他点的那几个目录，
+        #        拿它当「这一轮该存在哪些目录」会把别处的空目录全收掉。
+        pruned = [] if add_only else self.prune_empty_dirs(remote_dirs)
         if pruned:
             res.dirs_pruned = len(pruned)
             self.log("info", f"收掉 {len(pruned)} 个空目录（只删空的；"
@@ -853,14 +1035,18 @@ class Syncer:
             #    把它算进来会让「只少了一个、其余内容全变」这种误判成改名。
             res = self._handle_delete(d.to_delete, local, res, force=force_delete,
                                       added=len(d.to_add))
-        elif not force_delete:
+        elif not force_delete and not add_only:
             # 这轮没发现删除 ⇒ 挂起清单作废（说明刚才是抖动，现在恢复了）
+            # ⛔ 补录时**不碰**挂起清单：那是全量轮次留下的东西，
+            #    局部一趟没发现删除跟「全库现在正常」是两回事。
             self.clear_pending()
 
         # ④ 外挂字幕 —— **独立阶段**：
         #    自带开关、自己的并发与重试，**失败只记账、绝不往上抛**
         #    ⇒ 字幕下不下来，都不影响上面那条 strm 主链路（仍然只有十几次请求）。
-        self.run_subtitles(res)
+        #    ⚠️ 补录时 `planned` 只含这几个目录的字幕 ⇒ 传 `allow_delete=False`，
+        #       否则台账里别处的字幕会被整批当成「网盘上没了」删掉。
+        self.run_subtitles(res, allow_delete=not add_only)
 
         res.finished = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         res.elapsed_ms = int((time.time() - t0) * 1000)
@@ -1011,8 +1197,13 @@ class Syncer:
         except OSError as exc:
             self.log("warning", f"字幕台账写入失败（不影响本轮）：{exc}")
 
-    def run_subtitles(self, res: SyncResult) -> None:
-        """跑字幕这一步。**怎么都不会抛异常出去**（除代码 bug 外，也由调用方兜底）。"""
+    def run_subtitles(self, res: SyncResult, *, allow_delete: bool = True) -> None:
+        """跑字幕这一步。**怎么都不会抛异常出去**（除代码 bug 外，也由调用方兜底）。
+
+        ⚠️ `allow_delete=False`（手动补录）⇒ **只下载、不删任何本地字幕**。
+           原因：`planned` 只是「他点的那几个目录」里配出来的字幕集合，
+           `_handle_subs_delete` 拿它跟**全量台账**比，会把别处所有字幕判成「网盘上没了」。
+        """
         res.subs_enabled = bool(self.cfg.subtitle_enable)
         res.subs_planned = len(self.tree_subs)
         res.subs_skipped_ext = len(self.tree_sub_skipped)
@@ -1065,8 +1256,12 @@ class Syncer:
             if not (self.out / key).is_file():
                 ledger.pop(key, None)
 
-        self._handle_subs_delete(ledger, planned, res,
-                                 ledger_size=max(len(ledger_before), len(ledger)))
+        if allow_delete:
+            self._handle_subs_delete(ledger, planned, res,
+                                     ledger_size=max(len(ledger_before), len(ledger)))
+        else:
+            # 补录：只可能多下几个字幕（台账变长），删除那套一步都不走
+            self.log("info", "补录只增不删：本地已有的字幕一个都不动")
         if ledger != ledger_before:
             self.save_subs_ledger(ledger)
 

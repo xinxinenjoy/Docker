@@ -144,7 +144,8 @@ class Runner:
             time.sleep(min(0.25, left))
 
     # ---- 启停 -----------------------------------------------------------
-    def start(self, cfg: Config, *, force_delete: bool = False) -> dict:
+    def start(self, cfg: Config, *, force_delete: bool = False,
+              partial_paths: list[str] | None = None) -> dict:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise HTTPException(409, "已经有一轮在跑了 —— 等它结束或先按停止")
@@ -153,11 +154,12 @@ class Runner:
             self.status = self._blank()
             self.status.update({
                 "running": True,
+                "source": "partial" if partial_paths else "tree",
                 "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "_started_ts": time.time(),
             })
             self._thread = threading.Thread(
-                target=self._work, args=(cfg, force_delete), daemon=True)
+                target=self._work, args=(cfg, force_delete, partial_paths), daemon=True)
             self._thread.start()
             return dict(self.status)
 
@@ -170,16 +172,35 @@ class Runner:
         return {"ok": True}
 
     # ---- 真正干活 --------------------------------------------------------
-    def _work(self, cfg: Config, force_delete: bool) -> None:
+    def _work(self, cfg: Config, force_delete: bool,
+              partial_paths: list[str] | None = None) -> None:
         """跑一轮。
 
-        🔴 **执行逻辑全部下沉到 `pipeline.run_once`** —— web 与 cli 共用同一份。
+        🔴 **执行逻辑全部下沉到 `pipeline`** —— web 与 cli 共用同一份。
            原来 web 和 cli 各写了一遍「按模式组装网盘现状」，结果分叉
            （网页点「事件流」永远 400，命令行却说「能跑」）。两处各写一份，必然分叉。
            现在连 **`mode` 这个参数都取消了** —— 只有一条路，没什么可传的。
+
+        ⭐ 2026-11-17 起有**两个入口**（都在这一个执行器里跑，共用运行状态 / 日志 / 停止按钮）：
+           `partial_paths` 为空 ⇒ 全量轮（`run_once`，导目录树、会删）
+           给了路径        ⇒ 补录（`run_partial`，实时列那几棵子树、只增不删）
         """
         stamp = report_mod.now_stamp()
         try:
+            if partial_paths:
+                self.log.add("info",
+                             f"开始补录（只增不删）：{len(partial_paths)} 个目录 "
+                             f"—— {', '.join(partial_paths[:3])}"
+                             f"{' 等' if len(partial_paths) > 3 else ''}")
+                out = pipeline_mod.run_partial(
+                    cfg, self._log, partial_paths,
+                    sleeper=self._sleeper, on_stage=self._set_stage)
+                with self._lock:
+                    self.status["source"] = out.source
+                    self.status["detail"] = out.detail
+                self._finish(res=out.res, stamp=stamp)
+                return
+
             self.log.add("info", "开始同步（自己导目录树 → 全量对账）")
             out = pipeline_mod.run_once(
                 cfg, self._log, sleeper=self._sleeper,
@@ -300,6 +321,15 @@ class PreviewIn(BaseModel):
     limit: int = 200
 
 
+class PartialIn(BaseModel):
+    """手动补录的请求体。
+
+    `paths` 是**相对网盘根**的目录路径（浏览接口返回的就是这个形态），
+    也容忍「相对同步根」的写法 —— 归一化在后端 `walk_remote_sub` 里做。
+    """
+    paths: list[str] = Field(default_factory=list)
+
+
 # --------------------------------------------------------------------------- 静态页
 @app.get("/", response_class=HTMLResponse)
 def index() -> Any:
@@ -364,6 +394,9 @@ def state() -> dict:
     #    （本项目吃过「两处各写一遍必然分叉」的亏，见 `pipeline` 顶部）
     out["steps"] = [{"key": k, "title": t, "help": h}
                     for k, t, h in pipeline_mod.SYNC_STEPS]
+    # ⭐ 补录那张卡也一样 —— 它跟全量轮**不是同一组步骤**（没有「导目录树」）
+    out["partial_steps"] = [{"key": k, "title": t, "help": h}
+                            for k, t, h in pipeline_mod.PARTIAL_STEPS]
     return out
 
 
@@ -820,6 +853,137 @@ def preview(body: PreviewIn) -> dict:
             "renamed": max(0, len(d.renamed) - limit),
         },
     }
+
+
+# --------------------------------------------------------------------------- 补录：浏览网盘
+# ⚠️ 浏览是**一次点一层**的交互，所以 V115 实例要留住：
+#    它内部有 `_dir_ids` 的逐级路径 memo，丢了就会「每点一层，把整条路径重新解析一遍」
+#    （深路径 = 3~4 个请求 × 1~3 秒节流 ⇒ 点一层要等十几秒）。
+#    配置 / 账号变了 ⇒ key 变了 ⇒ 自动换新实例，不会用错的账号去列目录。
+_BROWSE: dict = {"key": None, "v": None}
+# 一次补录最多几个目录（每个目录至少要 1 个请求 + 子树里每层 1 个）
+_PARTIAL_MAX_PATHS = 30
+
+
+def _browse_client(cfg: Config) -> V115:
+    key = (cfg.remote_root, tuple(cfg.includes), str(cfg.accounts_file),
+           str(getattr(cfg, "account_id", "")), str(getattr(cfg, "cookie_source", "")))
+    if _BROWSE["key"] == key and _BROWSE["v"] is not None:
+        return _BROWSE["v"]
+    try:
+        cookie = load_cookie(cfg)
+    except CookieMissing as exc:
+        raise HTTPException(400, f"还没配好 115 账号：{exc}") from exc
+    # 浏览不进日志环：每点一层刷一行，会把真正的同步记录淹掉
+    quiet = lambda *a, **k: None            # noqa: E731
+    v = V115(build_client(cookie), cfg, Throttle(cfg=cfg, log=quiet), quiet)
+    _BROWSE.update({"key": key, "v": v})
+    return v
+
+
+@app.get("/api/browse", dependencies=[Depends(auth)])
+def browse(path: str = "") -> dict:
+    """**实时**列 115 上的某一层（补录用的目录选择器）。
+
+    🔴 为什么不能用 `/api/scope` 那个选择器：它是读**本地目录树**的（零请求），
+       而补录的场景恰恰是「刚放进去的片，还不在树里」⇒ 必须实时问 115。
+       这也正是补录要绕开「导全量树」的原因：问一层只要一个请求。
+
+    `path` 省略 ⇒ 从**同步根**开始（那才是补录的合法上限）。
+    返回里带 `selectable` / `reason`：不在同步根下、或不在白名单里时**不许选**，
+    并把原因说清楚 —— 让他点了才报错是最差的体验。
+    """
+    cfg = load()
+    v = _browse_client(cfg)
+    p = (path or "").strip().strip("/")
+    try:
+        cid = v.dir_id(p) if p else v.root_id()
+        nodes = v.list_dir(cid)
+    except CookieMissing as exc:
+        raise HTTPException(400, f"还没配好 115 账号：{exc}") from exc
+    except V115Error as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    dirs: list[dict] = []
+    vids: list[dict] = []
+    for n in nodes:
+        full = f"{p}/{n.name}" if p else n.name
+        if n.is_dir:
+            dirs.append({"name": n.name, "path": full})
+        elif is_video(n.name, cfg.exts):
+            vids.append({"name": n.name, "path": full})
+    dirs.sort(key=lambda x: x["name"])
+    vids.sort(key=lambda x: x["name"])
+
+    crumbs = []
+    acc = ""
+    for part in (p.split("/") if p else []):
+        if not part:
+            continue
+        acc = f"{acc}/{part}" if acc else part
+        crumbs.append({"name": part, "path": acc})
+
+    # ---- 这个目录能不能当补录目标 ----
+    root = (cfg.remote_root or "").strip("/")
+    rel = v.to_sync_rel(p) if p else None
+    reason = ""
+    selectable = True
+    if not p:
+        selectable = False
+        reason = "这是网盘根，不是同步根 —— 请进入同步根里面再选"
+    elif rel is None:
+        selectable = False
+        reason = f"不在同步根 `{root or '(网盘根)'}` 下面，选了也生不出正确的地址"
+    elif rel == "":
+        selectable = False
+        reason = "这就是同步根本身 —— 整库刷新请用上面的「立即执行」；这里只补具体几部"
+    elif not v.in_scope(rel):
+        selectable = False
+        reason = f"不在「同步范围」白名单里（当前：{'、'.join(cfg.includes)}）"
+
+    return {
+        "path": p,
+        "parent": p.rsplit("/", 1)[0] if "/" in p else "",
+        "crumbs": crumbs,
+        "root": root,
+        "at_root": (not root and not p) or (bool(root) and p == root),
+        "dirs": dirs,
+        "videos": vids[:60],
+        "video_count": len(vids),
+        "file_count": len(nodes) - len(dirs) - len(vids),
+        "selectable": selectable,
+        "reason": reason,
+        "rel": rel,
+    }
+
+
+@app.post("/api/partial", dependencies=[Depends(auth)])
+def start_partial(body: PartialIn) -> dict:
+    """⭐ **手动补录**（2026-11-17）：只处理你点名的这几个目录，**只增不删**。
+
+    与 `/api/run` 的差别只有一处（但很关键）：
+
+        `/api/run`     导全量目录树 → 全库对账 → **该删的删**
+        `/api/partial` 实时列这几个目录 → 只写缺的 → **一条都不删**
+
+    ⇒ 删除永远只由每日全量那轮判（它看得见全库）。补录只是让「刚加进来那几部」
+       不用等到明天才在媒体库里出现。
+    """
+    cfg = load()
+    paths: list[str] = []
+    for x in body.paths:
+        p = str(x or "").strip().strip("/")
+        if p and p not in paths:
+            paths.append(p)
+    # ⚠️ 先校验「选没选」，再校验「前缀配没配」——
+    #    反过来的话，他点了空清单会看到一句「还没配播放地址」，与操作毫无关系。
+    if not paths:
+        raise HTTPException(400, "还没选目录 —— 点「从网盘选目录」进去点一个，"
+                                 "或在输入框里粘路径（如 `电影/沙丘3（2026）`）")
+    if len(paths) > _PARTIAL_MAX_PATHS:
+        raise HTTPException(400, f"一次最多 {_PARTIAL_MAX_PATHS} 个目录 —— 分几次来")
+    _need_prefix(cfg)
+    return _runner().start(cfg, partial_paths=paths)
 
 
 # --------------------------------------------------------------------------- 健康检查

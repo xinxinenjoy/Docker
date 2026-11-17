@@ -537,6 +537,58 @@ nav button.on{color:var(--pri)}
         </div>
       </div>
 
+      <!--
+        🔴 2026-11-17 新增「补录新增」。
+           红领巾：「临时新加电影或者电视剧的时候我需要手动将新的这些加进来，
+                   不然每次都全量导出，官方生成目录树很慢（这个还需要保留，每天保底刷新）」
+           ⇒ 上面那轮全量**一个字不动**（每天兜底、判删除、判改名），
+              这张卡只补「刚放进去的那几部」：实时列你点的那几个目录（一层一个请求），
+              **只增不删**。
+           ⚠️ 步骤文案来自后端 `pipeline.PARTIAL_STEPS`（单一事实源），别在这里另写一份。
+           ⛔ 别给这张卡加「顺手清理」—— 它拿到的网盘清单是局部的，判不出全库该有什么。
+      -->
+      <div class="card" id="partCard">
+        <div class="card-h">
+          <h2>补录新增</h2>
+          <span class="hint">临时加的片走这里 · 不导目录树 · 只增不删</span>
+        </div>
+        <div class="card-b">
+          <div class="sec fold" id="partStepBox" data-k="partsteps">
+            <div class="sec-h" role="button" tabindex="0" aria-expanded="false"
+                 onclick="toggleSec('partsteps')" onkeydown="secKey(event,'partsteps')">
+              <span class="car"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+              <span class="tt">这一趟会做什么</span>
+              <span class="sum" id="partStepSum"></span>
+              <span class="sp">展开</span>
+            </div>
+            <div class="sec-b"><ol class="steps" id="partStepList"></ol></div>
+          </div>
+
+          <div class="picked" id="partPicked" style="margin-top:13px"></div>
+
+          <div class="actions" style="margin-top:11px;flex-wrap:wrap">
+            <button class="btn sm" id="btnBrowse" onclick="browseOpen()">从网盘选目录</button>
+            <input id="partInput" type="text" style="flex:1 1 300px"
+                   placeholder="或粘路径：电影/沙丘3（2026）—— 多条用逗号或换行分开"
+                   onkeydown="if(event.key==='Enter'){partAddInput()}">
+            <button class="btn sm" onclick="partAddInput()">加入</button>
+          </div>
+
+          <div class="hidden" id="browseBox" style="margin-top:12px">
+            <div class="crumbs" id="browseCrumbs"></div>
+            <div class="picker" id="browseList"></div>
+            <div class="muted" id="browseHint" style="font-size:12.5px;margin-top:8px;line-height:1.7"></div>
+          </div>
+
+          <div class="actions" style="margin-top:13px">
+            <button class="btn pri" id="btnPart" onclick="startPartial()">开始补录（只增不删）</button>
+            <span class="muted" style="font-size:12.5px">补完不用管 —— 每天那轮全量会把它并进整库</span>
+          </div>
+          <div class="bar hidden" id="partBar"><i></i></div>
+          <div class="stats" id="partStats" style="margin-top:13px;display:none"></div>
+        </div>
+      </div>
+
       <div class="card hidden" id="prevCard">
         <div class="card-h"><h2>差异预览</h2><span class="hint" id="prevHint"></span></div>
         <div class="card-b">
@@ -835,6 +887,9 @@ async function loadState() {
   }
   window.__state = s;
   renderSteps(s.steps);
+  // 补录卡：步骤表 + 已选清单（清单是浏览器内存状态，这里只是让它跟上按钮可用性）
+  renderPartialSteps(s.partial_steps);
+  partRender();
   if (!HIST_LOADED) loadHist();
 }
 
@@ -1090,6 +1145,10 @@ function secOverview(res, det) {
   const origin = String(det.tree_origin || res.tree_origin || '');
   const fellBack = origin.indexOf('本地') >= 0;
   const total = res.elapsed_total || res.elapsed || '';
+  // ⭐ 补录那一趟跟全量轮的**口径不同**，同一个格子不能照抄字眼：
+  //    没有「目录树」（它绕开了导树）、「网盘条目 / 本地已有」只算他点的那几个目录。
+  const isPart = !!res.partial;
+  const partPaths = res.partial_paths || [];
   const body = `
     <div class="stats">
       <div class="stat pri"><div class="k">写入 strm</div><div class="v">${n(res.written)}</div></div>
@@ -1097,32 +1156,46 @@ function secOverview(res, det) {
       <div class="stat warn"><div class="k">挂起待确认</div><div class="v">${n(res.pending_delete)}</div></div>
       <div class="stat click" onclick="jumpSec('req')" title="点开看这 ${n(res.requests)} 次请求具体做了什么">
         <div class="k">115 请求 ▾</div><div class="v">${n(res.requests)}</div></div>
-      <div class="stat"><div class="k">整轮耗时</div>
+      <div class="stat"><div class="k">${isPart ? '整趟耗时' : '整轮耗时'}</div>
         <div class="v" style="font-size:16px">${esc(total || '—')}</div></div>
-      <div class="stat ${fellBack ? 'warn' : ''}"><div class="k">目录树</div>
+      <div class="stat ${(fellBack && !isPart) ? 'warn' : ''}">
+        <div class="k">${isPart ? '补录范围' : '目录树'}</div>
         <div class="v" style="font-size:13.5px">${
-          origin ? (fellBack ? '本机旧树 ⚠' : '刚导的新树') : '—'}</div></div>
+          isPart ? `${n(partPaths.length)} 个目录`
+                 : (origin ? (fellBack ? '本机旧树 ⚠' : '刚导的新树') : '—')}</div></div>
     </div>
     <div class="muted" style="margin-top:11px;line-height:1.8">
       网盘条目 <b>${n(res.scanned_remote)}</b> ·
       本地已有 strm <b>${n(res.scanned_local)}</b> ·
       内容没变跳过 <b>${n(res.unchanged)}</b>
       ${res.renamed ? ` · 本地改过名保留 <b>${n(res.renamed)}</b>` : ''}
+      ${isPart ? '<br><i>（补录只看你选的那几个目录 —— 上面三个数都是这几个目录里的，不是整库）</i>' : ''}
     </div>
+    ${isPart ? `<div class="note ok" style="margin-top:11px"><i>✓</i><div>
+      这一趟<b>只增不删</b>${res.delete_suppressed
+        ? ` —— 范围内另有 <b>${n(res.delete_suppressed)}</b> 条本地 strm 没对上，`
+          + `一条都没删（交给每日全量那轮判定）`
+        : ''}。
+      删文件、判改名、清空目录这些事只由每天那轮全量做。</div></div>` : ''}
     ${res.pending_delete ? `<div class="muted" style="margin-top:4px">
       ⏳ 有 <b>${n(res.pending_delete)}</b> 个 strm 判为<b>不该自动删</b>（异常 / 变动面过大）——
       清单和原因在最上面那张「待确认删除」卡里（这一轮<b>没有</b>真删）。</div>` : ''}
-    ${origin ? `<div class="muted" style="margin-top:4px">目录树来源：${esc(origin)}</div>` : ''}
+    ${isPart
+      ? `<div class="muted" style="margin-top:4px">补录的目录：${partPaths.length
+            ? partPaths.slice(0, 5).map(esc).join(' · ') + (partPaths.length > 5 ? ` 等 ${n(partPaths.length)} 个` : '')
+            : '—'}</div>`
+      : (origin ? `<div class="muted" style="margin-top:4px">目录树来源：${esc(origin)}</div>` : '')}
     ${res.elapsed_tree ? `<div class="muted" style="margin-top:4px">
-      耗时拆开：导目录树 <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>
+      耗时拆开：${isPart ? '实时列目录' : '导目录树'} <b>${esc(res.elapsed_tree)}</b>
+      ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>
       （主位显示的是两者之和）</div>` : ''}`;
   return secBox('ov', {
-    icon: '📊 ', title: '概览',
+    icon: '📊 ', title: isPart ? '概览（补录 · 只增不删）' : '概览',
     // ⭐ 这行是**收起状态下唯一看得见的结论**（默认折叠之后更要紧）⇒ 别往里塞无关数字。
     sum: `写 ${n(res.written)} · 删 ${n(res.deleted)} · 请求 ${n(res.requests)}` +
          (res.pending_delete ? ` · 挂起 ${n(res.pending_delete)}` : ''),
     // 退回本机旧树 = 导树失败后的降级 ⇒ 按告警处理，让它**自动展开**（见 `secBox`）。
-    tone: fellBack ? 'warn' : '',
+    tone: (fellBack && !isPart) ? 'warn' : '',
     body,
   });
 }
@@ -1309,7 +1382,7 @@ function secReq(res) {
     </div>
     <div class="muted" style="margin-bottom:13px;line-height:1.8">
       整轮 <b>${esc(res.elapsed_total || res.elapsed || '—')}</b>
-      ${res.elapsed_tree ? `＝ 导目录树 <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>` : ''}
+      ${res.elapsed_tree ? `＝ ${res.partial ? '实时列目录' : '导目录树'} <b>${esc(res.elapsed_tree)}</b> ＋ 对账落盘 <b>${esc(res.elapsed || '—')}</b>` : ''}
       ${th.sleeps != null ? `<br>节流：随机间隔睡 <b>${n(th.sleeps)}</b> 次（累计 ${esc(dur((th.slept_seconds || 0) * 1000))}）·
         长休 <b>${n(th.rests)}</b> 次 · 冷却 <b>${n(th.cooldowns)}</b> 次` : ''}
     </div>`;
@@ -1407,7 +1480,16 @@ function showLatest() {
 /* 「这一轮会做什么」—— 条目**来自后端** `pipeline.SYNC_STEPS`（单一事实源）。
    ⛔ 别把文案写死在这里：后端改一次、前端不改，两边就对不上了。 */
 function renderSteps(steps) {
-  const box = $('#stepList');
+  renderStepList($('#stepList'), $('#stepSum'), steps);
+}
+
+/* 补录那张卡的步骤表 —— 文案同样来自后端（`pipeline.PARTIAL_STEPS`）。
+   ⚠️ 它跟全量轮**不是同一组步骤**（没有「导目录树」），所以是两个元组、两次渲染。 */
+function renderPartialSteps(steps) {
+  renderStepList($('#partStepList'), $('#partStepSum'), steps);
+}
+
+function renderStepList(box, sum, steps) {
   if (!box || !Array.isArray(steps)) return;
   const html = steps.map(s => `<li><div>
     <span class="t">${bold(s.title)}</span>
@@ -1416,8 +1498,7 @@ function renderSteps(steps) {
   //    把读者选中的文字冲掉（与结果区 `RES_FP` 指纹是同一个教训，只是这里更简单）。
   if (box.dataset.fp !== html) { box.innerHTML = html; box.dataset.fp = html; }
   // 折叠态下也要能看出「里面有几条」。⚠️ 只报**条数**，不做内容摘要 ——
-  // 摘要等于把 SYNC_STEPS 的文案再抄一遍，后端改一次这里就漂了（本项目吃过分叉的亏）。
-  const sum = $('#stepSum');
+  // 摘要等于把步骤文案再抄一遍，后端改一次这里就漂了（本项目吃过分叉的亏）。
   if (sum) sum.textContent = `${steps.length} 步`;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -1565,6 +1646,30 @@ function poll() {
     $('#btnStop').style.display = s.running ? '' : 'none';
     $('#runBar').classList.toggle('hidden', !s.running);
 
+    // ---- 补录卡（与全量共用一个执行器 ⇒ 同一时刻只能有一个在跑）----
+    const btnPart = $('#btnPart');
+    if (btnPart) btnPart.disabled = s.running || !PART.paths.length || PART.busy;
+    const partBar = $('#partBar');
+    if (partBar) partBar.classList.toggle('hidden', !(s.running && s.source === 'partial'));
+    if (s.source === 'partial' && (s.running || s.written || s.error)) {
+      const pst = $('#partStats');
+      pst.style.display = '';
+      const pcells = [
+        ['写入', n(s.written), 'pri'],
+        ['删除', '0', ''],            // 补录一条都不删 —— 数字摆在这儿比写「不删」更直观
+        ['请求', n(s.requests), ''],
+      ];
+      if (s.running) pcells.push(['已用时', s.elapsed_running || '—', '']);
+      pst.innerHTML = pcells.map(([k, v, cls]) =>
+        `<div class="stat ${cls}"><div class="k">${k}</div>
+          <div class="v" style="font-size:${k === '已用时' ? '16px' : '21px'}">${v}</div></div>`).join('');
+    } else {
+      // 跑的是全量那轮 ⇒ 补录卡上的数字是**上一次补录**的，留着会让人以为刚才补录过
+      const pst = $('#partStats');
+      if (pst) pst.style.display = 'none';
+    }
+    if (!s.running && PART.busy) { PART.busy = false; partRender(); }
+
     if (s.running || s.written || s.deleted || s.error) {
       $('#runStats').style.display = '';
       // ⭐ 运行中也要有「已用时」—— 红领巾 2026-10-13：
@@ -1588,6 +1693,149 @@ function poll() {
       loadHist();       // 本轮刚写出一份新回执 ⇒ 记录列表立刻跟上
     }
   }, 900);
+}
+
+/* ---------------- 补录新增（只增不删） ----------------
+   🔴 与「立即执行」的差别只有一处，但那处很关键：
+      全量轮 = 导全量目录树 + 全库对账 + **该删的删**
+      补录   = 实时列你点的那几个目录 + 只写缺的 + **一条都不删**
+   ⛔ 别给补录加「顺手清理」：它拿到的网盘清单是**局部**的，判不出全库该有什么，
+      真去判就会把别的几千条 strm 当成「网盘上没了」。删除只由每日全量那轮判。
+
+   ⚠️ 选目录为什么必须实时列（不能复用设置页那个 `/api/scope`）：
+      那个选择器读的是**本地目录树**（零请求），而补录的场景恰恰是
+      「刚放进去的片，还不在树里」⇒ 只能现问 115 要这一层。
+      这也正是它比导全量树快的原因：问一层 = 一个请求。 */
+let PART = { paths: [], browse: '', busy: false, fp: '' };
+
+function partRender() {
+  const box = $('#partPicked');
+  if (!box) return;
+  const html = PART.paths.length
+    ? PART.paths.map(p => `<span class="chip"><span>${esc(p)}</span>
+        <button title="移除" data-del="${esc(p)}">×</button></span>`).join('')
+    : `<span class="all">还没选 —— 点「从网盘选目录」进去点一个，或在右边粘路径</span>`;
+  // ⚠️ 这个函数会被 8 秒轮询连带调到 ⇒ 内容没变就别重建 DOM
+  //    （否则你刚选中的那条会被换成新节点，看着像「点了没反应」）。
+  if (PART.fp !== html) { box.innerHTML = html; PART.fp = html; }
+  $$('#partPicked [data-del]').forEach(b => {
+    b.onclick = () => partRemove(b.getAttribute('data-del'));
+  });
+  const btn = $('#btnPart');
+  if (btn) btn.disabled = !PART.paths.length || PART.busy;
+}
+
+function partAdd(p) {
+  p = String(p || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!p) return;
+  if (!PART.paths.includes(p)) PART.paths.push(p);
+  partRender();
+  toast('已加入：' + p);
+}
+
+function partAddInput() {
+  const el = $('#partInput');
+  if (!el) return;
+  String(el.value || '').split(/[\n\r,，;；]+/).forEach(x => {
+    const p = x.trim().replace(/^\/+|\/+$/g, '');
+    if (p && !PART.paths.includes(p)) PART.paths.push(p);
+  });
+  el.value = '';
+  partRender();
+}
+
+function partRemove(p) {
+  PART.paths = PART.paths.filter(x => x !== p);
+  partRender();
+}
+
+async function browseOpen() {
+  const box = $('#browseBox');
+  const open = !box.classList.contains('hidden');
+  box.classList.toggle('hidden', open);
+  if (open) return;
+  await browseTo(PART.browse || '');
+}
+
+async function browseTo(path) {
+  const list = $('#browseList');
+  list.innerHTML = `<div class="pick" style="color:#78808f">正在列目录…（实时问 115，一层一个请求）</div>`;
+  $('#browseHint').textContent = '';
+  try {
+    const d = await api('/api/browse?path=' + encodeURIComponent(path || ''));
+    PART.browse = d.path;
+    renderBrowse(d);
+  } catch (e) {
+    list.innerHTML = `<div class="pick" style="color:#b91c1c">${esc(e.message)}</div>`;
+  }
+}
+
+function renderBrowse(d) {
+  const crumbs = (d.crumbs || []).map((c, i) => {
+    const last = i === d.crumbs.length - 1;
+    return (i ? '<span class="sep">›</span>' : '') +
+      (last ? `<span class="cur">${esc(c.name)}</span>`
+            : `<button data-go="${esc(c.path)}">${esc(c.name)}</button>`);
+  }).join('') || '<span class="cur">（网盘根）</span>';
+  $('#browseCrumbs').innerHTML = crumbs;
+
+  const rows = [];
+  // 「上一级」：只有在你已经进过某一层时才给（网盘根没有上一级）
+  if (d.path) {
+    rows.push(`<div class="pick"><span class="nm" data-go="${esc(d.parent)}">↩ 上一级</span></div>`);
+  }
+  if (d.selectable) {
+    rows.push(`<div class="pick on">
+      <button class="btn sm pri" data-pick="${esc(d.path)}">＋ 选这个目录</button>
+      <span class="meta">${n(d.video_count)} 个视频${
+        d.dirs.length ? ` · ${n(d.dirs.length)} 个子目录` : ''}</span></div>`);
+  } else if (d.reason) {
+    // ⛔ 不能选就把原因当场说清 —— 让他点了才报错是最差的体验
+    rows.push(`<div class="pick" style="color:#8a6d3b">${esc(d.reason)}</div>`);
+  }
+  (d.dirs || []).forEach(x => {
+    rows.push(`<div class="pick"><span class="nm" data-go="${esc(x.path)}">${esc(x.name)}</span>
+      <button class="go" data-go="${esc(x.path)}">进入 ›</button></div>`);
+  });
+  (d.videos || []).forEach(x => {
+    rows.push(`<div class="pick"><span class="nm" style="color:#78808f;cursor:default">${esc(x.name)}</span>
+      <span class="meta">视频</span></div>`);
+  });
+  $('#browseList').innerHTML = rows.join('')
+    || `<div class="pick" style="color:#78808f">这一层是空的</div>`;
+
+  $$('#browseList [data-go]').forEach(el => {
+    el.onclick = ev => { ev.stopPropagation(); browseTo(el.getAttribute('data-go')); };
+  });
+  $$('#browseList [data-pick]').forEach(el => {
+    el.onclick = ev => { ev.stopPropagation(); partAdd(el.getAttribute('data-pick')); };
+  });
+
+  // 提示只说「这一层的特点」，不复述上面那些行的意思
+  const bits = [];
+  if (d.at_root) {
+    bits.push('这是你的同步根 —— 直接选它等于整库实时列目录（很慢，会被上限拦住）。点进具体的片子再选。');
+  }
+  if (d.file_count) bits.push(`另有 ${n(d.file_count)} 个非视频文件（不列）。`);
+  if (d.video_count > (d.videos || []).length) {
+    bits.push(`视频较多，只列前 ${(d.videos || []).length} 个。`);
+  }
+  $('#browseHint').textContent = bits.join('');
+}
+
+async function startPartial() {
+  if (!PART.paths.length) { toast('先选目录'); return; }
+  const show = PART.paths.slice(0, 6).join('\n');
+  const more = PART.paths.length > 6 ? `\n… 共 ${PART.paths.length} 个` : '';
+  if (!confirm(`只处理这 ${PART.paths.length} 个目录：\n${show}${more}\n\n`
+               + '这一趟只增不删（写进来的内容与每日全量那轮一致）。继续？')) return;
+  try {
+    await api('/api/partial', { method: 'POST', body: JSON.stringify({ paths: PART.paths }) });
+    PART.busy = true;
+    partRender();
+    LOGSEQ = 0; $('#log').innerHTML = '';
+    poll();
+  } catch (e) { toast('失败：' + e.message); }
 }
 
 /* ---------------- 同步范围（目录选择器） ---------------- */

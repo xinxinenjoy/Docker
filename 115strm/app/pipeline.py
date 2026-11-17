@@ -24,6 +24,21 @@
 差几个数量级 ⇒ 只留后者。把 `schedule_cron` 设上（如 `0 4 * * *`），
 它就每天自己跑一轮，你只管往网盘里丢片；想立刻生效就在网页上点「立即同步」。
 
+## ⭐ 2026-11-17 补的**第二条**路：手动补录（`run_partial`）
+
+红领巾：「临时新加电影或者电视剧的时候我需要手动将新的这些加进来，
+不然每次都全量导出，官方生成目录树很慢（**这个还需要保留，每天保底刷新**）」
+
+⇒ 分工定死，两条路都留着、各管一段：
+
+    全量（`run_once`）      每天定时跑。导全树 → 全库对账 → **该删的删**。
+                            它是唯一的「全库真相」，删除与改名只由它判。
+    补录（`run_partial`）   手动点。**只走你点名的那几个目录**（几部片 = 几个请求），
+                            **只增不删**。补完就当没这回事，等明天全量收尾。
+
+⚠️ 补录**不是**「小一号的全量」—— 它拿到的网盘清单是局部的，判不出全库该有什么。
+   所以 `Syncer.run` 那侧的 `add_only` / `local_scope` 是硬约束，别绕。
+
 ## strm 「内容变了才重写」的判定**不受影响**
 
 判据是 `sync.Differ` 里那两行：
@@ -51,7 +66,7 @@ from .sync import SyncResult, Syncer
 from .throttle import Throttle
 from .v115 import V115, build_client, load_cookie
 
-__all__ = ["Outcome", "run_once", "save_tree", "SYNC_STEPS"]
+__all__ = ["Outcome", "run_once", "run_partial", "save_tree", "SYNC_STEPS", "PARTIAL_STEPS"]
 
 # 「这一轮做了什么」—— 给界面和日志共用的**单一事实源**。
 # ⚠️ 别在前端另写一份：文案一改就对不上（本项目吃过「两处各写一遍必然分叉」的亏）。
@@ -78,6 +93,39 @@ SYNC_STEPS: tuple[tuple[str, str, str], ...] = (
 
 # 目录树留几份（一份几 MB，留太多白占盘）。⚠️ 与 `pick_tree_file` 的口径必须一致。
 _KEEP_TREES = 5
+
+# 🔴 「补录」这一趟会做什么 —— 与 `SYNC_STEPS` 一样是**单一事实源**，前端别另抄。
+#
+# 为什么单独一个元组、不塞进 `SYNC_STEPS`：
+#   · 补录**没有**「导目录树」这一步（那正是它要绕开的）——两张表结构不同
+#   · 它必须一眼说清「这一趟一条都不删」，这是让人敢按下去的关键那一句
+PARTIAL_STEPS: tuple[tuple[str, str, str], ...] = (
+    ("browse", "实时列出你选的那几个目录",
+     "走 115 的列表接口逐层列 —— **不导整棵树**，所以只有几次请求，几秒就好"),
+    ("diff", "跟本地已有的 strm 对照",
+     "只比**你选的那几个目录**下面的文件，别处一概不碰"),
+    ("write", "只补缺的",
+     "新增的写入、内容变了的重写；**这一趟一条都不删** —— 删除交给每天那轮全量"),
+)
+
+
+def _require_prefix(cfg: Config) -> None:
+    """前置守卫：`strm_prefix` 为空就**拦住**（web / cli / 补录三条入口共用）。
+
+    🔴 为什么必须拦：`strm_prefix` 出厂为空（网页专属字段，见 config.strm_prefix）。
+       空着往下跑的话，`StrmBuilder` 只会拼出一个相对路径 ——
+       **能跑完、能写出一堆文件、但一个都播不了**。这种「看起来成功了」的失败
+       是本项目最忌讳的形态 ⇒ 干脆**开跑前就拦住**，并直接告诉去哪填。
+    """
+    if cfg.prefix_ready:
+        return
+    raise ValueError(
+        "还没配置 strm 内容前缀 —— 生成的 strm 里会写不出完整地址。\n"
+        "  请到网页「设置 › 播放地址」填上你的 alist 地址，"
+        "格式是 `https://你的域名:端口/d/挂载路径`（如 `https://alist.example.com:5244/d/媒体/影音`）。\n"
+        "  ⚠️ 必须用 `/d` 端点（`/dav` 要认证、播不了），"
+        "而且**要写到挂载路径的完整一层**（少一层 alist 会回 storage not found，"
+        "状态码却还是 200）。填完可以点「自检 strm 前缀」验一下。")
 
 
 @dataclass
@@ -165,18 +213,7 @@ def run_once(cfg: Config, log: Callable, *,
              on_stage: Callable[[str], None] | None = None) -> Outcome:
     """跑一轮。⚠️ **这是 web / cli 唯一共用的执行入口。**"""
     # ---------------------------------------------------------- ⓪ 前置守卫：前缀
-    # 🔴 `strm_prefix` 出厂为空（网页专属字段，见 config.strm_prefix）。
-    #    空着还往下跑的话，`StrmBuilder` 只会拼出一个相对路径 ——
-    #    **能跑完、能写出一堆文件、但一个都播不了**。这种「看起来成功了」的失败
-    #    是本项目最忌讳的形态 ⇒ 干脆**开跑前就拦住**，并直接告诉去哪填。
-    if not cfg.prefix_ready:
-        raise ValueError(
-            "还没配置 strm 内容前缀 —— 生成的 strm 里会写不出完整地址。\n"
-            "  请到网页「设置 › 播放地址」填上你的 alist 地址，"
-            "格式是 `https://你的域名:端口/d/挂载路径`（如 `https://alist.example.com:5244/d/媒体/影音`）。\n"
-            "  ⚠️ 必须用 `/d` 端点（`/dav` 要认证、播不了），"
-            "而且**要写到挂载路径的完整一层**（少一层 alist 会回 storage not found，"
-            "状态码却还是 200）。填完可以点「自检 strm 前缀」验一下。")
+    _require_prefix(cfg)
 
     # ⭐ 整轮计时**从函数第一行就开始**（含导目录树）——
     #    ⛔ 别只靠 `Syncer.run()` 里那个 `elapsed`：它不含导树，而导树恰恰是
@@ -240,3 +277,68 @@ def run_once(cfg: Config, log: Callable, *,
         log("warn", f"推送出错（不影响本轮同步）：{type(e).__name__}: {e}")
 
     return Outcome(res=res, source="tree", detail=detail)
+
+
+def run_partial(cfg: Config, log: Callable, paths: list[str], *,
+                sleeper: Callable[[float], None] | None = None,
+                on_stage: Callable[[str], None] | None = None) -> Outcome:
+    """**手动补录**：只处理你点名的那几个目录，**只增不删**。
+
+    ⚠️ 与 `run_once` 的关系：**同一套引擎、不同的取数范围**。
+       引擎是 `Syncer`（同一个 `Differ` / 同一个 `write` / 同一套 `safe_name`），
+       只是「网盘现状」从「导出整棵树再解析」换成「实时列你点的那几棵子树」。
+       ⛔ 别另写一套写盘逻辑 —— 两处各写一遍必然分叉（本项目吃过这个亏）。
+
+    🔴 三条安全线（缺一条都可能误删整个库，见 `Syncer.run` 的 `add_only` 说明）：
+
+        ① 清单是**局部**的  ⇒ 本地现状也必须按同一批目录筛（`local_scope`）
+        ② **一条都不删**     ⇒ 哪怕范围内真有对不上的（`add_only`）
+        ③ 不碰总挂起清单、不 prune 空目录、不删本地字幕
+
+    ⚠️ 这里**不推送通知**：补录是他自己按的按钮，结果当场就在页面上；
+       再发一条 Bark 只是噪音（而且通知文案是「这一轮同步了 N 个」的口径，会误导）。
+    """
+    _require_prefix(cfg)
+    t_all = time.time()
+    throttle = Throttle(cfg=cfg, sleeper=sleeper, log=log)
+
+    cookie = load_cookie(cfg)
+    log("info", f"账号来源：{getattr(cfg, 'cookie_source', '(未知)')}")
+    v = V115(build_client(cookie), cfg, throttle, log)
+
+    def stage(label: str) -> None:
+        v.stage = label
+        if on_stage:
+            try:
+                on_stage(label)
+            except Exception:
+                pass
+
+    syncer = Syncer(v, cfg, log, on_stage=stage)
+
+    # ---------------------------------------------------------- ① 实时列目录
+    stage(PARTIAL_STEPS[0][1])
+    dirs, files, info = syncer.walk_remote_sub(paths)
+    log("info", f"实时列完 {info['dir_count']:,} 个目录 ⇒ "
+                f"待生成 {len(files):,} 个 strm（{len(dirs):,} 个目录要建）")
+    t_tree = time.time()
+
+    # ---------------------------------------------------------- ② 对照本地 + 落盘
+    stage(PARTIAL_STEPS[1][1])
+    res = syncer.run(remote_files=files, remote_dirs=dirs, source="partial",
+                     add_only=True, local_scope=info["bases"])
+
+    res.requests = throttle.stats.requests
+    res.partial_paths = list(info["bases"])
+    res.partial_dirs = int(info["dir_count"])
+    # 耗时三段：这里「列目录」段 = 实时列那几棵子树（对比全量的「导树」段）
+    res.elapsed_tree_ms = int((t_tree - t_all) * 1000)
+    res.elapsed_tree = sync_mod._human(res.elapsed_tree_ms / 1000.0)
+    res.elapsed_total_ms = int((time.time() - t_all) * 1000)
+    res.elapsed_total = sync_mod._human(res.elapsed_total_ms / 1000.0)
+    res.req_detail = dict(v.reqs.summary())
+    res.req_detail["throttle"] = throttle.stats.as_dict()
+
+    return Outcome(res=res, source="partial",
+                   detail={"paths": list(info["bases"]), "dir_count": int(info["dir_count"]),
+                           "tree_origin": ""})

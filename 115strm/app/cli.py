@@ -3,6 +3,7 @@
 ```
 python -m app serve     # ★ 网页界面（容器默认动作）
 python -m app sync      # ★ 同步一轮：工具自己导目录树 + 全量对账 + 只写差异
+python -m app partial   # ★ 手动补录：只处理 --path 点名的目录（只增不删、不导树）
 python -m app export    # 只让 115 导一次目录树并存档（诊断 / 手工核对）
 python -m app preview   # 只预览差异，什么都不写
 python -m app doctor    # 环境自检：cookie / 目录树 / 输出目录 / 依赖
@@ -171,6 +172,34 @@ def cmd_export(cfg: Config, log, args) -> int:
     return 0
 
 
+def cmd_partial(cfg: Config, log, args) -> int:
+    """**手动补录**：只处理 `--path` 点名的目录，不走全量导树、**一条都不删**。
+
+    场景（红领巾 2026-11-17）：临时往网盘丢了几部片，不想等到明天那轮全量。
+    一部电影 = 1~3 个目录 = 几个请求；比导全量树（13 秒~几分钟）快得多。
+
+    ```
+    python -m app partial --path '电影/沙丘3（2026）'
+    python -m app partial --path '电影/沙丘3（2026）' --path '电视剧/某剧'  # 可重复
+    ```
+
+    ⚠️ 路径写**相对网盘根**的（`影音/电影/xxx`）；写成相对同步根的（`电影/xxx`）也认。
+    """
+    paths = [str(p).strip() for p in (getattr(args, "path", None) or []) if str(p).strip()]
+    if not paths:
+        log("error", "至少要一个 --path（可重复）。例："
+                     "`python -m app partial --path '电影/沙丘3（2026）'`")
+        return 2
+    out = pipeline_mod.run_partial(cfg, log, paths)
+    res = out.res
+    log("info", f"补录范围：{'、'.join(res.partial_paths)}")
+    log("info", f"网盘侧 {res.scanned_remote:,} 项 / 本地同范围已有 {res.scanned_local:,} 个 strm")
+    stamp = _write_receipt(cfg, res)
+    log("info", f"写了 {res.written} 个 strm；**一条都没删**（删除只由每日全量那轮判）；"
+                f"回执：reports/sync-{stamp}.md")
+    return 0
+
+
 def cmd_doctor(cfg: Config, log, args) -> int:
     ok = True
     print("=== 115strm 自检 ===")
@@ -271,12 +300,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--keep", action="store_true",
                    help="export 时保留 115 上那份临时导出件")
     p.add_argument("cmd", nargs="?", default="serve",
-                   choices=["serve", "sync", "export",
+                   choices=["serve", "sync", "export", "partial",
                             "preview", "doctor", "pending", "apply",
                             # ⚠️ 以下是**废弃别名** —— 2026-10-08 去掉模式概念后它们全跑同一条路。
                             #    留着只为不让老脚本 / 老文档里的命令**突然炸**（会打印一行提示）。
                             #    ⛔ 别在新文档里用这几个名字。
                             "auto", "events", "tree", "api"])
+    p.add_argument("--path", action="append", metavar="目录",
+                   help="partial 时要补录的目录（相对网盘根，可重复）")
     p.add_argument("--yes", action="store_true", help="apply 时确认")
     p.add_argument("--check", action="store_true",
                    help="doctor 时真发一次请求，自检 strm 前缀是否配对正确")
@@ -300,6 +331,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_export(cfg, log, args)
     if args.cmd == "pending":
         return cmd_pending(cfg, log, args)
+    if args.cmd == "partial":
+        return cmd_partial(cfg, log, args)
     if args.cmd == "apply":
         return cmd_apply(cfg, log, args)
     if args.cmd in ("auto", "events", "tree", "api"):
