@@ -22,6 +22,10 @@ jobs:
   #    这些构建期发现不了，只有那 417 个用例能拦。用例全是纯离线的（可注入时钟 / 假 client）。
   test:
     runs-on: ubuntu-latest
+    # ⚠️ 必须有 —— 2026-11-17 出过一次「本地 15 秒、CI 卡到 15 分钟还没完」：
+    #    没有超时，一个卡住的用例能耗满默认 6 小时，而且**什么都看不到**（日志要等跑完才有）。
+    #    设了它 ⇒ 到点必失败、日志立刻可下载，能直接看出卡在哪个用例。
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +38,11 @@ jobs:
         run: pip install -r requirements.txt httpx
       - name: 跑单测
         working-directory: ./115strm
-        run: python -m unittest discover -s tests
+        # ⚠️ `-v` + 不缓冲：卡住时能直接看到**最后一个开始跑、没有 OK 的用例名**。
+        #    不加的话输出被缓冲、卡住时一行都看不到（2026-11-17 排查时踩过）。
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python -m unittest discover -s tests -v
 
   build:
     needs: test
