@@ -595,6 +595,21 @@ class MergeIn(BaseModel):
     dry_run: bool = False           # 只回执「会建什么、会移几个」，不动数据
 
 
+class MoveIn(BaseModel):
+    """把选中的文件 / 目录移动到指定目录（红领巾 2026-11-20）。
+
+    口径：目标目录由前端「进到那一层后点放置」给出 ⇒ 这里只认 `target_cid`。
+    ⚠️ 不在这里用路径反查 id —— 那要逐级问 115（深路径 3~4 个请求 × 节流），
+       而前端此刻**就站在目标目录里**，cid 是现成的。
+    """
+    account_id: str
+    file_ids: list[str]
+    target_cid: str = "0"           # 目标目录 id（0 = 网盘根）
+    chunk: int = Field(default=20, ge=1, le=100)
+    delay: float = Field(default=1.2, ge=0, le=30)
+    dry_run: bool = False           # 只回执「会移什么、分几批」，不动数据
+
+
 class RevertIn(BaseModel):
     account_id: str
     file_ids: list[str]
@@ -1651,6 +1666,88 @@ def merge_dirs(body: MergeIn) -> dict:
         "failed_count": len(failed),
         "seconds": round(time.time() - started, 1),
         "note": "目录已建好，把选中的目录整个移进去了（层级不变）；同名冲突由 115 自动改名",
+    }
+
+
+# ----------------------------------------------------------------- 移动到指定目录
+@app.post("/api/move", dependencies=[Depends(auth)])
+def move_items(body: MoveIn) -> dict:
+    """把选中的对象**移动到某个已存在的目录**（红领巾 2026-11-20：放错位置了要能挪）。
+
+    与 `/api/merge-dirs` 的分工：那条是「新建一个目录再把东西移进去」，这条**不建目录、
+    不改名**，只做 115 的 `fs_move`。
+
+    ⚠️ 三个实测结论（都照抄 `/api/delete` 与 `/api/merge-dirs` 踩过的坑）：
+      ① 多对象必须 `fid[0..n]` 数组形态 —— `fid="a,b"` 逗号拼接会回
+         `90008 文件（夹）不存在或已经删除`（2026-10-17 实测），单文件也走数组形态更稳；
+      ② 移动是**异步任务**，上一批没跑完再发会回 `990009 尚未执行完成` ⇒ 有限退避重试；
+      ③ 目标里已有同名子项 ⇒ 115 自己改名，不去拦（红领巾 2026-10-17 拍板的口径）。
+    ⚠️ 自环拦截只做**能确定的那一条**：目标 id 正好是被移动对象本身。
+       「目标是某个被移动目录的子目录」在前端判（它手里有面包屑祖先链），后端拿不到。
+    """
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in body.file_ids:
+        fid = str(raw).strip()
+        if fid and fid not in seen:
+            seen.add(fid)
+            ids.append(fid)
+    if not ids:
+        raise HTTPException(400, "没选中任何对象")
+    if len(ids) > 500:
+        raise HTTPException(400, f"一次最多移动 500 个，当前 {len(ids)} 个")
+
+    target = str(body.target_cid or "0").strip() or "0"
+    if target in seen:
+        raise HTTPException(400, "不能把对象移动到它自己里面")
+
+    groups = _chunks(ids, body.chunk)
+    plan = {
+        "count": len(ids), "target_cid": target, "chunk": body.chunk, "delay": body.delay,
+        "groups": len(groups), "sleep_total": round(body.delay * max(len(groups) - 1, 0), 1),
+    }
+    if body.dry_run:
+        return {"ok": True, "dry_run": True, "plan": plan, "moved": [], "failed": []}
+
+    acc = _find_account(body.account_id)
+    client = _client(acc)
+    moved: list[str] = []
+    failed: list[dict] = []
+    started = time.time()
+
+    with _fs_write_slot("移动"):
+        for i, group in enumerate(groups):
+            if i:
+                time.sleep(body.delay)
+            payload: dict[str, Any] = {f"fid[{k}]": fid for k, fid in enumerate(group)}
+            payload["pid"] = target
+            for attempt in range(3):
+                try:
+                    check_response(client.fs_move(payload))
+                    moved.extend(group)
+                    break
+                except Exception as exc:
+                    text = str(exc)
+                    busy = "尚未执行完成" in text or "990009" in text
+                    if busy and attempt < 2:
+                        time.sleep(3.0 * (attempt + 1))
+                        continue
+                    failed.append({"file_ids": group, "error": text})
+                    break
+
+    if moved:
+        _cache_drop(body.account_id)
+    return {
+        "ok": not failed,
+        "dry_run": False,
+        "plan": plan,
+        "target_cid": target,
+        "moved": moved,
+        "failed": failed,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+        "seconds": round(time.time() - started, 1),
+        "note": "已提交移动；同名冲突由 115 自动改名。列表要立刻看到新位置请刷新那一层",
     }
 
 

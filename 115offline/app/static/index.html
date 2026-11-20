@@ -322,6 +322,29 @@
   }
   .actionbar.show{display:flex}
   .actionbar .cnt{font-size:12px; color:var(--sub); margin-right:auto; line-height:1.3}
+  /* 批量按钮的「长 / 短」两套文案：桌面用长的，手机换短的（否则 5 个按钮挤成竖排） */
+  .lb-long{display:inline}
+  .lb-short{display:none}
+
+  /* ---------- 移动态提示条（点了「移动」才出现） ---------- */
+  .movebar{display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    border-left:4px solid var(--brand); background:#f8f7ff}
+  .movebar .mvico{font-size:17px; flex:0 0 auto; line-height:1.2}
+  .movebar .mvtext{flex:1 1 200px; min-width:0}
+  .movebar .mvtitle{font-size:13px; font-weight:600; word-break:break-all}
+  .movebar .mvsub{font-size:11.5px; color:var(--sub); margin-top:3px; word-break:break-all}
+  .movebar .mvsub.bad{color:#991b1b}
+  .movebar button{flex:0 0 auto}
+
+  /* ---------- 轻提示（复制成功之类，不打断操作） ---------- */
+  .flash{position:fixed; left:50%; top:14px; z-index:90; max-width:min(560px,86vw);
+    padding:10px 14px; border-radius:11px; font-size:13px; line-height:1.5;
+    background:#111827; color:#fff; opacity:0; pointer-events:none;
+    transform:translate(-50%,-12px); transition:opacity .18s, transform .18s;
+    box-shadow:0 16px 34px -20px rgba(0,0,0,.85); word-break:break-all}
+  .flash.show{opacity:1; transform:translate(-50%,0)}
+  .flash.ok{background:#065f46}
+  .flash.err{background:#991b1b}
 
   .bar{height:8px; border-radius:99px; background:#eef0f8; overflow:hidden}
   .bar>i{display:block; height:100%; border-radius:99px; background:var(--grad)}
@@ -369,6 +392,15 @@
     .fsmain .filterbar .seg button{padding:6px 9px}
     .fsmain .filterbar .seg::-webkit-scrollbar{display:none}
     .fsmain .filterbar select.sortsel{flex:0 0 auto; max-width:96px}
+    /* 批量操作栏：桌面只有 4 个按钮，加了「移动」之后 390 宽上放不下 ——
+       不换行、更不许竖排（「清 空 选 择」那种）：文案先用短版，仍放不下才横滑兜底。 */
+    .lb-long{display:none}
+    .lb-short{display:inline}
+    .actionbar{overflow-x:auto; overflow-y:hidden; scrollbar-width:none}
+    .actionbar::-webkit-scrollbar{display:none}
+    .actionbar>button,.actionbar>.cnt,.actionbar>.muted{flex:0 0 auto; white-space:nowrap}
+    /* 「（无新名）」这类解释性提示在手机上让位（按钮已经够挤）；忙碌进度不受影响 */
+    #fsBarBusy.hint{display:none}
   }
 
   /* ---------- 中屏（平板 / 窄窗口）：两栏 + 顶部胶囊导航 ---------- */
@@ -611,6 +643,7 @@
         <button class="iconbtn" id="fsScan">⟳ 扫描</button>
         <button class="iconbtn" id="fsRoot">🏠 根目录</button>
         <button class="iconbtn" id="fsDefaultDir">⭐ 默认目录</button>
+        <button class="iconbtn" id="fsCopyPath" title="复制当前目录的网盘路径（相对网盘根，115strm 补录用）">📋 复制路径</button>
         <details class="menu" id="fsMenu">
           <summary>⋯</summary>
           <div class="menupanel">
@@ -630,6 +663,17 @@
           </div>
         </details>
       </div>
+    </div>
+
+    <!-- 移动态：只在点了「移动」之后出现；进到目标目录再点「放置到此处」 -->
+    <div class="card movebar hide" id="fsMoveBar">
+      <span class="mvico">📦</span>
+      <div class="mvtext">
+        <div class="mvtitle" id="fsMoveTitle">移动中</div>
+        <div class="mvsub" id="fsMoveSub"></div>
+      </div>
+      <button class="line sm" id="fsMovePlace">📥 放置到此处</button>
+      <button class="ghost sm" id="fsMoveCancel">取消</button>
     </div>
 
     <div class="fslayout">
@@ -681,9 +725,10 @@
         <div class="actionbar" id="fsBar">
           <span class="cnt" id="fsCount"></span>
           <span class="muted" id="fsBarBusy"></span>
-          <button class="ghost sm" id="fsSelNone">清空选择</button>
+          <button class="ghost sm" id="fsSelNone"><span class="lb-long">清空选择</span><span class="lb-short">清空</span></button>
           <button class="line sm" id="fsBatchRename" disabled>批量改名</button>
           <button class="line sm" id="fsBatchMerge" disabled>合并到文件夹</button>
+          <button class="line sm" id="fsBatchMove" disabled>移动</button>
           <button class="danger sm" id="fsBatchDelete" disabled>批量删除</button>
         </div>
       </div>
@@ -1685,6 +1730,147 @@ function fsSelfName() {
 
 function closeFsBar() { /* 占位：切换 tab 时收起操作栏由 CSS class 控制 */ }
 
+/* =====================================================================
+ * 移动态（红领巾 2026-11-20）
+ *   流程对齐 115 网页版：勾选 → 点「移动」把对象**拿在手上** → 自己一层层翻到目标目录
+ *   → 点「放置到此处」。没拿起之前，那条提示栏整条不出现（不是灰在那儿）。
+ *   ⚠️ 状态放全局 `MOVE`，**不进 FS** —— fsLoad 每次都重建 FS（切目录就丢），
+ *      而「拿着东西换目录」正是这个功能的核心动作。
+ * ===================================================================== */
+let MOVE = null;   // { ids: [], names: [], fromCid: '', fromPath: '' }
+
+/** 当前目录在网盘里的路径（**相对网盘根**，给 115strm 的补录 `--path` 用）。
+ *  ⚠️ 115 回的 `path` 第一个就是网盘根（cid=0）⇒ 必须摘掉，否则会多出「根目录/」一层。 */
+function relDirPath() {
+  const p = ((FS && FS.path) || []).filter(x => x && x.name && String(x.id) !== '0');
+  const names = p.map(x => x.name);
+  if (names.length && names[0] === '根目录') names.shift();   // 兜底：根节点没带 id 的情况
+  return names.join('/');
+}
+
+/** 当前所在目录能不能当「放置」目标 —— 返回空串 = 可以，否则是原因 */
+function moveBlockedHere() {
+  if (!MOVE) return '';
+  if (!FS) return '目录还没读完，等一下';
+  const cur = String(FS.cid);
+  if (MOVE.ids.indexOf(cur) >= 0) return '当前就在被移动的对象里面，不能放到它自身';
+  /* 目标路径的祖先链里出现被移动的目录 ⇒ 那是它的子目录，放进去会成环 */
+  const anc = (FS.path || []).map(p => String(p.id));
+  for (const id of MOVE.ids) if (anc.indexOf(id) >= 0) return '目标在被移动的目录里面，放进去会成环';
+  if (cur === MOVE.fromCid) return '这里就是原来的目录，没有可移动的';
+  return '';
+}
+
+function renderMoveBar() {
+  const bar = $('#fsMoveBar');
+  if (!bar) return;
+  bar.classList.toggle('hide', !MOVE);
+  if (!MOVE) return;
+  const n = MOVE.ids.length;
+  const title = n === 1 ? MOVE.names[0] : (MOVE.names[0] + ' 等 ' + n + ' 项');
+  $('#fsMoveTitle').textContent = '移动中：' + title;
+  const bad = moveBlockedHere();
+  const here = relDirPath() || '网盘根目录';
+  const sub = $('#fsMoveSub');
+  sub.className = 'mvsub' + (bad ? ' bad' : '');
+  sub.textContent = bad ? ('⚠️ ' + bad) : ('当前在「' + here + '」—— 是目标就点右边「放置到此处」');
+  const btn = $('#fsMovePlace');
+  btn.disabled = !!bad || !!FS.busy;
+  btn.textContent = '📥 放置到此处';
+  $('#fsMoveCancel').disabled = !!FS.busy;
+}
+
+/** 剪贴板：https 下走 Clipboard API，http 访问（NAS 常见）下会被浏览器拒 ⇒ 退到 execCommand */
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { /* 继续退 */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed; top:-1000px; left:-1000px; opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+
+/** 轻提示：不打断、不弹窗，2.6 秒自己消失（replace 式，连点只显示最后一条） */
+let flashTimer = null;
+function flash(text, type) {
+  let el = document.getElementById('flashBox');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'flashBox';
+    document.body.appendChild(el);
+  }
+  el.className = 'flash show ' + (type || 'ok');
+  el.textContent = text;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { el.className = 'flash ' + (type || 'ok'); }, 2600);
+}
+
+/** 把当前勾选的对象「拿起来」（不写任何东西，纯前端状态） */
+function startMove() {
+  if (!FS) return;
+  const ids = Array.from(FS.sel);
+  if (!ids.length) { flash('先勾选要移动的文件或目录', 'err'); return; }
+  if (MOVE) { flash('已经拿着东西了 —— 先「放置」或「取消」', 'err'); return; }
+  const items = ids.map(fid => FS.items.find(x => x.file_id === fid)).filter(Boolean);
+  if (!items.length) { flash('选中的条目已不在这一层（可能被刷新掉了）', 'err'); return; }
+  MOVE = {
+    ids: items.map(x => x.file_id),
+    names: items.map(x => x.name),
+    fromCid: String(FS.cid),
+    fromPath: relDirPath(),
+  };
+  FS.sel = new Set();
+  renderFsList({ holdScroll: true });   // 顺手清勾选、收起底部操作栏
+  renderMoveBar();
+  flash('已拿起 ' + items.length + ' 项 —— 翻到目标目录后点「放置到此处」');
+}
+
+/** 放置：把拿着的对象移到当前这一层 */
+async function doPlace() {
+  if (!MOVE || !FS || FS.busy) return;
+  const bad = moveBlockedHere();
+  if (bad) { flash(bad, 'err'); return; }
+  const n = MOVE.ids.length;
+  const target = relDirPath() || '网盘根目录';
+  const names = MOVE.names.slice(0, 6).map(x => '· ' + x).join('\n');
+  if (!confirm('把 ' + n + ' 项移动到「' + target + '」？\n\n' + names +
+      (n > 6 ? '\n…（其余 ' + (n - 6) + ' 项）' : '') +
+      '\n\n同名冲突由 115 自动改名；移动后原目录里就没有它们了。')) return;
+  FS.busy = true;
+  setFsBusy('正在移动（分块串行，别关页面）…');
+  renderMoveBar();
+  const ids = MOVE.ids.slice();
+  try {
+    const r = await api('/move', {
+      method: 'POST',
+      body: JSON.stringify({
+        account_id: CURRENT, file_ids: ids,
+        target_cid: String(FS.cid), chunk: 20, delay: 1.2,
+      }),
+    });
+    FS.busy = false;
+    MOVE = null;
+    renderMoveBar();
+    if (r.ok) flash('✅ 已移动 ' + r.moved_count + ' 项到「' + target + '」', 'ok');
+    else alert('⚠️ 成功 ' + r.moved_count + ' 项，失败 ' + r.failed_count + ' 项\n' +
+      ((r.failed[0] || {}).error || ''));
+    await fsLoad(FS.cid, { refresh: true });   // 目标层立刻能看到刚移进来的
+  } catch (e) {
+    FS.busy = false;
+    setFsBusy('');
+    renderMoveBar();
+    alert('移动失败：' + e.message);
+  }
+}
+
+
 /** 主加载。opts = { refresh, offset, addYear, selfName } */
 async function fsLoad(cid, opts) {
   if (!CURRENT) { $('#fsList').innerHTML = '<div class="empty">先在「账号管理」里添加一个 115 账号</div>'; return; }
@@ -1873,6 +2059,11 @@ function renderFsShell() {
   /* 返回上级：根目录（或路径未知）时禁用 */
   const atRoot0 = String(FS.cid) === '0';
   $('#fsBack').disabled = atRoot0 || !(FS.path || []).length;
+  /* 复制路径：根目录没有可复制的相对路径（115strm 的补录路径是相对网盘根的） */
+  const cp = $('#fsCopyPath');
+  if (cp) cp.disabled = !relDirPath();
+  /* 切目录 / 换筛选都会走这里 ⇒ 移动态提示条的目标目录要跟着变 */
+  renderMoveBar();
 }
 
 function fsFiltered() {
@@ -2118,6 +2309,14 @@ function refreshNamerDiag() {
   } catch (e) { /* 忽略 */ }
 }
 
+/** 批量按钮文案：桌面给长版（「批量改名（2）」），手机给短版（「改名（2）」）——
+ *  手机上 5 个按钮并排，「批量」两个字纯属浪费宽度。宽窄切换靠 innerWidth 判，
+ *  updateFsBar 在勾选 / 切页 / 加载完成时都会重跑，够用。 */
+function barLabel(long, short, n, withCount) {
+  const lab = (window.innerWidth < 760) ? short : long;
+  return lab + (withCount && n ? '（' + n + '）' : '');
+}
+
 function updateFsBar() {
   if (!FS) return;
   const sel = Array.from(FS.sel);
@@ -2134,9 +2333,9 @@ function updateFsBar() {
   /* 计数文字要短 —— 长了在 390 宽的手机上会折成两行、把操作栏撑高 */
   $('#fsCount').innerHTML = '已选 <b>' + sel.length + '</b>' +
     (renameSel.length ? ' · 可改名 <b>' + renameSel.length + '</b>' : '');
-  $('#fsBatchRename').textContent = '批量改名' + (renameSel.length ? '（' + renameSel.length + '）' : '');
+  $('#fsBatchRename').textContent = barLabel('批量改名', '改名', renameSel.length, true);
   $('#fsBatchRename').disabled = !renameSel.length;
-  $('#fsBatchDelete').textContent = '批量删除' + (sel.length ? '（' + sel.length + '）' : '');
+  $('#fsBatchDelete').textContent = barLabel('批量删除', '删除', sel.length, true);
   $('#fsBatchDelete').disabled = !sel.length;
   /* 合并到文件夹：**只在选了 ≥2 个目录时**可用（红领巾 2026-10-17「多选文件夹时给一个
      选项，合并到新的文件夹里」）。选中的文件不参与，按钮上也说清只算目录。 */
@@ -2144,11 +2343,18 @@ function updateFsBar() {
     const it = FS.items.find(x => x.file_id === fid) || {};
     return !!it.is_dir;
   });
-  $('#fsBatchMerge').textContent = '合并到文件夹' + (dirSel.length >= 2 ? '（' + dirSel.length + '）' : '');
+  $('#fsBatchMerge').textContent = barLabel('合并到文件夹', '合并', dirSel.length, dirSel.length >= 2);
   $('#fsBatchMerge').disabled = dirSel.length < 2 || !!FS.busy;
+  /* 移动：勾了就可用（文件 / 目录都行）；已经「拿着东西」时不许再拿第二批 */
+  $('#fsBatchMove').textContent = barLabel('移动', '移动', sel.length, true);
+  $('#fsBatchMove').disabled = !sel.length || !!FS.busy || !!MOVE;
   if (sel.length && !renameSel.length) {
-    $('#fsBarBusy').textContent = '（选中的都没有新名字）';
+    /* 「（无新名）」只是解释「改名为什么是灰的」—— 手机上宽度紧，让位给 5 个按钮；
+       忙碌文案（正在移动…）走的是同一个元素，所以用 .hint 精确区分，别把进度也藏了。 */
+    $('#fsBarBusy').className = 'muted hint';
+    $('#fsBarBusy').textContent = '（无新名）';
   } else if (!FS.busy) {
+    $('#fsBarBusy').className = 'muted';
     $('#fsBarBusy').textContent = '';
   }
 }
@@ -2267,6 +2473,24 @@ $('#fsBatchRename').onclick = () => {
   doRename(items.map(({ file_id, new_name, ext }) => ({ file_id, new_name, ext })));
 };
 $('#fsBatchMerge').onclick = () => { doMerge(); };
+$('#fsBatchMove').onclick = () => { startMove(); };
+$('#fsMovePlace').onclick = () => { doPlace(); };
+$('#fsMoveCancel').onclick = () => {
+  if (!MOVE) return;
+  MOVE = null;
+  renderMoveBar();
+  updateFsBar();
+  flash('已取消移动');
+};
+/* 复制当前目录路径（相对网盘根）—— 拿去 115strm 补录单个目录 */
+$('#fsCopyPath').onclick = async () => {
+  if (!FS) return;
+  const rel = relDirPath();
+  if (!rel) { flash('已经在网盘根目录，没有可复制的路径', 'err'); return; }
+  const ok = await copyText(rel);
+  if (ok) flash('已复制：' + rel, 'ok');
+  else prompt('浏览器不让写剪贴板，手动复制这段路径：', rel);
+};
 $('#fsBatchDelete').onclick = () => {
   if (!FS) return;
   const sel = Array.from(FS.sel);
@@ -2300,10 +2524,12 @@ async function openFromTask(t) {
    一重建 DOM 事件就没了（第一版就这么踩了：改名失败后批量按钮彻底失灵）。
    改成只切文本与 disabled。 */
 function setFsBusy(text) {
+  $('#fsBarBusy').className = 'muted';   // 清掉 .hint（忙碌进度不许被手机端的隐藏规则吃掉）
   $('#fsBarBusy').textContent = text || '';
   if (text) {
     $('#fsBatchRename').disabled = true;
     $('#fsBatchMerge').disabled = true;
+    $('#fsBatchMove').disabled = true;
     $('#fsBatchDelete').disabled = true;
   } else {
     updateFsBar();
